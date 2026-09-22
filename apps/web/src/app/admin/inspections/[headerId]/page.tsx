@@ -1,0 +1,233 @@
+'use client';
+
+import { useState, useEffect, use } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+
+const formatDate = (dateString: string) => {
+    const d = new Date(dateString);
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+export default function AdminInspectionSummaryPage({ params }: { params: Promise<{ headerId: string }> }) {
+    const router = useRouter();
+    const resolvedParams = use(params);
+    const headerId = resolvedParams.headerId;
+
+    const [loading, setLoading] = useState(true);
+    const [header, setHeader] = useState<any>(null);
+
+    useEffect(() => {
+        const fetchHeader = async () => {
+            try {
+                const res = await fetch(`/api/rqc/headers/${headerId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setHeader(data);
+                }
+                setLoading(false);
+            } catch (err) {
+                console.error('Failed to fetch summary data', err);
+                setLoading(false);
+            }
+        };
+        fetchHeader();
+    }, [headerId]);
+
+    if (loading) {
+        return (
+            <div className="flex justify-center items-center h-64 text-gray-500 font-medium animate-pulse">
+                Loading inspection details...
+            </div>
+        );
+    }
+
+    if (!header) {
+        return (
+            <div className="flex justify-center items-center h-64 text-red-500 font-medium">
+                Data was not found.
+            </div>
+        );
+    }
+
+    // Metrics computation
+    let totalQtyChecking = 0;
+    let totalQtyDefect = 0;
+    let iaCount = 0;
+    let capCount = 0;
+    let totalProcesses = 0;
+
+    const iaProcesses: string[] = [];
+    const capProcesses: string[] = [];
+
+    if (header.rqcAreas) {
+        header.rqcAreas.forEach((area: any) => {
+            if (area.rqcProcesses) {
+                area.rqcProcesses.forEach((proc: any) => {
+                    totalProcesses++;
+                    totalQtyChecking += proc.qtyChecking;
+
+                    let hasCap = false;
+                    let hasIa = false;
+
+                    proc.rqcInspections?.forEach((insp: any) => {
+                        totalQtyDefect += insp.qtyDefect;
+                        if (insp.status === 'CAP') hasCap = true;
+                        if (insp.status === 'IMMEDIATE_ACTION' || insp.status === 'IA') hasIa = true;
+                    });
+
+                    if (hasCap) {
+                        capCount++;
+                        capProcesses.push(proc.setupProcess?.masterProcess?.process || 'Unknown Process');
+                    } else if (hasIa) {
+                        iaCount++;
+                        iaProcesses.push(proc.setupProcess?.masterProcess?.process || 'Unknown Process');
+                    }
+                });
+            }
+        });
+    }
+
+    const defectRate = totalQtyChecking > 0 ? (totalQtyDefect / totalQtyChecking) * 100 : 0;
+    const passRate = 100 - defectRate;
+
+    const iaPercent = totalProcesses > 0 ? (iaCount / totalProcesses) * 100 : 0;
+    const capPercent = totalProcesses > 0 ? (capCount / totalProcesses) * 100 : 0;
+
+    return (
+        <div className="space-y-6 max-w-5xl">
+            <div className="flex items-center space-x-3 mb-6">
+                <Link href="/admin/inspections" className="p-2 border border-gray-200 rounded-md bg-white hover:bg-gray-50 text-gray-600 transition-colors">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                </Link>
+                <div>
+                    <h1 className="text-xl font-semibold text-gray-900">Inspection Summary</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">Detailed view of `{header.po}` for {header.model}.</p>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Information */}
+                <div>
+                    <h2 className="text-gray-900 font-bold mb-3">Report Details</h2>
+                    <div className="bg-white border text-sm border-gray-200 rounded-xl p-6 shadow-sm space-y-4">
+                        <div className="flex border-b border-gray-100 pb-3">
+                            <span className="text-gray-500 w-40 font-medium">Date</span>
+                            <span className="text-gray-900 font-semibold">{formatDate(header.date)}</span>
+                        </div>
+                        <div className="flex border-b border-gray-100 pb-3">
+                            <span className="text-gray-500 w-40 font-medium">Checking Time</span>
+                            <span className="text-gray-900 font-semibold">{header.checkingTime}</span>
+                        </div>
+                        <div className="flex border-b border-gray-100 pb-3">
+                            <span className="text-gray-500 w-40 font-medium">Model</span>
+                            <span className="text-gray-900 font-semibold">{header.model}</span>
+                        </div>
+                        <div className="flex border-b border-gray-100 pb-3">
+                            <span className="text-gray-500 w-40 font-medium">PO Number</span>
+                            <span className="text-gray-900 font-bold px-2 py-0.5 rounded bg-gray-100">{header.po}</span>
+                        </div>
+                        <div className="flex pt-1">
+                            <span className="text-gray-500 w-40 font-medium">Inspector ID</span>
+                            <span className="text-gray-900 font-semibold">{header.nik}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Metrics */}
+                <div>
+                    <h2 className="text-gray-900 font-bold mb-3">Overall Metrics</h2>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2 block">Qty Checking</span>
+                            <div className="text-2xl font-extrabold text-gray-900">{totalQtyChecking.toLocaleString()} <span className="text-sm font-medium text-gray-500">Pcs</span></div>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                            <span className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2 block">Qty Defect</span>
+                            <div className="text-2xl font-extrabold text-red-600">{totalQtyDefect.toLocaleString()} <span className="text-sm font-medium text-red-400">Pcs</span></div>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-16 h-16 bg-green-50 rounded-full translate-x-4 -translate-y-4"></div>
+                            <span className="text-xs text-green-700 font-bold uppercase tracking-wider mb-2 block relative z-10">Pass Rate</span>
+                            <div className="text-3xl font-extrabold text-green-600 relative z-10">{passRate.toFixed(2)}%</div>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-full translate-x-4 -translate-y-4"></div>
+                            <span className="text-xs text-red-700 font-bold uppercase tracking-wider mb-2 block relative z-10">Defect Rate</span>
+                            <div className="text-3xl font-extrabold text-red-600 relative z-10">{defectRate.toFixed(2)}%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* AI & CAP */}
+            <div className="mt-8">
+                <h2 className="text-gray-900 font-bold mb-3">Resolution Tracking</h2>
+                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                        {/* Immediate Action */}
+                        <div>
+                            <div className="flex justify-between items-end mb-3">
+                                <span className="text-sm font-bold text-gray-800">Immediate Action Triggered</span>
+                                <span className="text-sm font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">{iaCount} Process{iaCount !== 1 && 'es'}</span>
+                            </div>
+                            <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden flex mb-4 relative">
+                                <div className="h-full bg-orange-500" style={{ width: `${iaPercent}%` }}></div>
+                                <div className="h-full bg-gray-200 striped-bg opacity-30" style={{ width: `${100 - iaPercent}%` }}></div>
+                            </div>
+                            {iaProcesses.length > 0 ? (
+                                <ul className="space-y-2 mt-4 bg-orange-50/50 p-4 rounded-lg border border-orange-100">
+                                    {iaProcesses.map((p, i) => (
+                                        <li key={i} className="text-sm font-medium text-gray-700 flex items-center">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 mr-2.5"></span>
+                                            {p}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-sm text-gray-400 italic mt-2">No immediate actions found.</p>
+                            )}
+                        </div>
+
+                        {/* CAP */}
+                        <div>
+                            <div className="flex justify-between items-end mb-3">
+                                <span className="text-sm font-bold text-gray-800">Corrective Action Plan (CAP) Triggered</span>
+                                <span className="text-sm font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{capCount} Process{capCount !== 1 && 'es'}</span>
+                            </div>
+                            <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden flex mb-4 relative">
+                                <div className="h-full bg-red-600" style={{ width: `${capPercent}%` }}></div>
+                                <div className="h-full bg-gray-200 striped-bg opacity-30" style={{ width: `${100 - capPercent}%` }}></div>
+                            </div>
+                            {capProcesses.length > 0 ? (
+                                <ul className="space-y-2 mt-4 bg-red-50/50 p-4 rounded-lg border border-red-100">
+                                    {capProcesses.map((p, i) => (
+                                        <li key={i} className="text-sm font-medium text-gray-700 flex items-center">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-2.5"></span>
+                                            {p}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-sm text-gray-400 italic mt-2">No CAPs found.</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Striped Background Style */}
+            <style jsx>{`
+                .striped-bg {
+                    background-image: repeating-linear-gradient(
+                        45deg,
+                        transparent,
+                        transparent 4px,
+                        #9ca3af 4px,
+                        #9ca3af 8px
+                    );
+                }
+            `}</style>
+        </div>
+    );
+}

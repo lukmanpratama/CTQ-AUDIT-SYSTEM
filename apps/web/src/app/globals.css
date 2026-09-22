@@ -1,0 +1,53 @@
+/* apps/web/src/app/globals.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', sans-serif;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  /* Status badges */
+  .badge-cap {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-purple-100 text-purple-800;
+  }
+
+  .badge-immediate {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-800;
+  }
+
+  .badge-closed {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-green-100 text-green-800;
+  }
+
+  /* Area / Process navigation buttons */
+  .nav-button {
+    @apply flex items-center justify-center w-full p-4 rounded-xl border-2 border-gray-200
+           text-gray-700 font-medium cursor-pointer transition-all duration-200
+           hover:border-primary-400 hover:bg-primary-50 hover:text-primary-700;
+  }
+
+  .nav-button.active {
+    @apply border-primary-500 bg-primary-50 text-primary-700 shadow-md;
+  }
+
+  /* Model Card */
+  .model-card {
+    @apply flex flex-col items-center p-6 rounded-2xl border-2 border-gray-200
+           bg-white shadow-sm cursor-pointer transition-all duration-200
+           hover:border-primary-400 hover:shadow-lg hover:-translate-y-1;
+  }
+
+  .model-card.selected {
+    @apply border-primary-500 shadow-lg ring-2 ring-primary-300;
+  }
+}

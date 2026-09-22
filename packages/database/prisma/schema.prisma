@@ -1,0 +1,283 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["windows", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Kamus Area (contoh: TREATMENT, SEWING, ASSEMBLY)
+model MasterArea {
+  areaId     BigInt      @id @default(autoincrement()) @map("area_id")
+  area       String      @unique @db.VarChar(100)
+  setupAreas SetupArea[]
+
+  @@map("master_area")
+}
+
+/// Kamus Process (contoh: NOSEW, SPRAY COLLAR)
+model MasterProcess {
+  processId      BigInt         @id @default(autoincrement()) @map("process_id")
+  process        String         @unique @db.VarChar(150)
+  ctq            String?
+  riskLevel      String?        @map("risk_level") @db.VarChar(30)
+  sellingPoint   String?        @map("selling_point")
+  setupProcesses SetupProcess[]
+
+  @@map("master_process")
+}
+
+/// Kamus Defect (contoh: PEEL OFF, DIRTY, OVERMELTING)
+model MasterDefect {
+  defectId       BigInt          @id @default(autoincrement()) @map("defect_id")
+  defect         String          @unique @db.VarChar(200)
+  rqcInspections RqcInspection[]
+  setupDefects   SetupDefect[]
+
+  @@map("master_defect")
+}
+
+/// Kamus Factory
+model MasterFactory {
+  factoryId  BigInt      @id @default(autoincrement()) @map("factory_id")
+  factory    String      @unique @db.VarChar(150)
+  rqcHeaders RqcHeader[]
+
+  @@map("master_factory")
+}
+
+/// User / Inspector
+/// Passwords NEVER stored as plaintext — use password_hash (Argon2id)
+model MasterUser {
+  nik          String      @id @db.VarChar(30)
+  namaUser     String      @map("nama_user") @db.VarChar(150)
+  passwordHash String      @map("password_hash")
+  role         String      @default("RQC") @db.VarChar(20)
+  isActive     Boolean     @default(true) @map("is_active")
+  rqcHeaders   RqcHeader[]
+
+  @@map("master_user")
+}
+
+/// Master PO — imported production context data
+/// article/model/qty_order will be snapshotted into rqc_header at audit creation
+model MasterPo {
+  po          String      @id @db.VarChar(50)
+  article     String      @db.VarChar(100)
+  model       String      @db.VarChar(150)
+  qtyOrder    Int         @map("qty_order")
+  destination String?     @db.VarChar(100)
+  rqcHeaders  RqcHeader[]
+
+  @@map("master_po")
+}
+
+/// Shoe Model — central node of CTQ configuration
+model SetupModel {
+  setupModelId      BigInt           @id @default(autoincrement()) @map("setup_model_id")
+  modelName         String           @unique @map("model_name") @db.VarChar(150)
+  picture           String?
+  internalAuditFile String?          @map("internal_audit_file")
+  isActive          Boolean          @default(true) @map("is_active")
+  poMappings   ModelPoMapping[]
+  rqcHeaders   RqcHeader[]
+  setupAreas   SetupArea[]
+
+  @@map("setup_model")
+}
+
+/// Controlled mapping: SetupModel <-> MasterPo naming variants
+/// Prevents uncontrolled fuzzy matching from being the authority
+model ModelPoMapping {
+  mappingId       BigInt     @id @default(autoincrement()) @map("mapping_id")
+  setupModelId    BigInt     @map("setup_model_id")
+  poModelPattern  String     @map("po_model_pattern") @db.VarChar(200)
+  normalizedModel String     @map("normalized_model") @db.VarChar(150)
+  isActive        Boolean    @default(true) @map("is_active")
+  setupModel      SetupModel @relation(fields: [setupModelId], references: [setupModelId])
+
+  @@map("model_po_mapping")
+}
+
+/// Area configured for a specific SetupModel
+model SetupArea {
+  setupAreaId    BigInt         @id @default(autoincrement()) @map("setup_area_id")
+  setupModelId   BigInt         @map("setup_model_id")
+  areaId         BigInt         @map("area_id")
+  rqcAreas       RqcArea[]
+  masterArea     MasterArea     @relation(fields: [areaId], references: [areaId])
+  setupModel     SetupModel     @relation(fields: [setupModelId], references: [setupModelId])
+  setupProcesses SetupProcess[]
+
+  @@unique([setupModelId, areaId])
+  @@index([setupModelId], map: "idx_setup_area_model")
+  @@map("setup_area")
+}
+
+/// Process configured for a specific SetupArea
+model SetupProcess {
+  setupProcessId BigInt        @id @default(autoincrement()) @map("setup_process_id")
+  setupAreaId    BigInt        @map("setup_area_id")
+  processId      BigInt        @map("process_id")
+  rqcProcesses   RqcProcess[]
+  setupDefects   SetupDefect[]
+  masterProcess  MasterProcess @relation(fields: [processId], references: [processId])
+  setupArea      SetupArea     @relation(fields: [setupAreaId], references: [setupAreaId])
+
+  @@unique([setupAreaId, processId])
+  @@index([setupAreaId], map: "idx_setup_process_area")
+  @@map("setup_process")
+}
+
+/// Defect configured for a specific SetupProcess
+model SetupDefect {
+  setupDefectId  BigInt       @id @default(autoincrement()) @map("setup_defect_id")
+  setupProcessId BigInt       @map("setup_process_id")
+  defectId       BigInt       @map("defect_id")
+  masterDefect   MasterDefect @relation(fields: [defectId], references: [defectId])
+  setupProcess   SetupProcess @relation(fields: [setupProcessId], references: [setupProcessId])
+
+  @@unique([setupProcessId, defectId])
+  @@index([setupProcessId], map: "idx_setup_defect_process")
+  @@map("setup_defect")
+}
+
+/// One RQC audit session
+/// article/model/qtyOrder are SNAPSHOTS from master_po at creation time
+/// so future changes to master_po do NOT rewrite history
+model RqcHeader {
+  rqcHeaderId  String        @id @default(uuid()) @map("rqc_header_id") @db.Uuid
+  date         DateTime      @db.Date
+  checkingTime String        @map("checking_time") @db.VarChar(20)
+  setupModelId BigInt        @map("setup_model_id")
+  po           String        @db.VarChar(50)
+  /// SNAPSHOT: article from master_po at audit creation time
+  article      String        @db.VarChar(100)
+  /// SNAPSHOT: model name from master_po at audit creation time
+  model        String        @db.VarChar(150)
+  /// SNAPSHOT: qty_order from master_po at audit creation time
+  qtyOrder     Int           @map("qty_order")
+  factoryId    BigInt        @map("factory_id")
+  nik          String        @db.VarChar(30)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  cell         String?       @db.VarChar(20)
+  rqcAreas     RqcArea[]
+  factory      MasterFactory @relation(fields: [factoryId], references: [factoryId])
+  inspector    MasterUser    @relation(fields: [nik], references: [nik])
+  masterPo     MasterPo      @relation(fields: [po], references: [po])
+  setupModel   SetupModel    @relation(fields: [setupModelId], references: [setupModelId])
+
+  @@index([date], map: "idx_rqc_header_date")
+  @@index([setupModelId], map: "idx_rqc_header_model")
+  @@index([po], map: "idx_rqc_header_po")
+  @@map("rqc_header")
+}
+
+/// Area transaction within an audit session
+model RqcArea {
+  rqcAreaId    String       @id @default(uuid()) @map("rqc_area_id") @db.Uuid
+  rqcHeaderId  String       @map("rqc_header_id") @db.Uuid
+  setupAreaId  BigInt       @map("setup_area_id")
+  rqcHeader    RqcHeader    @relation(fields: [rqcHeaderId], references: [rqcHeaderId])
+  setupArea    SetupArea    @relation(fields: [setupAreaId], references: [setupAreaId])
+  rqcProcesses RqcProcess[]
+
+  @@unique([rqcHeaderId, setupAreaId])
+  @@index([rqcHeaderId], map: "idx_rqc_area_header")
+  @@map("rqc_area")
+}
+
+/// Process transaction within an area
+model RqcProcess {
+  rqcProcessId   String          @id @default(uuid()) @map("rqc_process_id") @db.Uuid
+  rqcAreaId      String          @map("rqc_area_id") @db.Uuid
+  setupProcessId BigInt          @map("setup_process_id")
+  qtyChecking    Int             @map("qty_checking")
+  rqcInspections RqcInspection[]
+  rqcArea        RqcArea         @relation(fields: [rqcAreaId], references: [rqcAreaId])
+  setupProcess   SetupProcess    @relation(fields: [setupProcessId], references: [setupProcessId])
+
+  @@unique([rqcAreaId, setupProcessId])
+  @@index([rqcAreaId], map: "idx_rqc_process_area")
+  @@map("rqc_process")
+}
+
+/// Defect inspection — one row per defect per process
+/// qty_checking is inherited from rqc_process (NOT duplicated here)
+model RqcInspection {
+  rqcInspectionId      String       @id @default(uuid()) @map("rqc_inspection_id") @db.Uuid
+  rqcProcessId         String       @map("rqc_process_id") @db.Uuid
+  defectId             BigInt       @map("defect_id")
+  qtyDefect            Int          @map("qty_defect")
+  defectRate           Decimal      @map("defect_rate") @db.Decimal(8, 5)
+  passRate             Decimal      @map("pass_rate") @db.Decimal(8, 5)
+  status               String       @db.VarChar(30)
+  photoDefect          String?      @map("photo_defect")
+  actionPlan           String?      @map("action_plan")
+  photoAfterActionPlan String?      @map("photo_after_action_plan")
+  durasiStopline       Int?         @map("durasi_stopline")
+  rootCause            String?      @map("root_cause")
+  corrective           String?
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  masterDefect         MasterDefect @relation(fields: [defectId], references: [defectId])
+  rqcProcess           RqcProcess   @relation(fields: [rqcProcessId], references: [rqcProcessId])
+
+  @@unique([rqcProcessId, defectId])
+  @@index([rqcProcessId], map: "idx_rqc_inspection_process")
+  @@index([status], map: "idx_rqc_inspection_status")
+  @@map("rqc_inspection")
+}
+
+/// File metadata for photos/evidence stored in MinIO
+model FileAsset {
+  fileId       String   @id @default(uuid()) @map("file_id") @db.Uuid
+  objectKey    String   @unique @map("object_key")
+  originalName String   @map("original_name") @db.VarChar(255)
+  mimeType     String   @map("mime_type") @db.VarChar(100)
+  size         BigInt
+  uploadedBy   String   @map("uploaded_by") @db.VarChar(30)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("file_asset")
+}
+
+/// imported from excel (TQC)
+model TqcReport {
+  tqcId        Int      @id @default(autoincrement()) @map("tqc_id")
+  date         DateTime @db.Date
+  time         String?  @db.VarChar(50)
+  building     String?  @db.VarChar(50)
+  cell         String?  @db.VarChar(50)
+  model        String?  @db.VarChar(150)
+  article      String?  @db.VarChar(100)
+  orderNo      String?  @map("order_no") @db.VarChar(50)
+  seq          Int?
+  pwiNo        String?  @map("pwi_no") @db.VarChar(50)
+  qty          Float?
+  qtyDefect    Float?   @map("qty_defect")
+  qtyProduction Float?  @map("qty_production")
+  destination  String?  @db.VarChar(100)
+  category     String?  @db.VarChar(50)
+  type         String?  @db.VarChar(100)
+  defectName   String?  @map("defect_name") @db.VarChar(200)
+  moduleType   String   @map("module_type") @db.VarChar(50) /// "ASSEMBLY", "SEWING", "TREATMENT"
+
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([moduleType], map: "idx_tqc_module")
+  @@map("tqc_report")
+}
+
+/// Admin mapping of imported Excel defect names to a standardized CTQ Type
+model SetupDefectTqc {
+  setupDefectTqcId Int      @id @default(autoincrement()) @map("setup_defect_tqc_id")
+  defectName       String   @unique @map("defect_name") @db.VarChar(200)
+  ctqType          String   @map("ctq_type") @db.VarChar(50)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("setup_defect_tqc")
+}

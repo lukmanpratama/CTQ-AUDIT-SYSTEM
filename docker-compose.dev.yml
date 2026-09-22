@@ -1,0 +1,153 @@
+version: '3.9'
+
+services:
+  # ─────────────────────────────────────────────
+  # PostgreSQL 16
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ctqaudit_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ctqaudit
+      POSTGRES_PASSWORD: ctqaudit_pass
+      POSTGRES_DB: ctqaudit_db
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ctqaudit -d ctqaudit_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # MinIO (S3-compatible Object Storage)
+  # ─────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: ctqaudit_minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ctqaudit_minio
+      MINIO_ROOT_PASSWORD: ctqaudit_minio_secret
+    command: server /data --console-address ":9001"
+    ports:
+      - '9000:9000'   # S3 API
+      - '9001:9001'   # MinIO Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # MinIO Setup (Bucket Creation)
+  # ─────────────────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: ctqaudit_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Configuring MinIO client...';
+      mc alias set myminio http://minio:9000 ctqaudit_minio ctqaudit_minio_secret;
+      echo 'Creating bucket ctqaudit...';
+      mc mb myminio/ctqaudit --ignore-existing;
+      echo 'Setting public policy on bucket ctqaudit...';
+      mc anonymous set public myminio/ctqaudit;
+      echo 'MinIO initialization complete.';
+      exit 0;
+      "
+
+  # ─────────────────────────────────────────────
+  # Redis
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ctqaudit_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # NestJS API
+  # ─────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      target: development
+    container_name: ctqaudit_api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://ctqaudit:ctqaudit_pass@postgres:5432/ctqaudit_db?schema=public
+      JWT_SECRET: dev_jwt_secret_change_in_production_min_64_chars_xxxxxxxxxxx
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: dev_refresh_secret_change_in_production_min_64_chars_xxxx
+      JWT_REFRESH_EXPIRES_IN: 7d
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ctqaudit_minio
+      S3_SECRET_KEY: ctqaudit_minio_secret
+      S3_BUCKET: ctqaudit
+      S3_REGION: us-east-1
+      S3_USE_SSL: 'false'
+      REDIS_URL: redis://redis:6379
+      DEFECT_RATE_THRESHOLD: '0.20'
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages:/app/packages
+      - /app/node_modules
+      - /app/apps/api/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────
+  # Next.js Web
+  # ─────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: development
+    container_name: ctqaudit_web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages:/app/packages
+      - /app/node_modules
+      - /app/apps/web/node_modules
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  minio_data:
+  redis_data:
