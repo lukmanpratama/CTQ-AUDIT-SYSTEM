@@ -43,6 +43,23 @@ export default function PoManagementPage() {
         fetchPos();
     };
 
+    const handleDeleteAll = async () => {
+        if (!confirm('WARNING: Are you sure you want to DELETE ALL Purchase Orders? This action cannot be undone and may damage existing RQC Audit links.')) return;
+
+        try {
+            const res = await fetch('/api/master/pos', { method: 'DELETE' });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                alert(`Operation failed: ${data.message || 'Some POs are actively being used in reports and cannot be deleted.'}`);
+            } else {
+                alert('All Purchase Orders have been cleared successfully.');
+                fetchPos();
+            }
+        } catch (error) {
+            alert('Failed to clear Purchase Orders.');
+        }
+    };
+
     const downloadTemplate = () => {
         const sampleData = [
             { PO: '0902661124', ARTICLE: 'KI1672', MODEL: 'GALAXY 8 J', DESTINATION: 'U.S.A', 'ORDER QTY': 7 },
@@ -95,9 +112,31 @@ export default function PoManagementPage() {
 
                 if (dataToUpload.length === 0) return alert('No valid rows found. Ensure headers include: PO, ARTICLE, MODEL, DESTINATION, ORDER QTY.');
 
-                const res = await fetch('/api/master/pos/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dataToUpload) });
-                if (!res.ok) { const err = await res.json(); throw new Error(err.message || 'Import failed'); }
-                alert(`Imported ${dataToUpload.length} purchase orders.`);
+                // Batch the requests on the client side to avoid Next.js API proxy payload limits (which throw 500 Internal Server Error text)
+                const chunkSize = 100;
+                const totalBatches = Math.ceil(dataToUpload.length / chunkSize);
+
+                for (let i = 0; i < totalBatches; i++) {
+                    const chunk = dataToUpload.slice(i * chunkSize, (i + 1) * chunkSize);
+                    const res = await fetch('/api/master/pos/bulk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(chunk)
+                    });
+
+                    if (!res.ok) {
+                        let errMessage = `Import failed at batch ${i + 1} of ${totalBatches}.`;
+                        try {
+                            const err = await res.json();
+                            errMessage = err.message || errMessage;
+                        } catch (e) {
+                            errMessage += ' The server proxy connection aborted due to a payload or connection crash.';
+                        }
+                        throw new Error(errMessage);
+                    }
+                }
+
+                alert(`Imported ${dataToUpload.length} purchase orders successfully in ${totalBatches} batches.`);
                 if (fileInputRef.current) fileInputRef.current.value = '';
                 fetchPos();
             } catch (err: any) {
@@ -132,6 +171,9 @@ export default function PoManagementPage() {
                     </button>
                     <button onClick={() => fileInputRef.current?.click()} className="border border-gray-200 text-gray-600 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition-colors">
                         Import Excel
+                    </button>
+                    <button onClick={handleDeleteAll} className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300 px-3 py-1.5 rounded text-sm font-medium transition-colors">
+                        Clear All POs
                     </button>
                     <button onClick={cancelEdit} className="bg-gray-900 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-gray-800 transition-colors">
                         + New PO

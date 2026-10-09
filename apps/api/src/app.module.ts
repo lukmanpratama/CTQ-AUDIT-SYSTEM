@@ -2,8 +2,10 @@
 // Root NestJS module — wires all domain modules
 
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { CacheModule } from '@nestjs/cache-manager';
+import { redisStore } from 'cache-manager-redis-yet';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
@@ -26,6 +28,10 @@ import { TqcSetupDefectModule } from './tqc-setup-defect/tqc-setup-defect.module
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '../../.env'],
+    }),
+    CacheModule.register({
+      isGlobal: true,
+      ttl: 60 * 1000,
     }),
 
     // ─────────────────────────────────────────────

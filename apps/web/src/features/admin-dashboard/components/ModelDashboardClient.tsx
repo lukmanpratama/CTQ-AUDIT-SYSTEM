@@ -29,6 +29,7 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
     // Trend Data
     const [dailyTrend, setDailyTrend] = useState<any[]>([]);
     const [weeklyTrend, setWeeklyTrend] = useState<any[]>([]);
+    const [baseWeeklyTrend, setBaseWeeklyTrend] = useState<any[]>([]);
 
     // Date Filter State
     const [globalStartDate, setGlobalStartDate] = useState<string>('');
@@ -121,64 +122,15 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                 });
                 setAvailableFactoryCells(Array.from(uniqueCells).sort());
 
-                let computedTotalPassRate = 0;
                 if (resKpis) {
                     setCtqKpis(resKpis.ctqKpis || []);
-                    computedTotalPassRate = resKpis.avgPassRate || 0; // fallback
                 }
                 if (resTrends) {
                     const dTrend = resTrends.dailyTrend || [];
                     const baseWTrend = resTrends.weeklyTrend || [];
                     setDailyTrend(dTrend);
-
-                    // Re-calculate Weekly Defect Rate from Daily Trends
-                    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-                    const computedWTrend = baseWTrend.map((w: any) => {
-                        const match = typeof w.week === 'string' ? w.week.match(/^(\w+)\s+(\d{4})\s+W\s+(\d)$/i) : null;
-                        if (match) {
-                            const [, mStr, yStr, wStr] = match;
-                            const monthIndex = monthNames.findIndex(m => m.toLowerCase() === mStr.toLowerCase());
-                            const year = parseInt(yStr, 10);
-                            const weekNum = parseInt(wStr, 10);
-                            const startDay = (weekNum - 1) * 7 + 1;
-                            const endDay = Math.min(startDay + 6, new Date(year, monthIndex + 1, 0).getDate());
-
-                            const startD = new Date(year, monthIndex, startDay).getTime();
-                            const endD = new Date(year, monthIndex, endDay, 23, 59, 59).getTime();
-
-                            const inWeek = dTrend.filter((d: any) => {
-                                const dt = new Date(d.date).getTime();
-                                return dt >= startD && dt <= endD;
-                            });
-
-                            if (inWeek.length > 0) {
-                                const sumAvgDefects = inWeek.reduce((sum: number, d: any) => {
-                                    const tqcDefect = d.defectRate || 0;
-                                    const rqcDefect = d.defectRateRqc || 0;
-                                    const avgDefect = Math.round((((tqcDefect + rqcDefect) / 2) + Number.EPSILON) * 100) / 100;
-                                    return sum + avgDefect;
-                                }, 0);
-                                const finalWeeklyDefect = Math.round(((sumAvgDefects / inWeek.length) + Number.EPSILON) * 100) / 100;
-                                return { ...w, defectRate: finalWeeklyDefect };
-                            }
-                        }
-                        return w;
-                    });
-
-                    setWeeklyTrend(computedWTrend);
-
-                    if (dTrend.length > 0) {
-                        const sumPassRates = dTrend.reduce((sum: number, d: any) => {
-                            const tqcDefect = d.defectRate || 0;
-                            const rqcDefect = d.defectRateRqc || 0;
-                            const dailyPassRate = Math.round((((100 - tqcDefect + 100 - rqcDefect) / 2) + Number.EPSILON) * 100) / 100;
-                            return sum + dailyPassRate;
-                        }, 0);
-                        computedTotalPassRate = sumPassRates / dTrend.length;
-                    }
+                    setBaseWeeklyTrend(baseWTrend);
                 }
-                setTotalPassRate(computedTotalPassRate);
             } catch (error) {
                 console.error("Failed to fetch dashboard data:", error);
             }
@@ -194,10 +146,11 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
 
         let filteredData = dailyTrend;
         if (activeFilter) {
-            const startTime = new Date(activeFilter.start).getTime();
+            const startTime = new Date(activeFilter.start + 'T00:00:00').getTime();
             const endTime = new Date(activeFilter.end + 'T23:59:59').getTime();
             filteredData = dailyTrend.filter((d: any) => {
-                const dt = new Date(d.date).getTime();
+                // Ensure correct local time parsing by appending noon so it's not shifted over date boundaries
+                const dt = new Date(d.date + ' 12:00:00').getTime();
                 return dt >= startTime && dt <= endTime;
             });
         }
@@ -205,26 +158,62 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
         if (filteredData.length > 0) {
             let sumDefectRqc = 0;
             let sumDefectTqc = 0;
+            let sumPassRate = 0;
 
             filteredData.forEach((d: any) => {
                 sumDefectRqc += (d.defectRateRqc || 0);
                 sumDefectTqc += (d.defectRate || 0);
+                sumPassRate += (d.passRate || 0);
             });
 
             const count = filteredData.length;
             const avgDefRqc = sumDefectRqc / count;
             const avgDefTqc = sumDefectTqc / count;
-            const prRqc = 100 - avgDefRqc;
-            const prTqc = 100 - avgDefTqc;
-            const overall = (prRqc + prTqc) / 2;
+            const overall = sumPassRate / count;
 
             setTotalPassRate(Math.round((overall + Number.EPSILON) * 100) / 100);
-            setPassRateRqc(Math.round((prRqc + Number.EPSILON) * 100) / 100);
-            setPassRateTqc(Math.round((prTqc + Number.EPSILON) * 100) / 100);
+            setPassRateRqc(Math.round(((100 - avgDefRqc) + Number.EPSILON) * 100) / 100);
+            setPassRateTqc(Math.round(((100 - avgDefTqc) + Number.EPSILON) * 100) / 100);
             setDefectRateRqc(Math.round((avgDefRqc + Number.EPSILON) * 100) / 100);
             setDefectRateTqc(Math.round((avgDefTqc + Number.EPSILON) * 100) / 100);
         }
-    }, [activeFilter, dailyTrend]);
+
+        // Recompute Weekly Trend from filteredData dynamically
+        if (baseWeeklyTrend.length > 0) {
+            const getWeekStr = (d: Date) => {
+                const shortMonth = d.toLocaleString('en-US', { month: 'short' });
+                const year = d.getFullYear();
+                const day = d.getDate();
+                const w = Math.ceil(day / 7);
+                return `${shortMonth} ${year} W ${w > 4 ? 4 : w}`;
+            };
+
+            const weeklyAggregator = new Map<string, { sum: number, count: number }>();
+            filteredData.forEach((day: any) => {
+                const parsedDate = new Date(day.date);
+                if (!isNaN(parsedDate.getTime())) {
+                    const weekStr = getWeekStr(parsedDate);
+
+                    if (!weeklyAggregator.has(weekStr)) {
+                        weeklyAggregator.set(weekStr, { sum: 0, count: 0 });
+                    }
+                    weeklyAggregator.get(weekStr)!.sum += (day.avgDefectRate || 0);
+                    weeklyAggregator.get(weekStr)!.count += 1;
+                }
+            });
+
+            const computedWTrend = baseWeeklyTrend.map((w: any) => {
+                if (weeklyAggregator.has(w.week)) {
+                    const stats = weeklyAggregator.get(w.week)!;
+                    const defectRate = stats.count > 0 ? (stats.sum / stats.count) : 0;
+                    return { ...w, defectRate: Number(defectRate.toFixed(2)) };
+                }
+                return { ...w, defectRate: 0 };
+            });
+
+            setWeeklyTrend(computedWTrend);
+        }
+    }, [activeFilter, dailyTrend, baseWeeklyTrend]);
 
     return (
         <div
@@ -305,7 +294,7 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                                             const year = parseInt(yStr, 10);
                                             const weekNum = parseInt(wStr, 10);
                                             const startDay = (weekNum - 1) * 7 + 1;
-                                            const endDay = Math.min(startDay + 6, new Date(year, monthIndex + 1, 0).getDate());
+                                            const endDay = weekNum === 4 ? new Date(year, monthIndex + 1, 0).getDate() : Math.min(startDay + 6, new Date(year, monthIndex + 1, 0).getDate());
                                             const startD = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
                                             const endD = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
                                             setActiveFilter({ type: 'week', label: weekLabel, start: startD, end: endD });
@@ -389,34 +378,12 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                             </div>
 
                             {/* DEFECT CTQ button (orange) */}
-                            {auditFile && (
-                                <button
-                                    onClick={() => {
-                                        try {
-                                            if (auditFile.startsWith('data:')) {
-                                                const byteCharacters = atob(auditFile.split(',')[1]);
-                                                const byteNumbers = new Array(byteCharacters.length);
-                                                for (let i = 0; i < byteCharacters.length; i++) {
-                                                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                                                }
-                                                const byteArray = new Uint8Array(byteNumbers);
-                                                const fileType = auditFile.split(';')[0].split(':')[1] || 'application/pdf';
-                                                const blob = new Blob([byteArray], { type: fileType });
-                                                const blobUrl = URL.createObjectURL(blob);
-                                                window.open(blobUrl, '_blank');
-                                            } else {
-                                                window.open(auditFile, '_blank');
-                                            }
-                                        } catch (e) {
-                                            console.error("Failed to open file", e);
-                                            alert("Gagal membuka file.");
-                                        }
-                                    }}
-                                    className="flex-1 bg-[#FFB00F] hover:bg-orange-500 text-white font-bold py-2.5 px-5 rounded-md shadow-md text-sm whitespace-nowrap transition-colors text-center"
-                                >
-                                    DEFECT CTQ
-                                </button>
-                            )}
+                            <button
+                                onClick={() => router.push(modelId ? `/model-dashboard/defect-ctq?modelId=${modelId}` : '/model-dashboard/defect-ctq')}
+                                className="flex-1 bg-[#FFB00F] hover:bg-orange-500 text-white font-bold py-2.5 px-5 rounded-md shadow-md text-sm whitespace-nowrap transition-colors text-center"
+                            >
+                                DEFECT CTQ
+                            </button>
 
                             {/* CTQ button (red) */}
                             <button
@@ -434,8 +401,11 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                                 RQC INLINE
                             </button>
 
-                            {/* TQC EOL button (blue) */}
-                            <button className="flex-1 bg-[#2482E4] hover:bg-blue-700 text-white font-bold py-2.5 px-5 rounded-md shadow-md text-sm whitespace-nowrap transition-colors text-center">
+                            {/* TQC EOL button (red) */}
+                            <button
+                                onClick={() => router.push(modelId ? `/model-dashboard/tqc-eol?modelId=${modelId}` : '/model-dashboard/tqc-eol')}
+                                className="flex-1 bg-[#E53935] hover:bg-red-700 text-white font-bold py-2.5 px-5 rounded-md shadow-md text-sm whitespace-nowrap transition-colors text-center"
+                            >
                                 TQC EOL
                             </button>
                         </div>

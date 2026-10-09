@@ -138,6 +138,42 @@ export class CtqSetupService {
         return this.serializeBigInt(setupDefect);
     }
 
+    async updateSetupProcess(setupProcessId: string, data: { uspId?: string | null; isSellingPoint?: boolean }) {
+        const id = BigInt(setupProcessId);
+
+        if (data.uspId) {
+            // Validate that the chosen USP actually belongs to the same Model as the SetupProcess
+            const setupProc = await this.prisma.setupProcess.findUnique({
+                where: { setupProcessId: id },
+                include: { setupArea: true }
+            });
+            if (!setupProc) throw new NotFoundException('Setup Process not found.');
+
+            const usp = await this.prisma.masterUsp.findUnique({
+                where: { uspId: BigInt(data.uspId) }
+            });
+            if (!usp) throw new NotFoundException('Selected USP not found.');
+
+            if (usp.setupModelId !== setupProc.setupArea.setupModelId) {
+                throw new Error('Selected USP does not belong to the current Model.');
+            }
+        }
+
+        const updateData: any = {};
+        if (data.uspId !== undefined) {
+            updateData.uspId = data.uspId ? BigInt(data.uspId) : null;
+        }
+        if (data.isSellingPoint !== undefined) {
+            updateData.isSellingPoint = data.isSellingPoint;
+        }
+
+        const updated = await this.prisma.setupProcess.update({
+            where: { setupProcessId: id },
+            data: updateData
+        });
+        return this.serializeBigInt(updated);
+    }
+
     async removeSetupArea(setupAreaId: string) {
         const id = BigInt(setupAreaId);
 

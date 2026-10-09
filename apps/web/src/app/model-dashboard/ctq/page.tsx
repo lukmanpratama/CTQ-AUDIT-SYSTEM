@@ -118,6 +118,8 @@ function CtqDashboardInner() {
                     });
                     setAvailableFactoryCells(Array.from(uniqueLocs).sort());
 
+                    // CTQ Validation removed
+
                     const filtered = modelTqcData.filter(r => {
                         if (startDate || endDate) {
                             const rDate = new Date(r.date).getTime();
@@ -133,31 +135,45 @@ function CtqDashboardInner() {
                         return true;
                     });
 
+                    // Pre-calculate Global TQC Total Checking precisely mapping to how initial dashboard computes it.
+                    // Standard limit rule: 1 unique cell active in a day = 960 (120 checks * 8 hours).
+                    const globalTqcUniqueChecks = new Map<string, number>();
+
+                    filtered.forEach(r => {
+                        const cellKey = (r.cell || r.building || 'no-cell').trim();
+                        let dateKey = 'no-date';
+                        if (r.date) {
+                            try {
+                                dateKey = new Date(r.date).toISOString().split('T')[0];
+                            } catch (e) {
+                                dateKey = r.date.toString();
+                            }
+                        }
+                        const uniqueDayCellKey = `${dateKey}_${cellKey}`;
+                        globalTqcUniqueChecks.set(uniqueDayCellKey, 960);
+                    });
+
+                    let globalTqcTotalChecking = 0;
+                    globalTqcUniqueChecks.forEach(qty => globalTqcTotalChecking += qty);
+
                     // Track defects and their specific inspection rounds
-                    const defectInstances: Record<string, { totalDefect: number, uniqueChecks: Record<string, number> }> = {};
+                    const defectInstances: Record<string, { totalDefect: number }> = {};
 
                     filtered.forEach(r => {
                         if (!r.defectName) return;
                         const name = r.defectName.trim();
+
                         if (!defectInstances[name]) {
-                            defectInstances[name] = { totalDefect: 0, uniqueChecks: {} };
+                            defectInstances[name] = { totalDefect: 0 };
                         }
 
                         // Add defect count
                         defectInstances[name].totalDefect += (r.qtyDefect || 0);
-
-                        // Capture check volume specifically where this defect was found
-                        const key = `${r.date}-${r.time}-${r.cell}-${r.building}-${r.seq || ''}`;
-                        if (!defectInstances[name].uniqueChecks[key]) {
-                            // Enforce strict 120 standard checks per hour to shield from legacy polluted TQC Qty datasets mapping to Qty Prod
-                            defectInstances[name].uniqueChecks[key] = 120;
-                        }
                     });
 
                     const calculated = Object.keys(defectInstances).map(name => {
-                        const { totalDefect, uniqueChecks } = defectInstances[name];
-                        const specificTotalChecking = Object.values(uniqueChecks).reduce((sum, q) => sum + q, 0);
-                        const rate = specificTotalChecking > 0 ? (totalDefect / specificTotalChecking) * 100 : 0;
+                        const { totalDefect } = defectInstances[name];
+                        const rate = globalTqcTotalChecking > 0 ? (totalDefect / globalTqcTotalChecking) * 100 : 0;
                         return { name, defectRate: parseFloat(rate.toFixed(2)) };
                     });
 
@@ -188,10 +204,9 @@ function CtqDashboardInner() {
                     });
                     setAvailableFactoryCells(Array.from(uniqueCells).sort());
 
-                    // The backend process-defects natively handles &cell filtering if passed.
-                    // Calculate from returned areas just like before.
-                    // Calculate from returned areas just like before.
-                    const defectInstancesRqc: Record<string, { totalDefect: number, totalChecking: number }> = {};
+                    const globalRqcTotalChecking = rqcRes?.rqcOverallStats?.totalChecking || 0;
+
+                    const defectInstancesRqc: Record<string, { totalDefect: number }> = {};
 
                     areas.forEach((area: any) => {
                         area.processes?.forEach((proc: any) => {
@@ -199,18 +214,16 @@ function CtqDashboardInner() {
                                 if (!d.defectName) return;
                                 const name = d.defectName.trim();
                                 if (!defectInstancesRqc[name]) {
-                                    defectInstancesRqc[name] = { totalDefect: 0, totalChecking: 0 };
+                                    defectInstancesRqc[name] = { totalDefect: 0 };
                                 }
                                 defectInstancesRqc[name].totalDefect += (d.qtyDefect || 0);
-                                // The totalChecking for that specific process is added to the denominator
-                                defectInstancesRqc[name].totalChecking += (proc.totalChecking || 0);
                             });
                         });
                     });
 
                     const calculated = Object.keys(defectInstancesRqc).map(name => {
-                        const { totalDefect, totalChecking } = defectInstancesRqc[name];
-                        const rate = totalChecking > 0 ? (totalDefect / totalChecking) * 100 : 0;
+                        const { totalDefect } = defectInstancesRqc[name];
+                        const rate = globalRqcTotalChecking > 0 ? (totalDefect / globalRqcTotalChecking) * 100 : 0;
                         return { name, defectRate: parseFloat(rate.toFixed(2)) };
                     });
 

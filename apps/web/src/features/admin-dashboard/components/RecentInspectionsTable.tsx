@@ -4,6 +4,12 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
     const displayData = data || [];
     const [selectedRow, setSelectedRow] = useState<any>(null);
 
+    const formatDate = (dateString: string) => {
+        if (!dateString) return '-';
+        const d = new Date(dateString);
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
     return (
         <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex-1">
             <div className="p-5 border-b border-gray-100">
@@ -13,6 +19,7 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                 <table className="w-full text-left border-collapse">
                     <thead>
                         <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">
+                            <th className="p-4 font-semibold tracking-wider">Date</th>
                             <th className="p-4 font-semibold tracking-wider">Nama RQC</th>
                             <th className="p-4 font-semibold tracking-wider">Factory / Cell</th>
                             <th className="p-4 font-semibold tracking-wider">Model</th>
@@ -34,6 +41,7 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                         ) : (
                             displayData.map((row: any) => (
                                 <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                                    <td className="p-4 text-gray-900 font-bold whitespace-nowrap">{formatDate(row.date)}</td>
                                     <td className="p-4">{row.namaRqc}</td>
                                     <td className="p-4">{row.factoryCell}</td>
                                     <td className="p-4">{row.model}</td>

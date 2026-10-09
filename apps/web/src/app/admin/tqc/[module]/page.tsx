@@ -4,16 +4,73 @@ import { useState, useEffect, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 
-const parseCustomDateString = (dateStr: string) => {
-    // Expected format: YYYYMMDD e.g., "20260831"
+const parseCustomDateString = (dateStr: any): string | null => {
+    if (!dateStr) return null;
     const str = String(dateStr).trim();
-    if (str.length === 8) {
+
+    if (str.length === 8 && !str.includes('/') && !str.includes('-') && !str.includes(' ')) {
         const year = str.substring(0, 4);
         const month = str.substring(4, 6);
         const day = str.substring(6, 8);
-        return `${year}-${month}-${day}`; // ISO format for easy Date parsing
+        if (!isNaN(Number(year)) && !isNaN(Number(month)) && !isNaN(Number(day))) {
+            return `${year}-${month}-${day}`;
+        }
     }
-    return null;
+
+    // Split by common date separators
+    let parts = str.split(/[\/\- \.]/).filter(p => p.trim() !== '');
+    const now = new Date();
+
+    let y = now.getFullYear().toString();
+    let m = (now.getMonth() + 1).toString();
+    let d = "01";
+
+    if (parts.length === 1 && !isNaN(Number(parts[0]))) {
+        d = parts[0];
+    } else if (parts.length === 2) {
+        d = parts[0];
+        m = parts[1];
+    } else if (parts.length >= 3) {
+        y = parts[2];
+        m = parts[1];
+        d = parts[0];
+        if (parts[0].length === 4) {
+            y = parts[0];
+            m = parts[1];
+            d = parts[2];
+        }
+    } else {
+        return null;
+    }
+
+    if (y.length === 2) y = '20' + y;
+
+    const monthNames: Record<string, string> = {
+        'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
+        'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+        'agu': '08', 'okt': '10', 'nop': '11', 'des': '12'
+    };
+
+    const mKey = m.toLowerCase().substring(0, 3);
+    if (monthNames[mKey]) {
+        m = monthNames[mKey];
+    }
+
+    const monthNum = parseInt(m);
+    const dayNum = parseInt(d);
+
+    if (isNaN(monthNum) || isNaN(dayNum) || isNaN(parseInt(y))) return null;
+
+    let finalM = m.padStart(2, '0');
+    let finalD = d.padStart(2, '0');
+
+    if (monthNum > 12 && dayNum <= 12) {
+        // Swap MM/DD
+        finalM = d.padStart(2, '0');
+        finalD = m.padStart(2, '0');
+    }
+
+    return `${y}-${finalM}-${finalD}`;
 };
 
 const formatDateForDisplay = (isoStr: string) => {
@@ -28,23 +85,15 @@ const parseCustomTimeCode = (timeCode: string) => {
     const tc = String(timeCode).trim();
 
     // Asumsi format seperti "A007", "A013", bisa kita ambil angkanya saja
-    // Mengambil semua angka dari string
     const match = tc.match(/\d+/);
     if (!match) return tc; // Jika tidak ada angka, kembalikan aslinya
 
     const hour = parseInt(match[0], 10);
+    const nextHour = hour + 1;
     const hh = hour.toString().padStart(2, '0');
+    const nextHh = nextHour.toString().padStart(2, '0');
 
-    let period = 'Pagi';
-    if (hour >= 11 && hour < 15) {
-        period = 'Siang';
-    } else if (hour >= 15 && hour < 18) {
-        period = 'Sore';
-    } else if (hour >= 18) {
-        period = 'Malam';
-    }
-
-    return `${hh}.00 ${period}`;
+    return `${hh}.00-${nextHh}.00`;
 };
 
 export default function TqcModulePage({ params }: { params: Promise<{ module: string }> }) {
@@ -117,11 +166,19 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                     const rawDate = getVal(row, ['Date', 'TANGGAL']);
                     let finalDate = new Date().toISOString().split('T')[0]; // fallback to today
                     if (typeof rawDate === 'number' && rawDate > 30000) {
-                        const parsedDateObj = XLSX.SSF.parse_date_code(rawDate);
-                        if (parsedDateObj) {
-                            const mm = String(parsedDateObj.m).padStart(2, '0');
-                            const dd = String(parsedDateObj.d).padStart(2, '0');
-                            finalDate = `${parsedDateObj.y}-${mm}-${dd}`;
+                        if (rawDate > 10000000) {
+                            // If it's a huge integer like 20260925, it's YYYYMMDD, not an Excel serial
+                            const strDate = String(rawDate);
+                            if (strDate.length === 8) {
+                                finalDate = `${strDate.substring(0, 4)}-${strDate.substring(4, 6)}-${strDate.substring(6, 8)}`;
+                            }
+                        } else {
+                            const parsedDateObj = XLSX.SSF.parse_date_code(rawDate);
+                            if (parsedDateObj) {
+                                const mm = String(parsedDateObj.m).padStart(2, '0');
+                                const dd = String(parsedDateObj.d).padStart(2, '0');
+                                finalDate = `${parsedDateObj.y}-${mm}-${dd}`;
+                            }
                         }
                     } else if (rawDate) {
                         const parsedStr = parseCustomDateString(rawDate as string);
@@ -157,10 +214,11 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                         qty: qtyVal !== null ? parseFloat(qtyVal) : null,
                         qtyDefect: qtyDefectVal !== null ? parseFloat(qtyDefectVal) : null,
                         qtyProduction: qtyProductionVal !== null ? parseFloat(qtyProductionVal) : null,
-                        destination: getVal(row, ['Destination']) || '',
-                        category: getVal(row, ['Category', 'CATEGORY']) || '',
+                        destination: getVal(row, ['Destination', 'DESTINATION', 'Dest', 'DEST']) || '',
+                        category: getVal(row, ['Category', 'CATEGORY', 'Cat', 'CAT']) || '',
                         type: getVal(row, ['Type', 'TYPE']) || '',
-                        defectName: getVal(row, ['Defect Name', 'DEFECT NAME']) || ''
+                        defectName: getVal(row, ['Defect Name', 'DEFECT NAME', 'Defect', 'DEFECT', 'Name', 'NAME']) || '',
+                        uspClassification: getVal(row, ['USP Classification', 'USP CLASSIFICATION', 'USP', 'Usp']) || ''
                     };
                 });
 
@@ -175,7 +233,12 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                     alert('Data imported successfully!');
                     fetchData(); // Reload table
                 } else {
-                    alert('Failed to import data on the server.');
+                    let errMsg = 'Failed to import data on the server.';
+                    try {
+                        const errText = await response.text();
+                        if (errText) errMsg += `\nDetail: ${errText}`;
+                    } catch (e) { }
+                    alert(errMsg);
                 }
             } catch (error) {
                 console.error("Error parsing Excel:", error);
@@ -270,7 +333,7 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
             headers = [
                 "Date", "Time", "Building", "Cell", "Model", "Article",
                 "Order No", "Seq", "PWI No", "Qty Production", "Qty Checking", "Qty Defect",
-                "Destination", "Category", "Type", "Defect Name"
+                "Destination", "Category", "Type", "Defect Name", "USP Classification"
             ];
         }
 
@@ -446,6 +509,7 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                                         {!isSewingFormat && <th className="px-5 py-3 font-semibold">{moduleType === 'ASSEMBLY' ? 'Type' : 'TYPE'}</th>}
                                         <th className="px-5 py-3 font-semibold">CTQ {moduleType === 'ASSEMBLY' ? 'Type' : 'TYPE'}</th>
                                         <th className="px-5 py-3 font-semibold">DEFECT NAME</th>
+                                        <th className="px-5 py-3 font-semibold">USP CLASSIFICATION</th>
                                         <th className="px-5 py-3 font-semibold text-right">Action</th>
                                     </tr>
                                     <tr>
@@ -474,6 +538,7 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                                         {!isSewingFormat && <th className="px-2 pb-2">{renderExcelFilter('type', 'All Types')}</th>}
                                         <th className="px-2 pb-2">{renderExcelFilter('ctqType', 'All CTQ')}</th>
                                         <th className="px-2 pb-2">{renderExcelFilter('defectName', 'All Defects')}</th>
+                                        <th className="px-2 pb-2">{renderExcelFilter('uspClassification', 'All USP')}</th>
                                         <th className="px-2 pb-2"></th>
                                     </tr>
                                 </>
@@ -542,6 +607,7 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                                                 )}
                                             </td>
                                             <td className="px-5 py-3 text-red-600 font-medium max-w-[200px] truncate" title={row.defectName}>{row.defectName}</td>
+                                            <td className="px-5 py-3 text-gray-800 font-semibold">{row.uspClassification || '-'}</td>
                                             <td className="px-5 py-3 text-right">
                                                 <button
                                                     onClick={() => handleDeleteRow(row.tqcId)}

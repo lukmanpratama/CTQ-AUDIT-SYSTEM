@@ -31,6 +31,7 @@ export default function SetupTreePage() {
     const [masterAreas, setMasterAreas] = useState<any[]>([]);
     const [masterProcesses, setMasterProcesses] = useState<any[]>([]);
     const [masterDefects, setMasterDefects] = useState<any[]>([]);
+    const [modelUsps, setModelUsps] = useState<any[]>([]);
 
     useEffect(() => {
         if (!modelId) return;
@@ -39,20 +40,34 @@ export default function SetupTreePage() {
     }, [modelId]);
 
     const fetchTree = async () => {
-        const res = await fetch(`/api/ctq-setup/models/${modelId}/tree`);
-        setTree(await res.json());
-        setLoading(false);
+        try {
+            const res = await fetch(`/api/ctq-setup/models/${modelId}/tree`);
+            const data = await res.json();
+            if (res.ok) {
+                setTree(data);
+            } else {
+                console.error("Failed to fetch tree:", data);
+                setTree(null);
+            }
+        } catch (e) {
+            console.error(e);
+            setTree(null);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const fetchMasters = async () => {
-        const [ar, pr, de] = await Promise.all([
+        const [ar, pr, de, us] = await Promise.all([
             fetch('/api/master/areas').then(r => r.json()),
             fetch('/api/master/processes').then(r => r.json()),
             fetch('/api/master/defects').then(r => r.json()),
+            fetch(`/api/master/usps?modelId=${modelId}&status=ACTIVE`).then(r => r.json()),
         ]);
         setMasterAreas(ar);
         setMasterProcesses(pr);
         setMasterDefects(de);
+        setModelUsps(Array.isArray(us) ? us : []);
     };
 
     const linkArea = async (e: React.FormEvent) => {
@@ -116,6 +131,15 @@ export default function SetupTreePage() {
         fetchTree();
     };
 
+    const updateSetupProcess = async (setupProcessId: string, payload: any) => {
+        await fetch(`/api/ctq-setup/processes/${setupProcessId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        fetchTree();
+    };
+
     const handleUploadAuditFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -156,6 +180,7 @@ export default function SetupTreePage() {
     };
 
     if (loading) return <div className="p-10 font-bold text-gray-500">Scanning CTQ Configuration Topology...</div>;
+    if (!tree || !tree.model) return <div className="p-10 font-bold text-red-500">Failed to load CTQ Configuration. Please try again.</div>;
 
     return (
         <div className="space-y-6">
@@ -257,18 +282,41 @@ export default function SetupTreePage() {
                                                     </select>
                                                 </div>
 
-                                                {/* USP Checkbox */}
-                                                <div className="flex items-center gap-3 pt-6">
-                                                    <input
-                                                        type="checkbox"
-                                                        id={`usp-${mProc.processId}`}
-                                                        className="w-5 h-5 text-red-600 rounded focus:ring-red-500 border-gray-300 cursor-pointer"
-                                                        checked={mProc.sellingPoint === 'USP'}
-                                                        onChange={(e) => updateMasterProcess(mProc.processId, { sellingPoint: e.target.checked ? 'USP' : null })}
-                                                    />
-                                                    <label htmlFor={`usp-${mProc.processId}`} className="text-sm font-bold text-red-700 tracking-wider select-none cursor-pointer">
-                                                        Selling Point (USP)
+                                                {/* Selling Point Checkbox */}
+                                                <div>
+                                                    <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1 tracking-wider whitespace-nowrap">SELLING POINT</label>
+                                                    <div className="flex items-center gap-2 h-[34px]">
+                                                        <input
+                                                            type="checkbox"
+                                                            id={`sellingPoint-${proc.setupProcessId}`}
+                                                            className="w-[18px] h-[18px] text-red-600 rounded bg-white focus:ring-red-500 border-gray-300 cursor-pointer shadow-sm"
+                                                            checked={proc.isSellingPoint || false}
+                                                            onChange={(e) => updateSetupProcess(proc.setupProcessId, { isSellingPoint: e.target.checked })}
+                                                        />
+                                                        <label htmlFor={`sellingPoint-${proc.setupProcessId}`} className="text-sm font-bold text-red-700 tracking-wide select-none cursor-pointer flex items-center group">
+                                                            Selling Point (USP)
+                                                            <span className="ml-1 text-[10px] text-gray-400 opacity-50 group-hover:opacity-100 transition-opacity" title="Indicates whether this Process is classified as a Selling Point.">ⓘ</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+
+                                                {/* USP Name Group */}
+                                                <div>
+                                                    <label className="block text-[10px] uppercase font-bold text-blue-600 mb-1 tracking-wider whitespace-nowrap flex items-center">
+                                                        USP GROUPING
+                                                        <span className="ml-1 text-[10px] text-blue-400" title="USP Name is used to group related CTQ Processes under the same USP. It is independent of the Selling Point checkbox.">ⓘ</span>
                                                     </label>
+                                                    <select
+                                                        className={`w-full text-sm border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none font-semibold ${proc.uspId ? 'text-blue-800 bg-blue-50' : 'text-gray-900 bg-white'}`}
+                                                        value={proc.uspId || ''}
+                                                        onChange={(e) => updateSetupProcess(proc.setupProcessId, { uspId: e.target.value || null })}
+                                                    >
+                                                        <option value="" className="text-gray-500 font-normal">-- Not Assigned --</option>
+                                                        {modelUsps.map((u: any) => (
+                                                            <option key={u.uspId} value={u.uspId}>{u.uspName}</option>
+                                                        ))}
+                                                        {modelUsps.length === 0 ? <option value="" disabled className="italic">No active USP available</option> : null}
+                                                    </select>
                                                 </div>
 
                                             </div>

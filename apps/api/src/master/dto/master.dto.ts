@@ -46,3 +46,18 @@ export class UpdatePoDto {
     @IsString() @IsOptional() destination?: string;
     @IsNumber() @IsOptional() qtyOrder?: number;
 }
+
+export class CreateUspDto {
+    @IsString() @IsNotEmpty() setupModelId!: string;
+    @IsString() @IsNotEmpty() uspCode!: string;
+    @IsString() @IsNotEmpty() uspName!: string;
+    @IsString() @IsOptional() description?: string;
+    @IsBoolean() @IsNotEmpty() isActive!: boolean;
+}
+export class UpdateUspDto {
+    @IsString() @IsOptional() setupModelId?: string;
+    @IsString() @IsOptional() uspCode?: string;
+    @IsString() @IsOptional() uspName?: string;
+    @IsString() @IsOptional() description?: string;
+    @IsBoolean() @IsOptional() isActive?: boolean;
+}

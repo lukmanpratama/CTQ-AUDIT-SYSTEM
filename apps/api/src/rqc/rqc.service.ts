@@ -58,6 +58,12 @@ export class RqcService {
         const areaIdBigInt = BigInt(setupAreaId);
         const processIdBigInt = BigInt(setupProcessId);
 
+        const header = await this.prisma.rqcHeader.findUnique({
+            where: { rqcHeaderId: headerId },
+            select: { date: true }
+        });
+        const headerDate = header?.date || new Date();
+
         // 1. Ensure RqcArea exists. If not, create it lazily.
         // This allows UI to just POST inspection directly.
         let area = await this.prisma.rqcArea.findUnique({
@@ -114,6 +120,7 @@ export class RqcService {
                 create: {
                     rqcProcessId: processTx.rqcProcessId,
                     defectId: BigInt(d.defectId),
+                    date: headerDate,
                     qtyDefect: d.qtyDefect,
                     defectRate,
                     passRate,
@@ -126,6 +133,7 @@ export class RqcService {
                     photoAfterActionPlan: d.photoAfterActionPlan
                 },
                 update: {
+                    date: headerDate,
                     qtyDefect: d.qtyDefect,
                     defectRate,
                     passRate,
@@ -741,6 +749,7 @@ export class RqcService {
             return {
                 id: i.rqcInspectionId,
                 headerId: header.rqcHeaderId,
+                date: header.date,
                 namaRqc: header.inspector?.namaUser || '-',
                 factoryCell: `${header.factory?.factory || '-'} / ${header.cell || '-'}`,
                 model: header.setupModel.modelName,
@@ -767,7 +776,7 @@ export class RqcService {
         return this.serializeBigInt(mapped);
     }
 
-    async getTrends(filters?: { modelId?: string, areaId?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string }) {
+    async getTrends(filters?: { modelId?: string, areaId?: string, areaName?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string, checkingTime?: string }) {
         let headerConditions: any = {};
         let applyingHeaderConditions = false;
 
@@ -783,6 +792,11 @@ export class RqcService {
 
         if (filters?.cell) {
             headerConditions.cell = filters.cell;
+            applyingHeaderConditions = true;
+        }
+
+        if (filters?.checkingTime && filters.checkingTime !== 'ALL' && filters.checkingTime !== 'CHECKING TIME') {
+            headerConditions.checkingTime = filters.checkingTime;
             applyingHeaderConditions = true;
         }
 
@@ -814,6 +828,11 @@ export class RqcService {
                 processConditions.rqcArea.setupArea = { areaId: BigInt(filters.areaId) };
             }
         }
+        if (filters?.areaName) { // Allow String-based Area queries (e.g. CUTTING, SEWING)
+            if (!processConditions.rqcArea) processConditions.rqcArea = {};
+            // TQC INHOUSE Edge case protection is handled by frontend cell isolation; Inline primarily targets valid master areas
+            processConditions.rqcArea.setupArea = { masterArea: { area: filters.areaName } };
+        }
 
         const processes = await this.prisma.rqcProcess.findMany({
             where: processConditions,
@@ -823,7 +842,11 @@ export class RqcService {
             }
         });
 
-        const dailyMap = new Map<string, { checking: number, defect: number, rqcChecking: number, rqcDefect: number }>();
+        const dailyMap = new Map<string, {
+            checking: number, defect: number, rqcChecking: number, rqcDefect: number,
+            rqcDefectRateSum: number, rqcProcessCount: number,
+            tqcProcessMap: Map<string, { defect: number, checking: number }>
+        }>();
         const weeklyMap = new Map<string, { checking: number, defect: number }>();
 
         const getWeekStr = (d: Date) => {
@@ -858,6 +881,10 @@ export class RqcService {
                     tqcConditions.date = { lte: new Date(filters.endDate) };
                 }
 
+                if (filters?.cell) {
+                    tqcConditions.cell = filters.cell;
+                }
+
                 const tqcRecords = await this.prisma.tqcReport.findMany({
                     where: tqcConditions
                 });
@@ -870,7 +897,7 @@ export class RqcService {
                     const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
                     const weekStr = getWeekStr(dateObj);
 
-                    if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { checking: 0, defect: 0, rqcChecking: 0, rqcDefect: 0 });
+                    if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { checking: 0, defect: 0, rqcChecking: 0, rqcDefect: 0, rqcDefectRateSum: 0, rqcProcessCount: 0, tqcProcessMap: new Map() });
                     if (!weeklyMap.has(weekStr)) weeklyMap.set(weekStr, { checking: 0, defect: 0 });
 
                     const dStats = dailyMap.get(dateStr)!;
@@ -891,6 +918,15 @@ export class RqcService {
                         dStats.checking += qtyDiff;
                         wStats.checking += qtyDiff;
                     }
+
+                    const defectName = tqc.defectName || 'UNKNOWN';
+                    // TQC process level map
+                    if (!dStats.tqcProcessMap.has(defectName)) {
+                        dStats.tqcProcessMap.set(defectName, { defect: 0, checking: 0 });
+                    }
+                    dStats.tqcProcessMap.get(defectName)!.defect += (tqc.qtyDefect || 0);
+                    // The checking size for this "process" is linked to the total cell checking on that day
+                    dStats.tqcProcessMap.get(defectName)!.checking = uniqueCheckingMap.get(uniqueDayCellKey) || (120 * 8);
                 }
             }
         }
@@ -902,7 +938,7 @@ export class RqcService {
             const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
             const weekStr = getWeekStr(dateObj);
 
-            if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { checking: 0, defect: 0, rqcChecking: 0, rqcDefect: 0 });
+            if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { checking: 0, defect: 0, rqcChecking: 0, rqcDefect: 0, rqcDefectRateSum: 0, rqcProcessCount: 0, tqcProcessMap: new Map() });
             if (!weeklyMap.has(weekStr)) weeklyMap.set(weekStr, { checking: 0, defect: 0 });
 
             const dStats = dailyMap.get(dateStr)!;
@@ -914,25 +950,59 @@ export class RqcService {
             dStats.rqcChecking += chk;
             dStats.rqcDefect += def;
 
+            const processDefectRate = chk > 0 ? (def / chk) * 100 : 0;
+            // Round first to match the UI chart exactly
+            dStats.rqcDefectRateSum += parseFloat(processDefectRate.toFixed(2));
+            dStats.rqcProcessCount += 1;
+
             wStats.checking += chk;
             wStats.defect += def;
         }
 
         const dailyTrend = Array.from(dailyMap.entries()).map(([date, stats]) => {
-            const tqcDefectRate = stats.checking > 0 ? (stats.defect / stats.checking) * 100 : 0;
-            const rqcDefectRate = stats.rqcChecking > 0 ? (stats.rqcDefect / stats.rqcChecking) * 100 : 0;
+            let tqcDefectRateSum = 0;
+            let tqcProcessCount = 0;
+            for (const proc of stats.tqcProcessMap.values()) {
+                // Denominator for TQC graph is the global daily checking total
+                const rawRate = stats.checking > 0 ? (proc.defect / stats.checking) * 100 : 0;
+                // Round to 2 decimals first to guarantee visual sum matches exactly
+                tqcDefectRateSum += parseFloat(rawRate.toFixed(2));
+                tqcProcessCount++;
+            }
+            const tqcDefectRate = tqcProcessCount > 0 ? (tqcDefectRateSum / tqcProcessCount) : 0;
+
+            const rqcDefectRate = stats.rqcProcessCount > 0 ? (stats.rqcDefectRateSum / stats.rqcProcessCount) : 0;
+
             const passRate = ((100 - tqcDefectRate) + (100 - rqcDefectRate)) / 2;
+            const avgDefectRate = (tqcDefectRate + rqcDefectRate) / 2;
 
             return {
                 date,
                 passRate: Number(passRate.toFixed(2)),
+                avgDefectRate: Number(avgDefectRate.toFixed(2)),
                 defectRate: Number(tqcDefectRate.toFixed(2)), // TQC
-                defectRateRqc: Number(rqcDefectRate.toFixed(2)) // RQC
+                defectRateRqc: Number(rqcDefectRate.toFixed(2)), // RQC
+                // Raw properties exported safely so client can calculate arbitrary Exact Ratios
+                rawRqcChecking: stats.rqcChecking,
+                rawRqcDefect: stats.rqcDefect
             };
         });
 
-        const weeklyTrend = Array.from(weeklyMap.entries()).map(([week, stats]) => {
-            const defectRate = stats.checking > 0 ? (stats.defect / stats.checking) * 100 : 0;
+        const weeklyAggregator = new Map<string, { sum: number, count: number }>();
+        dailyTrend.forEach(day => {
+            const parsedDate = new Date(day.date);
+            if (isNaN(parsedDate.getTime())) return;
+            const weekStr = getWeekStr(parsedDate);
+
+            if (!weeklyAggregator.has(weekStr)) {
+                weeklyAggregator.set(weekStr, { sum: 0, count: 0 });
+            }
+            weeklyAggregator.get(weekStr)!.sum += day.avgDefectRate;
+            weeklyAggregator.get(weekStr)!.count += 1;
+        });
+
+        const weeklyTrend = Array.from(weeklyAggregator.entries()).map(([week, stats]) => {
+            const defectRate = stats.count > 0 ? (stats.sum / stats.count) : 0;
             return {
                 week,
                 defectRate: Number(defectRate.toFixed(2))
@@ -947,7 +1017,7 @@ export class RqcService {
         });
     }
 
-    async getProcessDefects(filters?: { modelId?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string }) {
+    async getProcessDefects(filters?: { modelId?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string, checkingTime?: string }) {
         let headerConditions: any = {};
 
         if (filters?.modelId) {
@@ -968,6 +1038,9 @@ export class RqcService {
         }
         if (filters?.cell) {
             headerConditions.cell = filters.cell;
+        }
+        if (filters?.checkingTime && filters.checkingTime !== 'ALL' && filters.checkingTime !== 'CHECKING TIME') {
+            headerConditions.checkingTime = filters.checkingTime;
         }
 
         // Fetch all RqcProcesses with full relations
@@ -1122,6 +1195,10 @@ export class RqcService {
                     tqcConditions.date = { lte: new Date(filters.endDate) };
                 }
 
+                if (filters?.cell) {
+                    tqcConditions.cell = filters.cell;
+                }
+
                 tqcRecords = await this.prisma.tqcReport.findMany({
                     where: tqcConditions,
                     select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, defectName: true, moduleType: true }
@@ -1175,14 +1252,14 @@ export class RqcService {
                 }
 
                 // Pre-calculate Global TQC Total Checking for this model/filter.
-                // As defined by standard, 1 day = 8 hours * 120 qty check/hour = 960 checking qty per cell per day.
+                // Standard limit rule: 1 unique cell active in a day = 960 (120 checks * 8 hours).
                 const globalTqcUniqueChecks = new Map<string, number>();
                 if (tqcRecords && tqcRecords.length > 0) {
                     for (const tqc of tqcRecords) {
                         const cellKey = tqc.cell || tqc.building || 'no-cell';
-                        const dateKey = tqc.date ? tqc.date.getTime().toString() : 'no-date';
+                        const dateKey = tqc.date ? tqc.date.toISOString().split('T')[0] : 'no-date';
                         const uniqueDayCellKey = `${dateKey}_${cellKey}`;
-                        globalTqcUniqueChecks.set(uniqueDayCellKey, 120 * 8);
+                        globalTqcUniqueChecks.set(uniqueDayCellKey, 960);
                     }
                 }
                 let globalTqcTotalChecking = 0;
@@ -1213,20 +1290,36 @@ export class RqcService {
         // --- Calculate Overall Stats for RQC and TQC ---
         let rqcTotalDefect = 0;
         let rqcTotalChecking = 0;
+        let rqcDefectRateSum = 0;
+        let rqcProcessCount = 0;
+
         for (const area of areas) {
             for (const proc of area.processes) {
                 rqcTotalDefect += proc.totalDefect;
                 rqcTotalChecking += proc.totalChecking;
+                rqcDefectRateSum += parseFloat(proc.defectRate.toFixed(2));
+                rqcProcessCount++;
             }
         }
-        const rqcDefectRate = rqcTotalChecking > 0 ? (rqcTotalDefect / rqcTotalChecking) * 100 : 0;
+
+        // Evaluate numerical average of processes (Modal Sync to Daily Chart Tooltip)
+        const rqcDefectRate = rqcProcessCount > 0 ? rqcDefectRateSum / rqcProcessCount : 0;
         const rqcPassRate = 100 - rqcDefectRate;
 
         // Re-eval TQC Total Defect for modal summary overall block:
         let tqcTotalDefect = 0;
+        let tqcDefectRateSum = 0;
+        let tqcProcessCount = 0;
+
         if (tqcRecords && tqcRecords.length > 0) {
             for (const tqc of tqcRecords) {
                 tqcTotalDefect += (tqc.qtyDefect || 0);
+            }
+            for (const tArea of tqcAreas) {
+                for (const proc of tArea.processes) {
+                    tqcDefectRateSum += parseFloat(proc.defectRate.toFixed(2));
+                    tqcProcessCount++;
+                }
             }
         }
 
@@ -1236,14 +1329,14 @@ export class RqcService {
             const finalTqcUniqueChecks = new Map<string, number>();
             for (const tqc of tqcRecords) {
                 const cellKey = tqc.cell || tqc.building || 'no-cell';
-                const dateKey = tqc.date ? tqc.date.getTime().toString() : 'no-date';
+                const dateKey = tqc.date ? tqc.date.toISOString().split('T')[0] : 'no-date';
                 const uniqueDayCellKey = `${dateKey}_${cellKey}`;
-                finalTqcUniqueChecks.set(uniqueDayCellKey, 120 * 8);
+                finalTqcUniqueChecks.set(uniqueDayCellKey, 960);
             }
             for (const qty of finalTqcUniqueChecks.values()) finalTqcTotalChecking += qty;
         }
 
-        const tqcDefectRate = finalTqcTotalChecking > 0 ? (tqcTotalDefect / finalTqcTotalChecking) * 100 : 0;
+        const tqcDefectRate = tqcProcessCount > 0 ? tqcDefectRateSum / tqcProcessCount : 0;
         const tqcPassRate = 100 - tqcDefectRate;
 
         return this.serializeBigInt({
@@ -1262,6 +1355,233 @@ export class RqcService {
                 passRate: tqcPassRate
             }
         });
+    }
+
+    async getImmediateActionData(filters?: { modelId?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string, areaName?: string }) {
+        let headerConditions: any = {};
+        if (filters?.modelId) headerConditions.setupModelId = BigInt(filters.modelId);
+        if (filters?.startDate && filters?.endDate) {
+            headerConditions.date = { gte: new Date(filters.startDate), lte: new Date(filters.endDate) };
+        } else if (filters?.startDate) {
+            headerConditions.date = { gte: new Date(filters.startDate) };
+        } else if (filters?.endDate) {
+            headerConditions.date = { lte: new Date(filters.endDate) };
+        }
+        if (filters?.factoryId) headerConditions.factoryId = BigInt(filters.factoryId);
+        if (filters?.cell) headerConditions.cell = filters.cell;
+
+        const processConditions: any = {
+            rqcArea: { rqcHeader: headerConditions }
+        };
+
+        if (filters?.areaName) { // Allow String-based Area queries (e.g. CUTTING, SEWING)
+            processConditions.rqcArea.setupArea = { masterArea: { area: filters.areaName } };
+        }
+
+        const immediateInspections = await this.prisma.rqcInspection.findMany({
+            where: {
+                rqcProcess: processConditions,
+                status: 'IMMEDIATE_ACTION'
+            },
+            include: {
+                masterDefect: true,
+                rqcProcess: {
+                    include: {
+                        setupProcess: {
+                            include: {
+                                masterProcess: true,
+                                setupArea: { include: { masterArea: true } }
+                            }
+                        },
+                        rqcArea: {
+                            include: { rqcHeader: true }
+                        }
+                    }
+                }
+            },
+            orderBy: {
+                rqcProcess: { rqcArea: { rqcHeader: { date: 'desc' } } }
+            }
+        });
+
+        const formatted = immediateInspections.map(insp => {
+            const header = insp.rqcProcess?.rqcArea?.rqcHeader;
+            const proc = insp.rqcProcess?.setupProcess;
+            return {
+                id: insp.rqcInspectionId,
+                date: header?.date ? header.date.toISOString().split('T')[0] : '',
+                checkingTime: header?.checkingTime || '-',
+                defectName: insp.masterDefect?.defect || '-',
+                photoDefect: insp.photoDefect || null,
+                processName: proc?.masterProcess?.process || '-',
+                qtyChecking: insp.rqcProcess?.qtyChecking || 0,
+                qtyDefect: insp.qtyDefect || 0,
+                actionPlan: insp.actionPlan || '-',
+                photoAfterActionPlan: insp.photoAfterActionPlan || null,
+            };
+        });
+
+        return this.serializeBigInt(formatted);
+    }
+
+    async getTqcEolSummary(filters?: { modelId?: string, startDate?: string, endDate?: string, cell?: string }) {
+        let tqcWhere: any = {};
+
+        if (filters?.modelId) {
+            const setupModel = await this.prisma.setupModel.findUnique({
+                where: { setupModelId: BigInt(filters.modelId) }
+            });
+            if (setupModel?.modelName) {
+                tqcWhere.model = { contains: setupModel.modelName, mode: 'insensitive' };
+            } else {
+                return { cells: [], passRateData: [], averagePassRate: 0, averageDefectRate: 0, topDefects: [], qtyChecking: 0, qtyDefect: 0 };
+            }
+        }
+
+        if (filters?.startDate && filters?.endDate) {
+            tqcWhere.date = { gte: new Date(filters.startDate), lte: new Date(filters.endDate) };
+        } else if (filters?.startDate) {
+            tqcWhere.date = { gte: new Date(filters.startDate) };
+        } else if (filters?.endDate) {
+            tqcWhere.date = { lte: new Date(filters.endDate) };
+        }
+
+        // TQC CELLS Extraction (Always fetch irrespective of current cell filter to build tabs)
+        // Only consider ASSEMBLY and TREATMENT module types for EOL
+        const allTqcRecordsFilterFree = await this.prisma.tqcReport.findMany({
+            where: { ...tqcWhere, moduleType: { in: ['ASSEMBLY', 'TREATMENT'] } },
+            select: { moduleType: true, cell: true, building: true }
+        });
+
+        const uniqueCellsSet = new Set<string>();
+        let hasTreatment = false;
+
+        allTqcRecordsFilterFree.forEach((t: any) => {
+            if (t.moduleType === 'TREATMENT') hasTreatment = true;
+            if (t.moduleType === 'ASSEMBLY') {
+                const c = (t.cell || t.building || '').trim().toUpperCase();
+                if (c) uniqueCellsSet.add(c);
+            }
+        });
+
+        const cells = Array.from(uniqueCellsSet).sort();
+        const tabs = hasTreatment ? ['TREATMENT', ...cells] : cells;
+
+        // Apply cell filter to the actual data fetch
+        if (filters?.cell) {
+            if (filters.cell === 'TREATMENT') {
+                tqcWhere.moduleType = 'TREATMENT';
+            } else {
+                tqcWhere.moduleType = 'ASSEMBLY';
+                // Try cell OR building to accommodate TQC format
+                tqcWhere.OR = [
+                    { cell: filters.cell },
+                    { building: filters.cell }
+                ];
+            }
+        } else {
+            // Default to first tab if no cell is provided
+            if (hasTreatment) {
+                tqcWhere.moduleType = 'TREATMENT';
+            } else if (cells.length > 0) {
+                tqcWhere.moduleType = 'ASSEMBLY';
+                tqcWhere.OR = [{ cell: cells[0] }, { building: cells[0] }];
+            } else {
+                tqcWhere.moduleType = 'ASSEMBLY';
+            }
+        }
+
+        const tqcRecords = await this.prisma.tqcReport.findMany({ where: tqcWhere });
+
+        const dailyMap = new Map<string, {
+            uniqueCells: Set<string>;
+            totalDefect: number;
+        }>();
+
+        const defectMap = new Map<string, number>();
+        let overallDefectCount = 0;
+
+        tqcRecords.forEach((t: any) => {
+            const dateStr = t.date ? t.date.toISOString().split('T')[0] : 'Unknown';
+            const cellVal = (t.cell || t.building || 'no-cell').trim().toUpperCase();
+            const defectQty = t.qtyDefect || 0;
+            const defectName = t.defectName || 'UNKNOWN';
+
+            if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { uniqueCells: new Set(), totalDefect: 0 });
+
+            const dayObj = dailyMap.get(dateStr)!;
+            dayObj.uniqueCells.add(cellVal);
+            dayObj.totalDefect += defectQty;
+
+            overallDefectCount += defectQty;
+
+            if (!defectMap.has(defectName)) defectMap.set(defectName, 0);
+            defectMap.set(defectName, defectMap.get(defectName)! + defectQty);
+        });
+
+        const passRateData: any[] = [];
+        let globalChecking = 0;
+        let sumDailyPassRate = 0;
+        let sumDailyDefRate = 0;
+
+        let validDays = 0;
+
+        // 7. QTY CHECKING rule: 960 per day per cell
+        Array.from(dailyMap.entries()).sort(([a], [b]) => a.localeCompare(b)).forEach(([date, stats]) => {
+            const dailyChecking = stats.uniqueCells.size * 960;
+            globalChecking += dailyChecking;
+
+            // 3. PASS RATE PER TANGGAL (QTY CHECKING - QTY DEFECT) / QTY CHECKING
+            let passRate = 100;
+            let defRate = 0;
+
+            if (dailyChecking > 0) {
+                defRate = (stats.totalDefect / dailyChecking) * 100;
+                passRate = ((dailyChecking - stats.totalDefect) / dailyChecking) * 100;
+            }
+
+            if (dailyChecking > 0) {
+                sumDailyPassRate += passRate;
+                sumDailyDefRate += defRate;
+                validDays++;
+            }
+
+            passRateData.push({
+                date: new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
+                passRate: Math.round((passRate + Number.EPSILON) * 100) / 100,
+                defectRate: Math.round((defRate + Number.EPSILON) * 100) / 100,
+                qtyChecking: dailyChecking,
+                qtyDefect: stats.totalDefect
+            });
+        });
+
+        // 6. DEFECT RATE TOP DEFECTS
+        // Evaluate ALL defects first to calculate the exact sum of the rounded percentages
+        const allDefects = Array.from(defectMap.entries()).map(([name, qty]) => {
+            const rate = globalChecking > 0 ? (qty / globalChecking) * 100 : 0;
+            return {
+                name,
+                absoluteVal: Math.round((rate + Number.EPSILON) * 100) / 100,
+                qty
+            };
+        }).sort((a, b) => b.qty - a.qty);
+
+        const topDefects = allDefects.slice(0, 5); // Limit top 5 for the chart
+
+        // 4 & 5. AVERAGE GRAPHICS
+        // The user specifically requested that the middle box uses the global volume formula: Qty Defect / Qty Check
+        const averagePassRate = validDays > 0 ? (sumDailyPassRate / validDays) : 100;
+        const averageDefectRate = globalChecking > 0 ? (overallDefectCount / globalChecking) * 100 : 0;
+
+        return {
+            tabs,
+            passRateData,
+            averagePassRate: Math.round((averagePassRate + Number.EPSILON) * 100) / 100,
+            averageDefectRate: Math.round((averageDefectRate + Number.EPSILON) * 100) / 100,
+            topDefects,
+            qtyChecking: globalChecking,
+            qtyDefect: overallDefectCount
+        };
     }
 
     async getCapData(filters?: { modelId?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string }) {
@@ -1360,7 +1680,8 @@ export class RqcService {
                 setupProcess: {
                     include: {
                         masterProcess: true,
-                        setupArea: { include: { masterArea: true } }
+                        setupArea: { include: { masterArea: true } },
+                        masterUsp: true
                     }
                 },
                 rqcInspections: {
@@ -1372,21 +1693,22 @@ export class RqcService {
         const sellingPointMap = new Map<string, { totalChecking: number, totalDefect: number }>();
         const areaMap = new Map<string, {
             areaName: string,
-            processMap: Map<string, { processName: string, sellingPoint: string, totalChecking: number, totalDefect: number }>
+            processMap: Map<string, { processName: string, uspName: string, isSellingPoint: boolean, totalChecking: number, totalDefect: number }>
         }>();
 
         for (const rp of rqcProcesses) {
             const areaName = rp.setupProcess?.setupArea?.masterArea?.area || 'UNKNOWN';
             const processName = rp.setupProcess?.masterProcess?.process || 'UNKNOWN';
-            const sellingPoint = rp.setupProcess?.masterProcess?.sellingPoint || '-';
+            const uspName = rp.setupProcess?.masterUsp?.uspName || '-';
+            const isSellingPoint = rp.setupProcess?.isSellingPoint || false;
             const qtyChecking = rp.qtyChecking || 0;
             const qtyDefect = rp.rqcInspections.reduce((sum, insp) => sum + (insp.qtyDefect || 0), 0);
 
-            // Group by Selling Point
-            if (!sellingPointMap.has(sellingPoint)) {
-                sellingPointMap.set(sellingPoint, { totalChecking: 0, totalDefect: 0 });
+            // Group by USP Name
+            if (!sellingPointMap.has(uspName)) {
+                sellingPointMap.set(uspName, { totalChecking: 0, totalDefect: 0 });
             }
-            const spEntry = sellingPointMap.get(sellingPoint)!;
+            const spEntry = sellingPointMap.get(uspName)!;
             spEntry.totalChecking += qtyChecking;
             spEntry.totalDefect += qtyDefect;
 
@@ -1397,7 +1719,7 @@ export class RqcService {
             const areaEntry = areaMap.get(areaName)!;
 
             if (!areaEntry.processMap.has(processName)) {
-                areaEntry.processMap.set(processName, { processName, sellingPoint, totalChecking: 0, totalDefect: 0 });
+                areaEntry.processMap.set(processName, { processName, uspName, isSellingPoint, totalChecking: 0, totalDefect: 0 });
             }
             const procEntry = areaEntry.processMap.get(processName)!;
             procEntry.totalChecking += qtyChecking;
@@ -1421,7 +1743,8 @@ export class RqcService {
                 const passRate = proc.totalChecking > 0 ? 100 - defectRate : 0;
                 return {
                     processName: proc.processName,
-                    sellingPoint: proc.sellingPoint,
+                    uspName: proc.uspName,
+                    isSellingPoint: proc.isSellingPoint,
                     passRate,
                     defectRate
                 };
@@ -1429,9 +1752,255 @@ export class RqcService {
         }));
 
         return this.serializeBigInt({
-            sellingPoints,
+            uspGroups: sellingPoints,
             areas
         });
+    }
+
+    async getDefectCtqSummary(modelIdStr: string, startDate?: string, endDate?: string, cell?: string) {
+        const modelId = BigInt(modelIdStr);
+        let dateFilterRqc: any = undefined;
+        let dateFilterTqc: any = undefined;
+
+        if (startDate || endDate) {
+            dateFilterRqc = {};
+            dateFilterTqc = {};
+            if (startDate) {
+                dateFilterRqc.gte = new Date(startDate);
+                dateFilterTqc.gte = new Date(startDate);
+            }
+            if (endDate) {
+                dateFilterRqc.lte = new Date(`${endDate}T23:59:59.999Z`);
+                // Use Next day for TQC strings or just raw string logic if stored as YYYY-MM-DD
+                // Since TQC is 'DD/MM/YYYY' or parsed to Date depending on PR... wait we used Date for TQC too?
+                // Let's use raw dates if TQC stores them as Date? Actually TQC dates are stored as DateTime now.
+                dateFilterTqc.lte = new Date(`${endDate}T23:59:59.999Z`);
+            }
+        }
+
+        const rqcWhere: any = { setupModelId: modelId };
+        if (dateFilterRqc) rqcWhere.date = dateFilterRqc;
+        if (cell) rqcWhere.cell = cell;
+
+        // Fetch the model strictly for linking string names
+        const model = await this.prisma.setupModel.findUnique({ where: { setupModelId: modelId } });
+        if (!model) return { usps: [], rqcData: {}, tqcData: {}, rqcTopProcesses: [], tqcTopDefects: [] };
+
+        const tqcWhere: any = { model: model.modelName };
+        if (dateFilterTqc) tqcWhere.date = dateFilterTqc;
+        if (cell) tqcWhere.cell = cell;
+
+        // Fetch Setup to map USP
+        const setupProcs = await this.prisma.setupProcess.findMany({
+            where: { setupArea: { setupModelId: modelId } },
+            include: { masterProcess: true, masterUsp: true }
+        });
+        const processUspMap = new Map<bigint, string>();
+        const uspsSet = new Set<string>();
+
+        setupProcs.forEach(p => {
+            if (p.masterUsp) {
+                const uspName = p.masterUsp.uspName.toUpperCase();
+                processUspMap.set(p.setupProcessId, uspName);
+                uspsSet.add(uspName);
+            }
+        });
+
+        // 1. RQC KPI & Charts Base Data
+        const rqcHeaders = await this.prisma.rqcHeader.findMany({
+            where: rqcWhere,
+            include: {
+                rqcAreas: {
+                    include: {
+                        rqcProcesses: {
+                            include: { rqcInspections: { include: { masterDefect: true } } }
+                        }
+                    }
+                }
+            }
+        });
+
+        const rqcUspAggregates = new Map<string, { qtyCheck: number, qtyDefect: number }>();
+        const rqcProcessAggregates = new Map<string, { qtyCheck: number, qtyDefect: number, uspName: string | null, isSellingPoint: boolean }>();
+        const rqcDefectNameAggregates = new Map<string, { qtyDefect: number, uspName: string | null, isSellingPoint: boolean }>();
+
+        rqcHeaders.forEach(header => {
+            header.rqcAreas.forEach(area => {
+                area.rqcProcesses.forEach(proc => {
+                    const procName = setupProcs.find(sp => sp.setupProcessId === proc.setupProcessId)?.masterProcess.process || 'UNKNOWN';
+                    const uspName = processUspMap.get(proc.setupProcessId) || null;
+
+                    const isSellingPoint = setupProcs.find(sp => sp.setupProcessId === proc.setupProcessId)?.isSellingPoint || false;
+
+                    const qtyCheck = proc.qtyChecking;
+                    let qtyDefect = 0;
+
+                    proc.rqcInspections.forEach((ins: any) => {
+                        qtyDefect += ins.qtyDefect;
+                        const defectName = ins.masterDefect?.defect || 'UNKNOWN DEFECT';
+                        if (!rqcDefectNameAggregates.has(defectName)) {
+                            rqcDefectNameAggregates.set(defectName, { qtyDefect: 0, uspName, isSellingPoint: false });
+                        }
+                        rqcDefectNameAggregates.get(defectName)!.qtyDefect += ins.qtyDefect;
+                        rqcDefectNameAggregates.get(defectName)!.isSellingPoint ||= isSellingPoint;
+                    });
+
+                    // Add to process aggregation for chart
+                    if (!rqcProcessAggregates.has(procName)) {
+                        rqcProcessAggregates.set(procName, { qtyCheck: 0, qtyDefect: 0, uspName, isSellingPoint: false });
+                    }
+                    rqcProcessAggregates.get(procName)!.qtyCheck += qtyCheck;
+                    rqcProcessAggregates.get(procName)!.qtyDefect += qtyDefect;
+                    rqcProcessAggregates.get(procName)!.isSellingPoint ||= isSellingPoint;
+
+                    // Add to USP aggregation for KPI Boxes
+                    if (uspName) {
+                        if (!rqcUspAggregates.has(uspName)) {
+                            rqcUspAggregates.set(uspName, { qtyCheck: 0, qtyDefect: 0 });
+                        }
+                        rqcUspAggregates.get(uspName)!.qtyCheck += qtyCheck;
+                        rqcUspAggregates.get(uspName)!.qtyDefect += qtyDefect;
+                    }
+                });
+            });
+        });
+
+        // 2. TQC Base Data
+        const tqcRecords = await this.prisma.tqcReport.findMany({ where: tqcWhere });
+        const tqcDefectAggregates = new Map<string, { qtyDefect: number, uspName: string | null }>();
+        const tqcUspAggregates = new Map<string, { qtyDefect: number }>();
+
+        // Pre-calculate Global TQC Total Checking (960 per unique day and cell)
+        const globalTqcUniqueChecks = new Map<string, number>();
+
+        tqcRecords.forEach((t: any) => {
+            const cellKey = t.cell || t.building || 'no-cell';
+            const dateKey = t.date ? (typeof t.date === 'string' ? new Date(t.date).toISOString().split('T')[0] : t.date.toISOString().split('T')[0]) : 'no-date';
+            const uniqueDayCellKey = `${dateKey}_${cellKey}`;
+
+            globalTqcUniqueChecks.set(uniqueDayCellKey, 960);
+
+            const uspName = t.uspClassification ? t.uspClassification.toUpperCase() : null;
+            if (uspName) uspsSet.add(uspName); // Register any TQC USP just in case
+
+            const defName = t.defectName || 'Unmapped';
+            const qtyDefect = t.qtyDefect || 0;
+
+            // Add to defect aggregation for Chart (We group TQC by defect name since there's no process)
+            if (!tqcDefectAggregates.has(defName)) {
+                tqcDefectAggregates.set(defName, { qtyDefect: 0, uspName });
+            }
+            tqcDefectAggregates.get(defName)!.qtyDefect += qtyDefect;
+
+            // Add to USP aggregation for KPI Boxes
+            if (uspName) {
+                if (!tqcUspAggregates.has(uspName)) {
+                    tqcUspAggregates.set(uspName, { qtyDefect: 0 });
+                }
+                tqcUspAggregates.get(uspName)!.qtyDefect += qtyDefect;
+            }
+        });
+
+        let globalTqcTotalChecking = 0;
+        for (const qty of globalTqcUniqueChecks.values()) globalTqcTotalChecking += qty;
+
+        const usps = Array.from(uspsSet).sort();
+
+        // Format Output Logic
+        const rqcData: any = {};
+        const tqcData: any = {};
+        const rqcTopProcessesByUsp: any = {};
+        const rqcTopDefectsByUsp: any = {};
+        const tqcTopDefectsByUsp: any = {};
+
+        usps.forEach(u => {
+            // RQC Data Math (Average process pass rate per user request)
+            const processesForUsp = Array.from(rqcProcessAggregates.entries()).filter(([_, v]) => v.uspName === u);
+            let rqcUspsSumCheck = 0;
+            let rqcUspsSumDefect = 0;
+            let rqcUspsSumPassRate = 0;
+            let rqcUspsSumDefRate = 0;
+            let processCount = 0;
+
+            const rqcCharts = processesForUsp.map(([name, v]) => {
+                rqcUspsSumCheck += v.qtyCheck;
+                rqcUspsSumDefect += v.qtyDefect;
+                const defRate = v.qtyCheck > 0 ? (v.qtyDefect / v.qtyCheck) * 100 : 0;
+                const pRate = v.qtyCheck > 0 ? 100 - defRate : 0; // If checked, calculate pass rate
+
+                if (v.qtyCheck > 0) {
+                    rqcUspsSumPassRate += pRate;
+                    rqcUspsSumDefRate += defRate;
+                    processCount++;
+                }
+
+                return {
+                    name,
+                    rate: defRate,
+                    qty: v.qtyDefect,
+                    qtyCheck: v.qtyCheck,
+                    isUsp: v.isSellingPoint
+                };
+            }).sort((a, b) => b.rate - a.rate);
+
+            const rqcAvgPassRate = processCount > 0 ? Math.round((rqcUspsSumPassRate / processCount) * 100) / 100 : 0;
+            // Align Defect Rate to calculate based on Average Process Defect Rate instead of strict division
+            const rqcAvgDefRate = processCount > 0 ? Math.round((rqcUspsSumDefRate / processCount) * 100) / 100 : 0;
+
+            rqcData[u] = {
+                passRate: processCount > 0 ? rqcAvgPassRate : 100, // Show 100 if no checks yet
+                defectRate: rqcAvgDefRate,
+                qtyCheck: rqcUspsSumCheck,
+                qtyDefect: rqcUspsSumDefect
+            };
+            rqcTopProcessesByUsp[u] = rqcCharts;
+
+            const defectsForUspRqc = Array.from(rqcDefectNameAggregates.entries()).filter(([_, v]) => v.uspName === u);
+            rqcTopDefectsByUsp[u] = defectsForUspRqc.map(([name, v]) => ({
+                name,
+                qty: v.qtyDefect,
+                isUsp: v.isSellingPoint
+            })).sort((a, b) => b.qty - a.qty);
+
+            // TQC Data Math 
+            const defectsForUsp = Array.from(tqcDefectAggregates.entries()).filter(([_, v]) => v.uspName === u);
+            let tqcUspsSumCheck = globalTqcTotalChecking;
+            let tqcUspsSumDefect = 0;
+
+            const tqcAgg = tqcUspAggregates.get(u);
+            if (tqcAgg) {
+                tqcUspsSumDefect = tqcAgg.qtyDefect;
+            }
+
+            const tqcAvgDefRate = tqcUspsSumCheck > 0 ? Math.round(((tqcUspsSumDefect / tqcUspsSumCheck) * 100) * 100) / 100 : 0;
+            const tqcAvgPassRate = tqcUspsSumCheck > 0 ? Math.round((100 - tqcAvgDefRate) * 100) / 100 : 100; // TQC calculates usually global
+
+            tqcData[u] = {
+                passRate: tqcAvgPassRate,
+                defectRate: tqcAvgDefRate,
+                qtyCheck: tqcUspsSumCheck,
+                qtyDefect: tqcUspsSumDefect
+            };
+
+            const tqcCharts = defectsForUsp.map(([name, v]) => ({
+                name,
+                rate: tqcUspsSumCheck > 0 ? (v.qtyDefect / tqcUspsSumCheck) * 100 : 0,
+                qty: v.qtyDefect,
+                qtyCheck: tqcUspsSumCheck,
+                isUsp: true
+            })).sort((a, b) => b.rate - a.rate);
+
+            tqcTopDefectsByUsp[u] = tqcCharts;
+        });
+
+        return {
+            usps,
+            rqcData,
+            tqcData,
+            rqcTopProcessesByUsp,
+            rqcTopDefectsByUsp,
+            tqcTopDefectsByUsp
+        };
     }
 
     // Utility to serialize BigInts to string for JSON responses

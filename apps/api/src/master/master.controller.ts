@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { MasterService } from './master.service';
-import { CreateAreaDto, CreateProcessDto, CreateDefectDto, CreateFactoryDto, CreateUserDto, CreatePoDto, UpdateAreaDto, UpdateProcessDto, UpdateDefectDto, UpdateUserDto, UpdatePoDto } from './dto/master.dto';
+import { CreateAreaDto, CreateProcessDto, CreateDefectDto, CreateFactoryDto, CreateUserDto, CreatePoDto, UpdateAreaDto, UpdateProcessDto, UpdateDefectDto, UpdateUserDto, UpdatePoDto, CreateUspDto, UpdateUspDto } from './dto/master.dto';
 
 @Controller('master')
 export class MasterController {
@@ -63,6 +63,9 @@ export class MasterController {
         return this.masterService.bulkCreatePos(dtos);
     }
 
+    @Delete('pos')
+    async deleteAllPos() { return this.masterService.deleteAllPos(); }
+
     @Put('pos/:id')
     async updatePo(@Param('id') id: string, @Body() dto: UpdatePoDto) { return this.masterService.updatePo(id, dto); }
 
@@ -81,4 +84,22 @@ export class MasterController {
 
     @Delete('users/:nik')
     async deleteUser(@Param('nik') nik: string) { return this.masterService.deleteUser(nik); }
+
+    // --- USPs ---
+    @Get('usps')
+    async getUsps(
+        @Query('modelId') modelId?: string,
+        @Query('status') status?: string
+    ) {
+        return this.masterService.findAllUsps(modelId ? BigInt(modelId) : undefined, status);
+    }
+
+    @Post('usps')
+    async createUsp(@Body() dto: CreateUspDto) { return this.masterService.createUsp(dto); }
+
+    @Put('usps/:id')
+    async updateUsp(@Param('id') id: string, @Body() dto: UpdateUspDto) { return this.masterService.updateUsp(BigInt(id), dto); }
+
+    @Delete('usps/:id')
+    async deleteUsp(@Param('id') id: string) { return this.masterService.deleteUsp(BigInt(id)); }
 }

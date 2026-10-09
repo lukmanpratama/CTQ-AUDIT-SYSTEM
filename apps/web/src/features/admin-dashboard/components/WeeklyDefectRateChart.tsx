@@ -29,7 +29,7 @@ export function WeeklyDefectRateChart({ data, onWeekClick, onCapClick, activeFil
                 const year = parseInt(yStr, 10);
                 const weekNum = parseInt(wStr, 10);
                 const startDay = (weekNum - 1) * 7 + 1;
-                const endDay = Math.min(startDay + 6, new Date(year, monthIndex + 1, 0).getDate());
+                const endDay = weekNum === 4 ? new Date(year, monthIndex + 1, 0).getDate() : Math.min(startDay + 6, new Date(year, monthIndex + 1, 0).getDate());
                 const startD = new Date(year, monthIndex, startDay).getTime();
                 const endD = new Date(year, monthIndex, endDay, 23, 59, 59).getTime(); // exact end of day block
                 const dTime = new Date(activeFilter.start).getTime();

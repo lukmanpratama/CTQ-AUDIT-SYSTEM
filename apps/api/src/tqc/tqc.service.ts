@@ -1,9 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, OnModuleInit, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
-export class TqcService {
+export class TqcService implements OnModuleInit {
+    private readonly logger = new Logger(TqcService.name);
+
     constructor(private readonly prisma: PrismaService) { }
+
+    async onModuleInit() {
+        // Ensure new columns exist in the database without requiring prisma migrate/push
+        try {
+            await this.prisma.$executeRawUnsafe(
+                `ALTER TABLE tqc_report ADD COLUMN IF NOT EXISTS usp_classification VARCHAR(100)`
+            );
+            this.logger.log('DB migration: usp_classification column ensured on tqc_report');
+        } catch (e: any) {
+            this.logger.warn('DB migration check skipped: ' + e.message);
+        }
+    }
 
     async createMany(data: any[], moduleType: string) {
         // Delete existing data for this module to replace everything with the newly imported data
@@ -29,23 +43,94 @@ export class TqcService {
                 category: String(row.category || ''),
                 type: String(row.type || ''),
                 defectName: String(row.defectName || ''),
+                uspClassification: String(row.uspClassification || ''),
                 moduleType: moduleType.toUpperCase(),
             };
         });
 
-        // Use Prisma createMany to bulk insert
-        const result = await this.prisma.tqcReport.createMany({
-            data: records,
-            skipDuplicates: true, // Prevents failure if there are exact DB-level dupes, though we don't have a unique constraint here right now
-        });
+        // Use raw SQL batch insert to bypass Prisma client type validation
+        // This is required because the Prisma generated client may be stale after schema changes
+        try {
+            if (records.length === 0) return { count: 0 };
 
-        return { count: result.count };
+            const BATCH_SIZE = 100;
+            let totalInserted = 0;
+
+            for (let i = 0; i < records.length; i += BATCH_SIZE) {
+                const batch = records.slice(i, i + BATCH_SIZE);
+                const values = batch.map((r: any) => `(
+                    ${r.date instanceof Date ? `'${r.date.toISOString()}'` : `'${new Date(r.date).toISOString()}'`},
+                    ${r.time ? `'${String(r.time).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.building ? `'${String(r.building).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.cell ? `'${String(r.cell).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.model ? `'${String(r.model).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.article ? `'${String(r.article).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.orderNo ? `'${String(r.orderNo).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.seq != null ? Number(r.seq) : 'NULL'},
+                    ${r.pwiNo ? `'${String(r.pwiNo).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.qty != null ? Number(r.qty) : 'NULL'},
+                    ${r.qtyDefect != null ? Number(r.qtyDefect) : 'NULL'},
+                    ${r.qtyProduction != null ? Number(r.qtyProduction) : 'NULL'},
+                    ${r.destination ? `'${String(r.destination).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.category ? `'${String(r.category).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.type ? `'${String(r.type).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.defectName ? `'${String(r.defectName).replace(/'/g, "''")}'` : 'NULL'},
+                    ${r.uspClassification != null ? `'${String(r.uspClassification).replace(/'/g, "''")}'` : 'NULL'},
+                    '${String(r.moduleType).replace(/'/g, "''")}'
+                )`).join(',');
+
+                const sql = `INSERT INTO tqc_report (
+                    date, time, building, cell, model, article, order_no, seq, pwi_no,
+                    qty, qty_defect, qty_production, destination, category, type,
+                    defect_name, usp_classification, module_type
+                ) VALUES ${values}`;
+
+                await this.prisma.$executeRawUnsafe(sql);
+                totalInserted += batch.length;
+            }
+
+            return { count: totalInserted };
+        } catch (error) {
+            console.error("TQC UPLOAD DB ERROR:", error);
+            throw new HttpException(`Failed to upload to DB: ${(error as any).message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 
     async getByModule(moduleType: string) {
-        const records = await this.prisma.tqcReport.findMany({
-            where: { moduleType: moduleType.toUpperCase() },
-            orderBy: { date: 'desc' }
+        // Use raw SQL to bypass Prisma Client's stale schema and fetch all columns including usp_classification
+        const recordsRaw = await this.prisma.$queryRawUnsafe<any[]>(
+            `SELECT * FROM tqc_report WHERE module_type = $1 ORDER BY date DESC, tqc_id DESC`,
+            moduleType.toUpperCase()
+        );
+
+        // Map columns correctly, checking both snake_case (native SQL) and camelCase (Prisma parsed) returns
+        // PostgreSQL returns all column names in lowercase (e.g. orderno, defectname) if they weren't quoted.
+        const records = recordsRaw.map(r => {
+            const getProp = (snake: string, camel: string, flat: string) =>
+                r[snake] !== undefined ? r[snake] : (r[camel] !== undefined ? r[camel] : r[flat]);
+
+            return {
+                tqcId: getProp('tqc_id', 'tqcId', 'tqcid'),
+                date: r.date,
+                time: r.time,
+                building: r.building,
+                cell: r.cell,
+                model: r.model,
+                article: r.article,
+                orderNo: getProp('order_no', 'orderNo', 'orderno'),
+                seq: r.seq,
+                pwiNo: getProp('pwi_no', 'pwiNo', 'pwino'),
+                qty: r.qty,
+                qtyDefect: getProp('qty_defect', 'qtyDefect', 'qtydefect'),
+                qtyProduction: getProp('qty_production', 'qtyProduction', 'qtyproduction'),
+                destination: r.destination,
+                category: r.category,
+                type: r.type,
+                defectName: getProp('defect_name', 'defectName', 'defectname'),
+                uspClassification: getProp('usp_classification', 'uspClassification', 'uspclassification'),
+                moduleType: getProp('module_type', 'moduleType', 'moduletype'),
+                createdAt: getProp('created_at', 'createdAt', 'createdat')
+            };
         });
 
         const normalizeName = (name: string) => name ? name.replace(/\s+/g, ' ').trim().toLowerCase() : '';

@@ -45,3 +45,13 @@ export class UpdateModelNameDto {
     @IsNotEmpty()
     modelName!: string;
 }
+
+export class UpdateSetupProcessDto {
+    @IsString()
+    @IsOptional()
+    uspId?: string | null;
+
+    @IsBoolean()
+    @IsOptional()
+    isSellingPoint?: boolean;
+}

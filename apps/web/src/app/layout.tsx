@@ -15,7 +15,18 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full" suppressHydrationWarning>
-      <body className="h-full" suppressHydrationWarning>{children}</body>
+      <body className="h-full" suppressHydrationWarning>
+        <div className="flex flex-col min-h-screen">
+          <main className="flex-1 pb-6 w-full relative">
+            {children}
+          </main>
+          <footer className="fixed bottom-0 left-0 w-full z-[9999] bg-white/90 backdrop-blur-md border-t border-gray-200 text-center py-1 flex items-center justify-center">
+            <span className="text-[10px] font-extrabold tracking-widest text-[#B0BEC5] uppercase">
+              DEVELOP BY QUALITY DIGITAL TEAM @2026
+            </span>
+          </footer>
+        </div>
+      </body>
     </html>
   );
 }

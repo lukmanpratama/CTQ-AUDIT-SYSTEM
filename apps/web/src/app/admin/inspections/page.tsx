@@ -21,6 +21,9 @@ export default function AdminInspectionsPage() {
         cells: [] as string[]
     });
 
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
     const loadHeaders = () => {
         setLoading(true);
         const params = new URLSearchParams();
@@ -68,12 +71,50 @@ export default function AdminInspectionsPage() {
             if (res.ok) {
                 // Refresh data
                 loadHeaders();
+                setSelectedIds(prev => prev.filter(id => id !== headerId));
             } else {
                 alert('Gagal menghapus report.');
             }
         } catch (error) {
             console.error(error);
             alert('Terjadi kesalahan.');
+        }
+    };
+
+    const toggleSelectAll = (modelHeaders: any[]) => {
+        const ids = modelHeaders.map((h: any) => h.rqcHeaderId);
+        const allSelected = ids.every((id: string) => selectedIds.includes(id));
+        if (allSelected) {
+            setSelectedIds(prev => prev.filter(id => !ids.includes(id)));
+        } else {
+            setSelectedIds(prev => Array.from(new Set([...prev, ...ids])));
+        }
+    };
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev =>
+            prev.includes(id) ? prev.filter(selectedId => selectedId !== id) : [...prev, id]
+        );
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedIds.length === 0) return;
+        if (!confirm(`Apakah anda yakin ingin menghapus ${selectedIds.length} report ini? Data inspeksi di dalamnya akan ikut terhapus permanen.`)) {
+            return;
+        }
+
+        setIsDeletingBulk(true);
+        try {
+            await Promise.all(
+                selectedIds.map(id => fetch(`/api/rqc/headers/${id}`, { method: 'DELETE' }))
+            );
+            loadHeaders();
+            setSelectedIds([]);
+        } catch (error) {
+            console.error(error);
+            alert('Terjadi kesalahan saat menghapus data.');
+        } finally {
+            setIsDeletingBulk(false);
         }
     };
 
@@ -178,6 +219,19 @@ export default function AdminInspectionsPage() {
                 </div>
             </div>
 
+            {selectedIds.length > 0 && (
+                <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex justify-between items-center transition-all">
+                    <span className="text-red-800 text-sm font-semibold">{selectedIds.length} Data report terpilih</span>
+                    <button
+                        onClick={handleBulkDelete}
+                        disabled={isDeletingBulk}
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                        {isDeletingBulk ? 'Menghapus...' : 'Hapus Terpilih'}
+                    </button>
+                </div>
+            )}
+
             {loading ? (
                 <div className="py-20 text-center text-gray-400 font-medium animate-pulse">Loading inspection results...</div>
             ) : Object.keys(groupedByModel).length === 0 ? (
@@ -197,6 +251,14 @@ export default function AdminInspectionsPage() {
                                 <table className="w-full text-sm text-left">
                                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
                                         <tr>
+                                            <th className="px-5 py-3 w-4">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                    checked={modelHeaders.length > 0 && modelHeaders.every((h: any) => selectedIds.includes(h.rqcHeaderId))}
+                                                    onChange={() => toggleSelectAll(modelHeaders)}
+                                                />
+                                            </th>
                                             <th className="px-5 py-3 font-semibold">Date</th>
                                             <th className="px-5 py-3 font-semibold">Time</th>
                                             <th className="px-5 py-3 font-semibold">Factory</th>
@@ -232,6 +294,14 @@ export default function AdminInspectionsPage() {
 
                                             return (
                                                 <tr key={h.rqcHeaderId} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="px-5 py-3">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                            checked={selectedIds.includes(h.rqcHeaderId)}
+                                                            onChange={() => toggleSelect(h.rqcHeaderId)}
+                                                        />
+                                                    </td>
                                                     <td className="px-5 py-3 text-gray-900 font-medium">{formatDate(h.date)}</td>
                                                     <td className="px-5 py-3 text-gray-600">{h.checkingTime}</td>
                                                     <td className="px-5 py-3 text-gray-600">{h.factory?.factory || '-'}</td>

@@ -4,6 +4,15 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { use } from 'react';
 
+const processImageUrl = (url: string) => {
+    if (!url) return '';
+    if (url.includes('/ctqaudit/')) {
+        const parts = url.split('/ctqaudit/');
+        if (parts.length > 1) return `/api/files/${parts[1]}`;
+    }
+    return url;
+};
+
 export default function AuditSessionPage(props: { params: Promise<{ headerId: string }>; searchParams?: Promise<{ [key: string]: string | string[] | undefined }> }) {
     const router = useRouter();
     const resolvedParams = use(props.params);
@@ -25,6 +34,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
     const [qtyChecking, setQtyChecking] = useState('20');
     const [qtyDefect, setQtyDefect] = useState('');
     const [savingDefect, setSavingDefect] = useState(false);
+    const [savingProcessId, setSavingProcessId] = useState<string | null>(null);
 
     // Form Action Fields
     const [actionPlan, setActionPlan] = useState('');
@@ -42,6 +52,9 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
     // Accordion state
     const [expandedArea, setExpandedArea] = useState<string | null>(null);
+
+    // Edit mode tracking
+    const [isEditMode, setIsEditMode] = useState(false);
 
     // Validation State
     const [attemptedNext, setAttemptedNext] = useState(false);
@@ -91,20 +104,39 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         return { total, completed };
     };
 
-    const handleOpenDefectModal = (area: any, process: any) => {
+    const handleOpenDefectModal = (area: any, process: any, existingInsp?: any) => {
         setModalArea(area);
         setModalProcess(process);
-        setModalDefectId('');
-        setQtyChecking('20');
-        setQtyDefect('');
-        setActionPlan('');
-        setRootCause('');
-        setCorrective('');
-        setDurasiStopline('15');
-        setDefectPhotoPreview(null);
-        setImprovementPhotoPreview(null);
-        setDefectPhotoFile(null);
-        setImprovementPhotoFile(null);
+        if (existingInsp) {
+            // Edit mode: pre-fill all fields from existing inspection
+            setIsEditMode(true);
+            setModalDefectId(String(existingInsp.defectId));
+            const savedProc = getSavedProcessState(area.setupAreaId, process.setupProcessId);
+            setQtyChecking(String(savedProc?.qtyChecking || 20));
+            setQtyDefect(String(existingInsp.qtyDefect || ''));
+            setActionPlan(existingInsp.actionPlan || '');
+            setRootCause(existingInsp.rootCause || '');
+            setCorrective(existingInsp.corrective || '');
+            setDurasiStopline(String(existingInsp.durasiStopline || 15));
+            setDefectPhotoPreview(existingInsp.photoDefect || null);
+            setImprovementPhotoPreview(existingInsp.photoAfterActionPlan || null);
+            setDefectPhotoFile(null);
+            setImprovementPhotoFile(null);
+        } else {
+            // New mode: reset all fields
+            setIsEditMode(false);
+            setModalDefectId('');
+            setQtyChecking('20');
+            setQtyDefect('');
+            setActionPlan('');
+            setRootCause('');
+            setCorrective('');
+            setDurasiStopline('15');
+            setDefectPhotoPreview(null);
+            setImprovementPhotoPreview(null);
+            setDefectPhotoFile(null);
+            setImprovementPhotoFile(null);
+        }
         setIsDefectModalOpen(true);
     };
 
@@ -124,16 +156,25 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         }
     };
 
-    const fileToBase64 = (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+    const uploadToMinio = async (file: File): Promise<string | undefined> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch('/api/files/upload', {
+                method: 'POST',
+                body: formData,
+            });
+            if (!res.ok) throw new Error('Upload failed');
+            const data = await res.json();
+            return data.url;
+        } catch (err) {
+            console.error('Failed to upload file to MinIO', err);
+            return undefined;
+        }
     };
 
     const handleSaveNoDefect = async (area: any, process: any) => {
+        setSavingProcessId(process.setupProcessId);
         const payload = {
             qtyChecking: 20,
             defects: []
@@ -160,6 +201,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         } catch (err) {
             console.error(err);
             alert('A network error occurred.');
+        } finally {
+            setSavingProcessId(null);
         }
     };
 
@@ -194,18 +237,18 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
         setSavingDefect(true);
 
-        // Convert photos to base64 if captured
-        let photoDefectBase64: string | undefined;
-        let photoAfterBase64: string | undefined;
+        // Upload photos to MinIO if captured
+        let photoDefectUrl: string | undefined;
+        let photoAfterUrl: string | undefined;
         try {
             if (defectPhotoFile) {
-                photoDefectBase64 = await fileToBase64(defectPhotoFile);
+                photoDefectUrl = await uploadToMinio(defectPhotoFile);
             }
             if (improvementPhotoFile) {
-                photoAfterBase64 = await fileToBase64(improvementPhotoFile);
+                photoAfterUrl = await uploadToMinio(improvementPhotoFile);
             }
         } catch (err) {
-            console.error('Failed to convert photo to base64', err);
+            console.error('Failed to upload photos to MinIO', err);
         }
 
         const payload = {
@@ -218,8 +261,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                     rootCause: rootCause || undefined,
                     corrective: corrective || undefined,
                     durasiStopline: parseInt(durasiStopline) || undefined,
-                    photoDefect: photoDefectBase64 || undefined,
-                    photoAfterActionPlan: photoAfterBase64 || undefined
+                    photoDefect: photoDefectUrl || undefined,
+                    photoAfterActionPlan: photoAfterUrl || undefined
                 }
             ]
         };
@@ -282,7 +325,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col pb-24 relative sm:max-w-md sm:mx-auto shadow-xl bg-white border-x">
+        <div className="min-h-screen bg-gray-50 flex flex-col pb-24 relative">
 
             {/* Top Navigation Bar from Design */}
             <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-20">
@@ -311,22 +354,22 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             </nav>
 
             {/* Stepper UI Progress - Inspection is Active */}
-            <div className="bg-white px-2 py-4 shadow-sm mb-4 flex justify-center items-center text-xs font-bold border-b border-gray-100 sticky top-14 z-20">
+            <div className="bg-white px-2 py-5 shadow-sm mb-6 flex justify-center items-center text-sm font-medium sticky top-[56px] z-20">
                 <div className="flex items-center text-primary-600">
-                    <svg className="w-4 h-4 mr-1 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg> Header
+                    <svg className="w-4 h-4 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg> Header
                 </div>
-                <div className="w-6 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-900">
-                    <span className="w-3 h-3 rounded-full bg-gray-900 flex-shrink-0 mr-1"></span> Inspection
+                <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                <div className="flex items-center text-gray-900 font-bold">
+                    <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Inspection
                 </div>
-                <div className="w-6 h-px bg-gray-300 mx-2"></div>
+                <div className="w-8 h-px bg-gray-300 mx-2"></div>
                 <div className="flex items-center text-gray-400">
-                    <span className="w-3 h-3 rounded-full border-2 border-gray-300 flex-shrink-0 mr-1"></span> Summary
+                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Summary
                 </div>
             </div>
 
             {/* Content List */}
-            <div className="flex-1 px-4 overflow-y-auto w-full pb-10">
+            <div className="flex-1 px-4 overflow-y-auto w-full pb-10 max-w-2xl mx-auto">
                 {tree.map(area => {
                     const { total, completed } = getAreaProgress(area);
                     const isExpanded = expandedArea === area.setupAreaId;
@@ -421,8 +464,16 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                                     const ratePct = (insp.defectRate * 100).toFixed(2);
 
                                                     return (
-                                                        <div key={insp.rqcInspectionId} className="ml-4 mb-3 p-4 bg-white border rounded-xl shadow-sm">
-                                                            <p className="font-bold text-gray-900 border-b pb-2 mb-2 text-sm">{defectName}</p>
+                                                        <div key={insp.rqcInspectionId} className={`ml-4 mb-3 p-4 bg-white border rounded-xl shadow-sm ${!viewOnly ? 'cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all' : ''}`}
+                                                            onClick={() => { if (!viewOnly) handleOpenDefectModal(area, proc, insp); }}
+                                                        >
+                                                            <div className="flex justify-between items-center">
+                                                                <p className="font-bold text-gray-900 text-sm">{defectName}</p>
+                                                                {!viewOnly && (
+                                                                    <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">✏️ Edit</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="border-b my-2"></div>
                                                             <div className="flex justify-between items-center text-xs text-gray-600 mb-2">
                                                                 <span className="font-semibold">Qty : {insp.qtyDefect} / {savedProcess.qtyChecking}</span>
                                                                 <span className="font-semibold">Rate : {ratePct}%</span>
@@ -438,6 +489,23 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                                             {insp.status === 'CAP' && (
                                                                 <div className={`mt-2 px-2 py-1.5 rounded-md text-xs font-bold text-center border ${insp.rootCause ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                                                                     {insp.rootCause ? '✔️ CAP sudah diisi' : '❌ CAP belum diisi'}
+                                                                </div>
+                                                            )}
+                                                            {/* Photo Thumbnails */}
+                                                            {(insp.photoDefect || insp.photoAfterActionPlan) && (
+                                                                <div className="flex gap-3 mt-3 pt-3 border-t border-gray-100">
+                                                                    {insp.photoDefect && (
+                                                                        <div className="flex-1">
+                                                                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">📷 Foto Defect</p>
+                                                                            <img src={processImageUrl(insp.photoDefect)} alt="Defect" className="w-full h-24 object-cover rounded-lg border border-gray-200 shadow-sm cursor-pointer hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); window.open(processImageUrl(insp.photoDefect), '_blank'); }} />
+                                                                        </div>
+                                                                    )}
+                                                                    {insp.photoAfterActionPlan && (
+                                                                        <div className="flex-1">
+                                                                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">📷 Foto Improvement</p>
+                                                                            <img src={processImageUrl(insp.photoAfterActionPlan)} alt="Improvement" className="w-full h-24 object-cover rounded-lg border border-gray-200 shadow-sm cursor-pointer hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); window.open(processImageUrl(insp.photoAfterActionPlan), '_blank'); }} />
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -458,10 +526,18 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                                         {!isCompleted && (
                                                             <button
                                                                 onClick={() => handleSaveNoDefect(area, proc)}
-                                                                className="flex-1 py-3 text-sm font-semibold text-green-600 hover:text-green-700 border-2 border-dashed border-green-300 rounded-xl hover:bg-green-50 hover:border-green-400 transition-colors flex items-center justify-center"
+                                                                disabled={savingProcessId === proc.setupProcessId}
+                                                                className="flex-1 py-3 text-sm font-semibold text-green-600 hover:text-green-700 border-2 border-dashed border-green-300 rounded-xl hover:bg-green-50 hover:border-green-400 transition-colors flex items-center justify-center disabled:opacity-50"
                                                             >
-                                                                <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                                                                No Defect
+                                                                {savingProcessId === proc.setupProcessId ? (
+                                                                    <svg className="animate-spin h-5 w-5 mr-1 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                    </svg>
+                                                                ) : (
+                                                                    <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                                                )}
+                                                                {savingProcessId === proc.setupProcessId ? 'Saving...' : 'No Defect'}
                                                             </button>
                                                         )}
 
@@ -487,36 +563,38 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             </div>
 
             {/* Bottom Navigation */}
-            <div className="fixed bottom-0 left-0 w-full bg-white border-t p-4 z-10 flex flex-col gap-3 sm:max-w-md sm:translate-x-[-50%] sm:left-1/2 rounded-b-lg">
-                {!viewOnly && attemptedNext && !isAllCompleted && (
-                    <div className="text-center text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-200 mb-[-4px]">
-                        Harap isi semua inspeksi sebelum melanjutkan ({totalProgress.completed}/{totalProgress.total} selesai)
-                    </div>
-                )}
-                {viewOnly ? (
-                    <button
-                        onClick={() => router.push(`/audit/session/${headerId}/summary?view=true${source ? `&source=${source}` : ''}`)}
-                        className="w-full flex-1 py-3 bg-gray-900 text-white font-bold rounded-lg shadow-md hover:bg-gray-800 transition-colors"
-                    >
-                        Back to Summary
-                    </button>
-                ) : (
-                    <div className="flex justify-between gap-4">
+            <div className="fixed bottom-0 left-0 w-full bg-white border-t p-4 z-10">
+                <div className="max-w-2xl mx-auto w-full flex flex-col gap-3">
+                    {!viewOnly && attemptedNext && !isAllCompleted && (
+                        <div className="text-center text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-200 mb-[-4px]">
+                            Harap isi semua inspeksi sebelum melanjutkan ({totalProgress.completed}/{totalProgress.total} selesai)
+                        </div>
+                    )}
+                    {viewOnly ? (
                         <button
-                            onClick={() => router.push('history')}
-                            className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-lg"
+                            onClick={() => router.push(`/audit/session/${headerId}/summary?view=true${source ? `&source=${source}` : ''}`)}
+                            className="w-full flex-1 py-3 bg-gray-900 text-white font-bold rounded-lg shadow-md hover:bg-gray-800 transition-colors"
                         >
-                            Previous
+                            Back to Summary
                         </button>
-                        <button
-                            onClick={handleNextClick}
-                            disabled={!isAllCompleted && attemptedNext}
-                            className={`flex-1 py-3 font-bold rounded-lg shadow-md transition-colors ${!isAllCompleted && attemptedNext ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
-                        >
-                            Next
-                        </button>
-                    </div>
-                )}
+                    ) : (
+                        <div className="flex justify-between gap-4">
+                            <button
+                                onClick={() => router.push('history')}
+                                className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-lg"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                onClick={handleNextClick}
+                                disabled={!isAllCompleted && attemptedNext}
+                                className={`flex-1 py-3 font-bold rounded-lg shadow-md transition-colors ${!isAllCompleted && attemptedNext ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
+                            >
+                                Next
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Add Defect Modal */}
@@ -524,7 +602,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm sm:max-w-md sm:mx-auto">
                     <div className="bg-white w-full rounded-2xl shadow-xl flex flex-col max-h-[90vh]">
                         <div className="p-5 border-b sticky top-0 bg-white rounded-t-2xl z-10">
-                            <h2 className="text-lg font-bold text-gray-900">Add Defect</h2>
+                            <h2 className="text-lg font-bold text-gray-900">{isEditMode ? 'Edit Defect' : 'Add Defect'}</h2>
                             <p className="text-xs text-gray-500 mt-1 uppercase">{modalProcess?.masterProcess.process}</p>
                         </div>
 

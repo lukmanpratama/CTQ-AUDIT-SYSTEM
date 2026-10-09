@@ -1,1 +1,1 @@
-fetch('http://127.0.0.1:3001/rqc/headers').then(r => r.json()).then(d => console.log(JSON.stringify(d).substring(0, 2000)))
+fetch('http://localhost:3001/api/ctq-setup/models').then(async r => console.log(r.status, await r.json())).catch(console.error);

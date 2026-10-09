@@ -33,7 +33,7 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(',')
-      : ['http://localhost:3000', 'http://192.168.43.210:3000'],
+      : '*',
     credentials: true,
   });
 
@@ -80,7 +80,7 @@ async function bootstrap() {
   // Start Server
   // ─────────────────────────────────────────────
   const port = process.env.PORT || 3001;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`🚀 CTQ Audit API running on: http://localhost:${port}/api`);
 }
 

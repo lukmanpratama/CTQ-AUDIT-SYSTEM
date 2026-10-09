@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
-import { CreateModelDto, LinkAreaDto, LinkProcessDto, LinkDefectDto, UploadPictureDto, UpdateModelNameDto, UploadAuditFileDto } from './dto/ctq-setup.dto';
+import { CreateModelDto, LinkAreaDto, LinkProcessDto, LinkDefectDto, UploadPictureDto, UpdateModelNameDto, UploadAuditFileDto, UpdateSetupProcessDto } from './dto/ctq-setup.dto';
 import { CtqSetupService } from './ctq-setup.service';
 
 @Controller('ctq-setup')
@@ -52,6 +52,11 @@ export class CtqSetupController {
     @Post('areas/:setupAreaId/processes')
     async linkProcess(@Param('setupAreaId') setupAreaId: string, @Body() body: LinkProcessDto) {
         return this.ctqSetupService.linkProcessToArea(setupAreaId, body.processId);
+    }
+
+    @Patch('processes/:setupProcessId')
+    async updateProcess(@Param('setupProcessId') setupProcessId: string, @Body() body: UpdateSetupProcessDto) {
+        return this.ctqSetupService.updateSetupProcess(setupProcessId, body);
     }
 
     @Post('processes/:setupProcessId/defects')

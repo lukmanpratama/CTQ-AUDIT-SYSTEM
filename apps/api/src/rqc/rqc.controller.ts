@@ -1,6 +1,7 @@
-import { Controller, Post, Body, Param, Get, Delete, Query } from '@nestjs/common';
+import { Controller, Post, Body, Param, Get, Delete, Query, UseInterceptors } from '@nestjs/common';
 import { RqcService } from './rqc.service';
 import { CreateHeaderDto, CreateInspectionDto } from './rqc.dto';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 
 @Controller('rqc')
 export class RqcController {
@@ -12,6 +13,7 @@ export class RqcController {
     }
 
     @Get('kpis')
+    @UseInterceptors(CacheInterceptor)
     async getKpis(
         @Query('modelId') modelId?: string,
         @Query('areaId') areaId?: string,
@@ -25,18 +27,22 @@ export class RqcController {
     }
 
     @Get('trends')
+    @UseInterceptors(CacheInterceptor)
     async getTrends(
         @Query('modelId') modelId?: string,
         @Query('areaId') areaId?: string,
+        @Query('areaName') areaName?: string,
         @Query('startDate') startDate?: string,
         @Query('endDate') endDate?: string,
         @Query('factoryId') factoryId?: string,
         @Query('cell') cell?: string,
+        @Query('checkingTime') checkingTime?: string,
     ) {
-        return this.rqcService.getTrends({ modelId, areaId, startDate, endDate, factoryId, cell });
+        return this.rqcService.getTrends({ modelId, areaId, areaName, startDate, endDate, factoryId, cell, checkingTime });
     }
 
     @Get('dashboard/cap-data')
+    @UseInterceptors(CacheInterceptor)
     async getCapData(
         @Query('modelId') modelId?: string,
         @Query('startDate') startDate?: string,
@@ -48,17 +54,32 @@ export class RqcController {
     }
 
     @Get('process-defects')
+    @UseInterceptors(CacheInterceptor)
     async getProcessDefects(
         @Query('modelId') modelId?: string,
         @Query('startDate') startDate?: string,
         @Query('endDate') endDate?: string,
         @Query('factoryId') factoryId?: string,
         @Query('cell') cell?: string,
+        @Query('checkingTime') checkingTime?: string,
     ) {
-        return this.rqcService.getProcessDefects({ modelId, startDate, endDate, factoryId, cell });
+        return this.rqcService.getProcessDefects({ modelId, startDate, endDate, factoryId, cell, checkingTime });
+    }
+
+    @Get('defect-ctq-summary')
+    @UseInterceptors(CacheInterceptor)
+    async getDefectCtqSummary(
+        @Query('modelId') modelId: string,
+        @Query('startDate') startDate?: string,
+        @Query('endDate') endDate?: string,
+        @Query('cell') cell?: string
+    ) {
+        if (!modelId) throw new Error('Model ID is required');
+        return this.rqcService.getDefectCtqSummary(modelId, startDate, endDate, cell);
     }
 
     @Get('ctq-details')
+    @UseInterceptors(CacheInterceptor)
     async getCtqDetails(
         @Query('modelId') modelId: string,
         @Query('ctqType') ctqType: string,
@@ -66,6 +87,16 @@ export class RqcController {
         @Query('endDate') endDate?: string
     ) {
         return this.rqcService.getCtqDetails({ modelId, ctqType, startDate, endDate });
+    }
+
+    @Get('tqc-eol-summary')
+    async getTqcEolSummary(
+        @Query('modelId') modelId?: string,
+        @Query('startDate') startDate?: string,
+        @Query('endDate') endDate?: string,
+        @Query('cell') cell?: string
+    ) {
+        return this.rqcService.getTqcEolSummary({ modelId, startDate, endDate, cell });
     }
 
     @Get('recent-inspections')
@@ -84,6 +115,18 @@ export class RqcController {
     @Get('filters')
     async getFilters() {
         return this.rqcService.getDashboardFilterOptions();
+    }
+
+    @Get('immediate-actions')
+    async getImmediateActions(
+        @Query('modelId') modelId?: string,
+        @Query('startDate') startDate?: string,
+        @Query('endDate') endDate?: string,
+        @Query('factoryId') factoryId?: string,
+        @Query('cell') cell?: string,
+        @Query('areaName') areaName?: string,
+    ) {
+        return this.rqcService.getImmediateActionData({ modelId, startDate, endDate, factoryId, cell, areaName });
     }
 
     @Get('headers')

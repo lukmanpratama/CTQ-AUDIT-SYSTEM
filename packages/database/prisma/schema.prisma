@@ -1,5 +1,6 @@
 generator client {
   provider      = "prisma-client-js"
+  output        = "../../../node_modules/.prisma/client"
   binaryTargets = ["windows", "linux-musl-openssl-3.0.x"]
 }
 
@@ -37,6 +38,25 @@ model MasterDefect {
   setupDefects   SetupDefect[]
 
   @@map("master_defect")
+}
+
+/// Kamus USP (Selling Point)
+model MasterUsp {
+  uspId        BigInt     @id @default(autoincrement()) @map("usp_id")
+  setupModelId BigInt     @map("setup_model_id")
+  uspCode      String     @map("usp_code") @db.VarChar(50)
+  uspName      String     @map("usp_name") @db.VarChar(150)
+  description  String?    @db.Text
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  setupModel     SetupModel     @relation(fields: [setupModelId], references: [setupModelId])
+  setupProcesses SetupProcess[]
+
+  @@unique([setupModelId, uspCode])
+  @@unique([setupModelId, uspName])
+  @@map("master_usp")
 }
 
 /// Kamus Factory
@@ -84,6 +104,7 @@ model SetupModel {
   poMappings   ModelPoMapping[]
   rqcHeaders   RqcHeader[]
   setupAreas   SetupArea[]
+  masterUsps   MasterUsp[]
 
   @@map("setup_model")
 }
@@ -121,10 +142,13 @@ model SetupProcess {
   setupProcessId BigInt        @id @default(autoincrement()) @map("setup_process_id")
   setupAreaId    BigInt        @map("setup_area_id")
   processId      BigInt        @map("process_id")
+  uspId          BigInt?       @map("usp_id")
+  isSellingPoint Boolean       @default(false) @map("is_selling_point_usp")
   rqcProcesses   RqcProcess[]
   setupDefects   SetupDefect[]
   masterProcess  MasterProcess @relation(fields: [processId], references: [processId])
   setupArea      SetupArea     @relation(fields: [setupAreaId], references: [setupAreaId])
+  masterUsp      MasterUsp?    @relation(fields: [uspId], references: [uspId])
 
   @@unique([setupAreaId, processId])
   @@index([setupAreaId], map: "idx_setup_process_area")
@@ -211,6 +235,7 @@ model RqcInspection {
   rqcInspectionId      String       @id @default(uuid()) @map("rqc_inspection_id") @db.Uuid
   rqcProcessId         String       @map("rqc_process_id") @db.Uuid
   defectId             BigInt       @map("defect_id")
+  date                 DateTime?    @db.Date
   qtyDefect            Int          @map("qty_defect")
   defectRate           Decimal      @map("defect_rate") @db.Decimal(8, 5)
   passRate             Decimal      @map("pass_rate") @db.Decimal(8, 5)
@@ -263,7 +288,8 @@ model TqcReport {
   destination  String?  @db.VarChar(100)
   category     String?  @db.VarChar(50)
   type         String?  @db.VarChar(100)
-  defectName   String?  @map("defect_name") @db.VarChar(200)
+  defectName         String?  @map("defect_name") @db.VarChar(200)
+  uspClassification  String?  @map("usp_classification") @db.VarChar(100)
   moduleType   String   @map("module_type") @db.VarChar(50) /// "ASSEMBLY", "SEWING", "TREATMENT"
 
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

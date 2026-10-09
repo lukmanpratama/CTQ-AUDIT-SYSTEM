@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList } from 'recharts';
+import { PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList, Tooltip } from 'recharts';
 import { apiClient } from '../../../lib/api-client';
 
 export function RqcInlineClient({ searchParams }: { searchParams: any }) {
@@ -77,11 +77,22 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     const [activeDateFilter, setActiveDateFilter] = useState<string | null>(null);
     const [activeAreaFilter, setActiveAreaFilter] = useState<string | null>(null);
 
+    const [globalStartDate, setGlobalStartDate] = useState<string>('');
+    const [globalEndDate, setGlobalEndDate] = useState<string>('');
+    const [checkingTimeFilter, setCheckingTimeFilter] = useState<string>('CHECKING TIME');
+
     // ---- Data State ----
     const [kpiData, setKpiData] = useState<any>(null);
     const [trendsData, setTrendsData] = useState<any[]>([]);
     const [processDefectData, setProcessDefectData] = useState<any>(null);
     const [loadingData, setLoadingData] = useState(false);
+
+    // ---- Immediate Action Modal State ----
+    const [isImmediateActionModalOpen, setIsImmediateActionModalOpen] = useState(false);
+    const [immediateActionData, setImmediateActionData] = useState<any[]>([]);
+    const [immediateActionStartDate, setImmediateActionStartDate] = useState('');
+    const [immediateActionEndDate, setImmediateActionEndDate] = useState('');
+    const [loadingImmediateAction, setLoadingImmediateAction] = useState(false);
 
     const currentCell = activeTab === 'TREATMENT' ? activeTreatmentSubTab : activeTab;
 
@@ -91,43 +102,107 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
         setActiveAreaFilter(null);
     }, [currentCell]);
 
+    // 1. Fetch Process Defects (Independent of Area Filter so navigation persists)
     useEffect(() => {
-        if (!modelId || !currentCell) {
-            return;
-        }
+        if (!modelId || !currentCell) return;
+        if (activeTab === 'TREATMENT') return; // Handled elsewhere or not needed
 
-        const fetchData = async () => {
+        const fetchProcessDefects = async () => {
             setLoadingData(true);
             try {
-                // Determine dates based on filter
                 let dateParam = '';
                 if (activeDateFilter) {
-                    // Try parsing activeDateFilter ('20 Jul 2026' -> YYYY-MM-DD for standardizing API calls)
                     const parsedDate = new Date(activeDateFilter);
                     if (!isNaN(parsedDate.getTime())) {
                         const isoDate = parsedDate.toISOString().split('T')[0];
                         dateParam = `&startDate=${isoDate}&endDate=${isoDate}`;
                     }
+                } else {
+                    if (globalStartDate) dateParam += `&startDate=${globalStartDate}`;
+                    if (globalEndDate) dateParam += `&endDate=${globalEndDate}`;
                 }
 
-                const [resKpis, resTrends, resProcess] = await Promise.all([
-                    apiClient.get<any>(`/rqc/kpis?modelId=${modelId}&cell=${currentCell}${dateParam}`),
-                    apiClient.get<any>(`/rqc/trends?modelId=${modelId}&cell=${currentCell}`),
-                    apiClient.get<any>(`/rqc/process-defects?modelId=${modelId}&cell=${currentCell}${dateParam}`)
-                ]);
+                let timeParam = '';
+                if (checkingTimeFilter && checkingTimeFilter !== 'CHECKING TIME') {
+                    timeParam = `&checkingTime=${checkingTimeFilter}`;
+                }
 
-                setKpiData(resKpis);
-                setTrendsData(resTrends?.dailyTrend || []);
+                const resProcess = await apiClient.get<any>(`/rqc/process-defects?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}`);
                 setProcessDefectData(resProcess);
             } catch (err) {
-                console.error("Failed to fetch dashboard data:", err);
+                console.error("Failed to fetch process defects:", err);
             } finally {
                 setLoadingData(false);
             }
         };
+        fetchProcessDefects();
+    }, [modelId, currentCell, activeDateFilter, globalStartDate, globalEndDate, checkingTimeFilter]);
 
-        fetchData();
-    }, [modelId, currentCell, activeDateFilter]);
+    // --- Fetch Immediate Actions ---
+    useEffect(() => {
+        if (!isImmediateActionModalOpen || !modelId || !currentCell) return;
+
+        const fetchImmediateActions = async () => {
+            setLoadingImmediateAction(true);
+            try {
+                let params = `?modelId=${modelId}&cell=${currentCell}`;
+                if (activeAreaFilter) params += `&areaName=${activeAreaFilter}`;
+                if (immediateActionStartDate) params += `&startDate=${immediateActionStartDate}`;
+                if (immediateActionEndDate) params += `&endDate=${immediateActionEndDate}`;
+
+                const res = await apiClient.get<any[]>(`/rqc/immediate-actions${params}`);
+                setImmediateActionData(res || []);
+            } catch (err) {
+                console.error("Failed to fetch immediate actions:", err);
+            } finally {
+                setLoadingImmediateAction(false);
+            }
+        };
+        fetchImmediateActions();
+    }, [isImmediateActionModalOpen, modelId, currentCell, activeAreaFilter, immediateActionStartDate, immediateActionEndDate]);
+
+    // 2. Fetch KPIs and Trends (Depends on Area Filter to provide dynamic isolated Data)
+    useEffect(() => {
+        if (!modelId || !currentCell) return;
+        if (activeTab === 'TREATMENT') return;
+
+        const fetchKpiAndTrends = async () => {
+            try {
+                let dateParam = '';
+                if (activeDateFilter) {
+                    const parsedDate = new Date(activeDateFilter);
+                    if (!isNaN(parsedDate.getTime())) {
+                        const isoDate = parsedDate.toISOString().split('T')[0];
+                        dateParam = `&startDate=${isoDate}&endDate=${isoDate}`;
+                    }
+                } else {
+                    if (globalStartDate) dateParam += `&startDate=${globalStartDate}`;
+                    if (globalEndDate) dateParam += `&endDate=${globalEndDate}`;
+                }
+
+                let timeParam = '';
+                if (checkingTimeFilter && checkingTimeFilter !== 'CHECKING TIME') {
+                    timeParam = `&checkingTime=${checkingTimeFilter}`;
+                }
+
+                let areaParam = '';
+                if (activeAreaFilter) {
+                    areaParam = `&areaName=${encodeURIComponent(activeAreaFilter)}`;
+                }
+
+                const [resKpis, resTrends] = await Promise.all([
+                    apiClient.get<any>(`/rqc/kpis?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`),
+                    apiClient.get<any>(`/rqc/trends?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`)
+                ]);
+
+                setKpiData(resKpis);
+                setTrendsData(resTrends?.dailyTrend || []);
+            } catch (err) {
+                console.error("Failed to fetch KPIs and Trends:", err);
+            }
+        };
+        fetchKpiAndTrends();
+    }, [modelId, currentCell, activeDateFilter, globalStartDate, globalEndDate, checkingTimeFilter, activeAreaFilter]);
 
     // Handle line chart click
     const handleLineChartClick = (data: any) => {
@@ -143,17 +218,19 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
 
     // ---- Computed Data Map ----
 
-    // Pass Rate Overall (from KPIs or just Trend pass rate?)
-    // Consistency audit doughnut: overall pass rate of RQC.
-    const rqcPassRate = kpiData?.rqcOverallStats?.passRate ?? 0;
-    const rqcDefectRate = 100 - rqcPassRate;
-    const consistencyData = [
-        { value: rqcPassRate },
-        { value: rqcDefectRate }
-    ];
-
-    // Trends
-    const passRateData = trendsData;
+    // Trends: Map passRate to purely RQC raw metric integers, filtering out dates that only have TQC data (0 RQC checking)
+    const passRateData = trendsData
+        .filter((d: any) => d.rawRqcChecking > 0) // Only plot dates that actually have RQC audit records
+        .map((d: any) => {
+            let exactDailyPass = 100;
+            if (d.rawRqcChecking > 0 && d.rawRqcDefect != null) {
+                exactDailyPass = ((d.rawRqcChecking - d.rawRqcDefect) / d.rawRqcChecking) * 100;
+            }
+            return {
+                ...d,
+                passRate: Math.round((exactDailyPass + Number.EPSILON) * 100) / 100
+            };
+        });
 
     // Defect breakdown
     const allAreas = processDefectData?.areas || [];
@@ -170,14 +247,53 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     let totRqcDefectMorning = 0;
     let totRqcDefectAfternoon = 0;
 
+    let globalAreaChecking = 0;
+    let globalAreaDefect = 0;
+
+    // First Pass: Calculate total area checking to act as the exact mathematical denominator for Percentage Defect Treatment
     areas.forEach((area: any) => {
         area.processes.forEach((proc: any) => {
-            // Collect process level defect percentage (Negative val for visual like mockup)
-            if (proc.defectRate > 0) {
+            const mChk = proc.qtyCheckingMorning || 0;
+            const aChk = proc.qtyCheckingAfternoon || 0;
+            globalAreaChecking += (mChk + aChk);
+
+            const mDef = proc.qtyDefectMorning || 0;
+            const aDef = proc.qtyDefectAfternoon || 0;
+            globalAreaDefect += (mDef + aDef);
+        });
+    });
+
+    // Enforce 100% Pass Rate if 0 checks/0 defects, otherwise mathematically absolute ratio
+    const manualRqcPassRate = globalAreaChecking > 0
+        ? ((globalAreaChecking - globalAreaDefect) / globalAreaChecking) * 100
+        : 100;
+
+    // Consistency audit doughnut assignment
+    const rqcPassRate = Math.round((manualRqcPassRate + Number.EPSILON) * 100) / 100;
+    const rqcDefectRate = Math.round(((100 - rqcPassRate) + Number.EPSILON) * 100) / 100;
+    const consistencyData = [
+        { value: rqcPassRate },
+        { value: rqcDefectRate > 0 ? rqcDefectRate : 0 }
+    ];
+
+    areas.forEach((area: any) => {
+        area.processes.forEach((proc: any) => {
+            // Collect process level defect percentage using Global Area Checking as Denominator
+            const mDef = proc.qtyDefectMorning || 0;
+            const aDef = proc.qtyDefectAfternoon || 0;
+            const processTotalDefect = mDef + aDef;
+
+            // Recalculate based on user requirement: 1 defect / 400 total checking = 0.25%
+            let customDefectRate = 0;
+            if (globalAreaChecking > 0 && processTotalDefect > 0) {
+                customDefectRate = Number(((processTotalDefect / globalAreaChecking) * 100).toFixed(2));
+            }
+
+            if (customDefectRate > 0) {
                 pctTreatmentData.push({
                     name: proc.processName,
-                    val: -proc.defectRate,
-                    absoluteVal: proc.defectRate
+                    val: -customDefectRate,
+                    absoluteVal: customDefectRate
                 });
             }
 
@@ -211,8 +327,34 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     const afternoonData = [{ name: 'AFTERNOON', checking: totRqcCheckingAfternoon, defect: totRqcDefectAfternoon }];
 
     // The big center treatment defect rate box 
-    // Usually uses RQC defect rate.
-    const overallDefectRate = kpiData?.rqcOverallStats?.defectRate ?? 0;
+    // Pulls from the mathematically identical average of the subset (PERCENTAGE DEFECT processing)
+    let sumPct = 0;
+    let countPct = 0;
+    if (pctTreatmentData.length > 0 && pctTreatmentData[0].name !== 'NO DEFECT') {
+        pctTreatmentData.forEach(p => {
+            sumPct += p.absoluteVal;
+            countPct++;
+        });
+    }
+    const overallDefectRate = countPct > 0 ? (sumPct / countPct) : 0;
+
+    const CustomTooltip = ({ active, payload, label }: any) => {
+        if (active && payload && payload.length) {
+            const dataDate = payload[0].payload.date;
+            return (
+                <div className="bg-white p-3 border border-gray-200 rounded shadow-lg text-xs min-w-[150px] z-50">
+                    <p className="font-bold text-gray-800 mb-2 border-b pb-2">{label || dataDate}</p>
+                    {payload.map((entry: any, index: number) => (
+                        <div key={index} className="flex justify-between items-center gap-4 py-1">
+                            <span style={{ color: entry.color || entry.stroke }} className="font-semibold uppercase">{entry.name === 'passRate' ? 'Pass Rate' : entry.name}</span>
+                            <span style={{ color: entry.color || entry.stroke }} className="font-bold">{entry.value}%</span>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+        return null;
+    };
 
 
     return (
@@ -256,12 +398,32 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                 </div>
 
                 <div className="flex gap-4 items-center">
-                    <select className="border border-gray-300 rounded px-4 py-2 text-sm text-gray-700 bg-white min-w-[150px] outline-none">
-                        <option>CHECKING TIME</option>
+                    <select
+                        value={checkingTimeFilter}
+                        onChange={(e) => setCheckingTimeFilter(e.target.value)}
+                        className="border border-gray-300 rounded px-4 py-2 text-sm text-gray-700 bg-white min-w-[150px] outline-none"
+                    >
+                        <option value="CHECKING TIME">CHECKING TIME (ALL)</option>
+                        <option value="Morning">MORNING</option>
+                        <option value="Afternoon">AFTERNOON</option>
                     </select>
-                    <select className="border border-gray-300 rounded px-4 py-2 text-sm text-gray-700 bg-white min-w-[200px] outline-none">
-                        <option>Pilih rentang tanggal</option>
-                    </select>
+
+                    <div className="flex items-center gap-2 border border-gray-300 rounded bg-white px-2 py-1.5 focus-within:border-blue-500 transition-colors">
+                        <span className="text-xs text-gray-500 font-semibold px-2 uppercase tracking-wide">PILIH RENTANG:</span>
+                        <input
+                            type="date"
+                            className="bg-transparent text-sm text-gray-700 outline-none w-32 cursor-pointer font-medium"
+                            value={globalStartDate}
+                            onChange={(e) => setGlobalStartDate(e.target.value)}
+                        />
+                        <span className="text-gray-400 font-bold">~</span>
+                        <input
+                            type="date"
+                            className="bg-transparent text-sm text-gray-700 outline-none w-32 cursor-pointer font-medium"
+                            value={globalEndDate}
+                            onChange={(e) => setGlobalEndDate(e.target.value)}
+                        />
+                    </div>
                     <button
                         onClick={() => router.push(modelId ? `/model-dashboard?modelId=${modelId}` : '/dashboard-view')}
                         className="bg-[#2482E4] hover:bg-blue-600 text-white font-bold py-2 px-8 rounded shadow text-sm"
@@ -291,21 +453,18 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             {activeTab !== 'TREATMENT' && availableAreas.length > 0 && (
                 <div className="flex gap-2 items-center bg-gray-50 border border-gray-200 p-2 rounded-md shadow-sm">
                     <span className="text-sm font-bold text-gray-500 mr-2 uppercase tracking-wide">Select Area:</span>
-                    <button
-                        onClick={() => setActiveAreaFilter(null)}
-                        className={`${!activeAreaFilter ? 'bg-[#FF9800] text-white border-[#FF9800]' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'} border font-bold py-1.5 px-4 rounded shadow-sm text-xs transition-colors uppercase`}
-                    >
-                        ALL AREAS
-                    </button>
-                    {availableAreas.map((areaName: string) => (
-                        <button
-                            key={areaName}
-                            onClick={() => setActiveAreaFilter(areaName)}
-                            className={`${activeAreaFilter === areaName ? 'bg-[#FF9800] text-white border-[#FF9800]' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'} border font-bold py-1.5 px-4 rounded shadow-sm text-xs transition-colors uppercase`}
-                        >
-                            {areaName}
-                        </button>
-                    ))}
+                    {availableAreas.map((areaName: string) => {
+                        const isSelected = activeAreaFilter === areaName || (!activeAreaFilter && availableAreas[0] === areaName);
+                        return (
+                            <button
+                                key={areaName}
+                                onClick={() => setActiveAreaFilter(areaName)}
+                                className={`${isSelected ? 'bg-[#FF9800] text-white border-[#FF9800]' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'} border font-bold py-1.5 px-4 rounded shadow-sm text-xs transition-colors uppercase`}
+                            >
+                                {areaName}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 
@@ -348,6 +507,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={passRateData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }} onClick={handleLineChartClick}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEEEEE" />
+                            <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#ccc', strokeWidth: 1, strokeDasharray: '5 5' }} />
                             <XAxis
                                 dataKey="date"
                                 angle={-35}
@@ -398,7 +558,10 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <span className="text-[#FF9800] font-normal text-2xl tracking-wider">{overallDefectRate.toFixed(2).replace('.', ',')}%</span>
                     </div>
                 </div>
-                <button className="bg-[#06C258] hover:bg-green-600 text-white font-extrabold py-3 px-8 rounded shadow text-lg uppercase tracking-wide">
+                <button
+                    onClick={() => setIsImmediateActionModalOpen(true)}
+                    className="bg-[#06C258] hover:bg-green-600 text-white font-extrabold py-3 px-8 rounded shadow text-lg uppercase tracking-wide"
+                >
                     Immediate Action
                 </button>
             </div>
@@ -418,6 +581,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={pctTreatmentData} layout="vertical" margin={{ left: 10, right: 30 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
                                 <XAxis type="number" domain={[0, 20]} ticks={[0, 5, 10, 15, 20]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 9 }} axisLine={true} tickLine={true} />
                                 <YAxis type="category" dataKey="name" tick={{ fontSize: 8, fill: '#666', fontWeight: 600 }} axisLine={{ stroke: '#ccc' }} tickLine={false} width={140} />
                                 <ReferenceLine x={5} stroke="#06C258" strokeDasharray="5 5" />
@@ -437,6 +601,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={detailDefectData} layout="vertical" margin={{ left: 10, right: 20, top: 10, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={false} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
                                 <XAxis type="number" domain={[0, 8]} ticks={[0, 2, 4, 6, 8]} axisLine={true} tickLine={true} tick={{ fontSize: 10 }} />
                                 <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: '#666', fontWeight: 500 }} axisLine={true} tickLine={false} width={100} />
                                 <Bar dataKey="value" fill="#D32F2F" barSize={20}>
@@ -454,6 +619,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={morningData} margin={{ left: -30, right: 0, bottom: 0, top: 20 }} barGap={0} barSize={40}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} horizontal={false} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
                                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#666' }} axisLine={{ stroke: '#ccc' }} tickLine={false} />
                                 <YAxis hide />
                                 <Bar dataKey="checking" fill="#4285F4">
@@ -474,6 +640,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={afternoonData} margin={{ left: -30, right: 0, bottom: 0, top: 20 }} barGap={0} barSize={40}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} horizontal={false} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
                                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#666' }} axisLine={{ stroke: '#ccc' }} tickLine={false} />
                                 <YAxis hide />
                                 <Bar dataKey="checking" fill="#4285F4">
@@ -488,6 +655,94 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                 </div>
 
             </div>
-        </div>
+
+            {/* Immediate Action Modal */}
+            {isImmediateActionModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-xl shadow-2xl w-[95vw] h-[90vh] flex flex-col overflow-hidden max-w-7xl relative">
+                        {/* Modal Header */}
+                        <div className="bg-gradient-to-r from-[#06C258] to-green-500 px-6 py-4 flex justify-between items-center text-white shrink-0">
+                            <div>
+                                <h2 className="text-xl font-black tracking-widest uppercase">IMMEDIATE ACTION</h2>
+                                <p className="text-sm text-green-100 font-medium">CELL: {currentCell} | AREA: {activeAreaFilter || 'ALL'}</p>
+                            </div>
+                            <button onClick={() => setIsImmediateActionModalOpen(false)} className="bg-black/20 hover:bg-black/30 p-2 rounded-full transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Modal Toolbar (Date Filter) */}
+                        <div className="p-4 border-b border-gray-200 bg-gray-50 flex gap-4 items-center shrink-0">
+                            <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Rentang Tanggal:</span>
+                            <input type="date" className="border border-gray-300 rounded px-2 py-1 text-sm font-medium" value={immediateActionStartDate} onChange={e => setImmediateActionStartDate(e.target.value)} />
+                            <span className="text-gray-400 font-bold">~</span>
+                            <input type="date" className="border border-gray-300 rounded px-2 py-1 text-sm font-medium" value={immediateActionEndDate} onChange={e => setImmediateActionEndDate(e.target.value)} />
+
+                            {(immediateActionStartDate || immediateActionEndDate) && (
+                                <button onClick={() => { setImmediateActionStartDate(''); setImmediateActionEndDate(''); }} className="ml-2 text-xs text-red-500 hover:text-red-700 font-bold uppercase underline">Reset Filter</button>
+                            )}
+                        </div>
+
+                        {/* Modal Table Content */}
+                        <div className="flex-1 overflow-auto bg-gray-100 p-4">
+                            {loadingImmediateAction ? (
+                                <div className="h-full flex items-center justify-center font-bold text-gray-400">LOADING DATA...</div>
+                            ) : immediateActionData.length === 0 ? (
+                                <div className="h-full flex items-center justify-center font-bold text-gray-400">TIDAK ADA DATA IMMEDIATE ACTION DITEMUKAN</div>
+                            ) : (
+                                <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-[#1F2937] text-white text-[10px] uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                                            <tr>
+                                                <th className="px-4 py-3 whitespace-nowrap hidden lg:table-cell">NO.</th>
+                                                <th className="px-4 py-3 whitespace-nowrap">TANGGAL</th>
+                                                <th className="px-4 py-3 whitespace-nowrap hidden md:table-cell">CHECKING TIME</th>
+                                                <th className="px-4 py-3 whitespace-nowrap w-[20%]">DEFECT NAME</th>
+                                                <th className="px-4 py-3 text-center whitespace-nowrap">PHOTO DEFECT</th>
+                                                <th className="px-4 py-3 whitespace-nowrap hidden lg:table-cell">PROCESS</th>
+                                                <th className="px-4 py-3 text-right">QTY CHECKING</th>
+                                                <th className="px-4 py-3 text-right">QTY DEFECT</th>
+                                                <th className="px-4 py-3 w-[25%] hidden sm:table-cell">ACTION PLAN</th>
+                                                <th className="px-4 py-3 text-center whitespace-nowrap hidden md:table-cell">PHOTO ACTION PLAN</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {immediateActionData.map((row, idx) => (
+                                                <tr key={row.id} className="hover:bg-green-50 transition-colors">
+                                                    <td className="px-4 py-3 font-semibold text-gray-500 hidden lg:table-cell">{idx + 1}</td>
+                                                    <td className="px-4 py-3 font-bold text-gray-800 whitespace-nowrap">{new Date(row.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                                                    <td className="px-4 py-3 text-gray-600 hidden md:table-cell">{row.checkingTime}</td>
+                                                    <td className="px-4 py-3 font-bold text-red-600 break-words">{row.defectName}</td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        {row.photoDefect ? (
+                                                            <a href={row.photoDefect.startsWith('http') ? row.photoDefect : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoDefect}`} target="_blank" rel="noreferrer" className="inline-block relative group">
+                                                                <img src={row.photoDefect.startsWith('http') ? row.photoDefect : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoDefect}`} alt="Defect" className="w-16 h-16 object-cover rounded shadow-sm border border-gray-300 group-hover:brightness-90 transition-all" />
+                                                            </a>
+                                                        ) : <span className="text-gray-300 text-xs">-</span>}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-gray-700 text-xs hidden lg:table-cell">{row.processName}</td>
+                                                    <td className="px-4 py-3 text-right font-semibold text-blue-600">{row.qtyChecking}</td>
+                                                    <td className="px-4 py-3 text-right font-black text-red-600">{row.qtyDefect}</td>
+                                                    <td className="px-4 py-3 text-gray-700 text-xs hidden sm:table-cell break-words">{row.actionPlan}</td>
+                                                    <td className="px-4 py-3 text-center hidden md:table-cell">
+                                                        {row.photoAfterActionPlan ? (
+                                                            <a href={row.photoAfterActionPlan.startsWith('http') ? row.photoAfterActionPlan : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoAfterActionPlan}`} target="_blank" rel="noreferrer" className="inline-block relative group">
+                                                                <img src={row.photoAfterActionPlan.startsWith('http') ? row.photoAfterActionPlan : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoAfterActionPlan}`} alt="Action Plan" className="w-16 h-16 object-cover rounded shadow-sm border border-gray-300 group-hover:brightness-90 transition-all" />
+                                                            </a>
+                                                        ) : <span className="text-gray-300 text-xs">-</span>}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div >
     );
 }

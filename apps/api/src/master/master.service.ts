@@ -76,19 +76,35 @@ export class MasterService {
     async createPo(data: { po: string; article: string; model: string; qtyOrder: number; destination?: string }) { return this.prisma.masterPo.create({ data }); }
 
     async bulkCreatePos(data: { po: string; article: string; model: string; qtyOrder: number; destination?: string }[]) {
-        return this.prisma.$transaction(
-            data.map(poData => this.prisma.masterPo.upsert({
-                where: { po: poData.po },
-                update: { article: poData.article, model: poData.model, qtyOrder: Number(poData.qtyOrder), destination: poData.destination },
-                create: { po: poData.po, article: poData.article, model: poData.model, qtyOrder: Number(poData.qtyOrder), destination: poData.destination }
-            }))
-        );
+        const chunkSize = 50;
+        let processed = 0;
+
+        for (let i = 0; i < data.length; i += chunkSize) {
+            const chunk = data.slice(i, i + chunkSize);
+            await this.prisma.$transaction(
+                chunk.map(poData => this.prisma.masterPo.upsert({
+                    where: { po: poData.po },
+                    update: { article: poData.article, model: poData.model, qtyOrder: Number(poData.qtyOrder), destination: poData.destination },
+                    create: { po: poData.po, article: poData.article, model: poData.model, qtyOrder: Number(poData.qtyOrder), destination: poData.destination }
+                }))
+            );
+            processed += chunk.length;
+        }
+        return { success: true, processed };
     }
 
     async updatePo(po: string, data: { article?: string; model?: string; qtyOrder?: number; destination?: string }) { return this.prisma.masterPo.update({ where: { po }, data }); }
     async deletePo(po: string) {
         try { return await this.prisma.masterPo.delete({ where: { po } }); }
         catch (e) { throw new BadRequestException('Cannot delete PO; it may be tied to existing RQC transactions.'); }
+    }
+
+    async deleteAllPos() {
+        try {
+            const res = await this.prisma.masterPo.deleteMany({});
+            return { message: 'All POs deleted successfully', deletedCount: res.count };
+        }
+        catch (e) { throw new BadRequestException('Cannot delete all POs; some may be tied to existing RQC transactions.'); }
     }
 
     // --- USERS ---
@@ -106,5 +122,82 @@ export class MasterService {
         if (nik === 'admin') throw new BadRequestException('Cannot delete the root administrator.');
         try { return await this.prisma.masterUser.delete({ where: { nik } }); }
         catch (e) { throw new BadRequestException('Cannot delete user; historical transactions restrict deletion. Consider toggling Inactive instead.'); }
+    }
+    // --- USPs (Selling Points) ---
+    async findAllUsps(modelId?: bigint, status?: string) {
+        let where: any = {};
+        if (modelId !== undefined) {
+            where.setupModelId = modelId;
+        }
+        if (status === 'ACTIVE') where.isActive = true;
+        if (status === 'INACTIVE') where.isActive = false;
+
+        const usps = await this.prisma.masterUsp.findMany({
+            where,
+            include: { setupModel: { select: { modelName: true } } },
+            orderBy: [{ setupModelId: 'asc' }, { uspCode: 'asc' }]
+        });
+        return this.serializeBigInt(usps);
+    }
+
+    async createUsp(data: { setupModelId: string | bigint | number; uspCode: string; uspName: string; description?: string; isActive: boolean }) {
+        try {
+            const res = await this.prisma.masterUsp.create({
+                data: {
+                    setupModelId: BigInt(data.setupModelId),
+                    uspCode: data.uspCode,
+                    uspName: data.uspName,
+                    description: data.description || null,
+                    isActive: data.isActive
+                },
+                include: { setupModel: { select: { modelName: true } } }
+            });
+            return this.serializeBigInt(res);
+        } catch (e: any) {
+            if (e.code === 'P2002') throw new BadRequestException('USP Code or USP Name already exists for this Model.');
+            throw new BadRequestException('Failed to create USP. Ensure Model exists.');
+        }
+    }
+
+    async updateUsp(uspId: bigint, data: { setupModelId?: string | bigint | number; uspCode?: string; uspName?: string; description?: string; isActive?: boolean }) {
+        const updateData: any = {};
+        if (data.setupModelId !== undefined) updateData.setupModelId = BigInt(data.setupModelId);
+        if (data.uspCode !== undefined) updateData.uspCode = data.uspCode;
+        if (data.uspName !== undefined) updateData.uspName = data.uspName;
+        if (data.description !== undefined) updateData.description = data.description;
+        if (data.isActive !== undefined) updateData.isActive = data.isActive;
+
+        try {
+            const res = await this.prisma.masterUsp.update({
+                where: { uspId },
+                data: updateData,
+                include: { setupModel: { select: { modelName: true } } }
+            });
+            return this.serializeBigInt(res);
+        } catch (e: any) {
+            if (e.code === 'P2002') throw new BadRequestException('USP Code or USP Name conflicts in this Model.');
+            throw new BadRequestException('Failed to update USP.');
+        }
+    }
+
+    async deleteUsp(uspId: bigint) {
+        // Soft delete constraint handling. 
+        // Currently architecture does not attach RqcProcess explicitly via DB constraint, 
+        // but we'll soft deactivate if standard deletion is enforced in business term
+        try {
+            const res = await this.prisma.masterUsp.delete({ where: { uspId } });
+            return this.serializeBigInt(res);
+        } catch (e) {
+            throw new BadRequestException('This USP cannot be deleted because it is already used by another configuration or transaction.');
+        }
+    }
+
+    // Utility to serialize BigInts to string for JSON responses
+    private serializeBigInt(obj: any): any {
+        return JSON.parse(
+            JSON.stringify(obj, (key, value) =>
+                typeof value === 'bigint' ? value.toString() : value
+            )
+        );
     }
 }

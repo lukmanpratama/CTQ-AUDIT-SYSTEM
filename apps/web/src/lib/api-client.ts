@@ -52,7 +52,17 @@ async function request<T>(
   }
 
   const text = await response.text();
-  return text ? JSON.parse(text) : (null as T);
+  if (text) {
+    try {
+      return JSON.parse(text);
+    } catch (parseError) {
+      if (text.includes('Internal Server')) {
+        throw new ApiError('PROXY_OFFLINE', 'Backend Server may be starting or offline.', response.status || 500);
+      }
+      throw new ApiError('PARSE_ERROR', 'Received invalid JSON data from server', 500);
+    }
+  }
+  return null as T;
 }
 
 export const apiClient = {

@@ -31,23 +31,7 @@ export function DailyPassRateChart({ data, onDateClick, activeFilter }: { data?:
         return false;
     };
 
-    // Enrich chartData with avgDefectRate and override passRate per user logic
-    const finalData = chartData.map((d: any) => {
-        const tqcDefect = d.defectRate || 0;
-        const rqcDefect = d.defectRateRqc || 0;
-
-        const passRateTqc = 100 - tqcDefect;
-        const passRateRqc = 100 - rqcDefect;
-
-        const passRateOverride = (passRateTqc + passRateRqc) / 2;
-        const avgDefectOverride = (tqcDefect + rqcDefect) / 2;
-
-        return {
-            ...d,
-            passRate: Math.round((passRateOverride + Number.EPSILON) * 100) / 100,
-            avgDefectRate: Math.round((avgDefectOverride + Number.EPSILON) * 100) / 100
-        };
-    });
+    const finalData = chartData;
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {

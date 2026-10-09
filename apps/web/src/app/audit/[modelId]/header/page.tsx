@@ -21,6 +21,11 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
     const [part, setPart] = useState('');
     const [cell, setCell] = useState('');
     const [checkingTime, setCheckingTime] = useState('');
+    const [isPoDropdownOpen, setIsPoDropdownOpen] = useState(false);
+    const [date, setDate] = useState(() => {
+        const today = new Date();
+        return today.toISOString().split('T')[0];
+    });
 
     useEffect(() => {
         const fetchInitialData = async () => {
@@ -67,6 +72,11 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             return;
         }
 
+        if (poOptions.length > 0 && !poOptions.some(p => p.po === po)) {
+            alert('Please select a valid PO from the list.');
+            return;
+        }
+
         if (!cell) {
             alert('Please select a Cell.');
             return;
@@ -79,11 +89,8 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             return;
         }
 
-        const today = new Date();
-        const dateString = today.toISOString().split('T')[0];
-
         const payload = {
-            date: dateString,
+            date: date,
             checkingTime: checkingTime,
             setupModelId: modelId,
             po: po,
@@ -202,20 +209,52 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
 
                     <form onSubmit={handleSubmit} className="px-8 py-6 space-y-6">
                         <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Purchase Order (PO)</label>
-                            <select
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Inspection Date</label>
+                            <input
+                                type="date"
                                 required
-                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
-                                value={po}
-                                onChange={(e) => setPo(e.target.value)}
-                            >
-                                <option value="" disabled>Select PO Number</option>
-                                {poOptions.map(p => (
-                                    <option key={p.po} value={p.po}>
-                                        {p.po}
-                                    </option>
-                                ))}
-                            </select>
+                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 mb-6"
+                                value={date}
+                                onChange={(e) => setDate(e.target.value)}
+                            />
+
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Purchase Order (PO)</label>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="Search or select PO Number..."
+                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                                    value={po}
+                                    onChange={(e) => {
+                                        setPo(e.target.value);
+                                        setIsPoDropdownOpen(true);
+                                    }}
+                                    onFocus={() => setIsPoDropdownOpen(true)}
+                                    onBlur={() => setTimeout(() => setIsPoDropdownOpen(false), 200)}
+                                />
+                                {isPoDropdownOpen && poOptions.length > 0 && (
+                                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                                        {poOptions
+                                            .filter(p => p.po.toLowerCase().includes(po.toLowerCase()))
+                                            .map(p => (
+                                                <div
+                                                    key={p.po}
+                                                    className="px-4 py-3 hover:bg-gray-100 cursor-pointer text-sm font-medium text-gray-800 border-b border-gray-50 last:border-0"
+                                                    onClick={() => {
+                                                        setPo(p.po);
+                                                        setIsPoDropdownOpen(false);
+                                                    }}
+                                                >
+                                                    {p.po}
+                                                </div>
+                                            ))}
+                                        {poOptions.filter(p => p.po.toLowerCase().includes(po.toLowerCase())).length === 0 && (
+                                            <div className="px-4 py-3 text-sm text-gray-500 italic">No PO matches "{po}"</div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                             {poOptions.length === 0 && (
                                 <p className="mt-2 text-sm text-amber-600 font-medium">
                                     No PO found matching the model name "{modelName}". Ensure Master PO data is updated.
