@@ -314,7 +314,7 @@ export default function AdminInspectionsPage() {
                                                     <td className={`px-5 py-3 ${defectRateColor}`}>{defectRate.toFixed(2)}%</td>
                                                     <td className="px-5 py-3 text-right">
                                                         <div className="flex items-center justify-end gap-3 text-xs font-medium">
-                                                            <Link href={`/audit/session/${h.rqcHeaderId}/summary?view=true&source=admin`} className="text-blue-600 hover:text-blue-800 hover:underline">
+                                                            <Link href={`/admin/inspections/${h.rqcHeaderId}`} className="text-blue-600 hover:text-blue-800 hover:underline">
                                                                 View
                                                             </Link>
                                                             <button

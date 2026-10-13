@@ -4,6 +4,17 @@ import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+const processImageUrl = (url: string) => {
+    if (!url) return '';
+    if (url.includes('/ctqaudit/')) {
+        const parts = url.split('/ctqaudit/');
+        if (parts.length > 1) return `/api/files/${parts[1]}`;
+    }
+    return url;
+};
+
+const hasText = (v: any) => !!(v && String(v).trim());
+
 const formatDate = (dateString: string) => {
     const d = new Date(dateString);
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -16,6 +27,7 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
 
     const [loading, setLoading] = useState(true);
     const [header, setHeader] = useState<any>(null);
+    const [defectNames, setDefectNames] = useState<Record<string, string>>({});
 
     useEffect(() => {
         const fetchHeader = async () => {
@@ -24,6 +36,26 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                 if (res.ok) {
                     const data = await res.json();
                     setHeader(data);
+                    // Defect names come from the model's CTQ setup (same source as the Defect Type dropdown)
+                    if (data.setupModelId) {
+                        try {
+                            const treeRes = await fetch(`/api/ctq-setup/models/${data.setupModelId}/tree`);
+                            if (treeRes.ok) {
+                                const tree = await treeRes.json();
+                                const names: Record<string, string> = {};
+                                tree.areas?.forEach((area: any) => {
+                                    area.setupProcesses?.forEach((proc: any) => {
+                                        proc.setupDefects?.forEach((sd: any) => {
+                                            if (sd.masterDefect?.defect) names[String(sd.defectId)] = sd.masterDefect.defect;
+                                        });
+                                    });
+                                });
+                                setDefectNames(names);
+                            }
+                        } catch (e) {
+                            console.error('Failed to fetch defect names', e);
+                        }
+                    }
                 }
                 setLoading(false);
             } catch (err) {
@@ -59,6 +91,7 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
 
     const iaProcesses: string[] = [];
     const capProcesses: string[] = [];
+    const findings: any[] = [];
 
     if (header.rqcAreas) {
         header.rqcAreas.forEach((area: any) => {
@@ -72,6 +105,21 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
 
                     proc.rqcInspections?.forEach((insp: any) => {
                         totalQtyDefect += insp.qtyDefect;
+                        if (insp.qtyDefect > 0 || insp.photoDefect || insp.photoAfterActionPlan) {
+                            findings.push({
+                                id: insp.rqcInspectionId,
+                                processName: proc.setupProcess?.masterProcess?.process || 'Unknown Process',
+                                defectName: insp.masterDefect?.defect || defectNames[String(insp.defectId)] || `Defect #${insp.defectId}`,
+                                qtyDefect: insp.qtyDefect,
+                                qtyChecking: proc.qtyChecking,
+                                isCap: insp.status === 'CAP',
+                                actionPlan: insp.actionPlan,
+                                rootCause: insp.rootCause,
+                                corrective: insp.corrective,
+                                photoDefect: insp.photoDefect,
+                                photoAfterActionPlan: insp.photoAfterActionPlan,
+                            });
+                        }
                         if (insp.status === 'CAP') hasCap = true;
                         if (insp.status === 'IMMEDIATE_ACTION' || insp.status === 'IA') hasIa = true;
                     });
@@ -126,6 +174,10 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                         <div className="flex border-b border-gray-100 pb-3">
                             <span className="text-gray-500 w-40 font-medium">PO Number</span>
                             <span className="text-gray-900 font-bold px-2 py-0.5 rounded bg-gray-100">{header.po}</span>
+                        </div>
+                        <div className="flex border-b border-gray-100 pb-3">
+                            <span className="text-gray-500 w-40 font-medium">Factory / Cell</span>
+                            <span className="text-gray-900 font-semibold">{header.factory?.factory || '-'} / {header.cell || '-'}</span>
                         </div>
                         <div className="flex pt-1">
                             <span className="text-gray-500 w-40 font-medium">Inspector ID</span>
@@ -214,6 +266,87 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* Defect Evidence */}
+            <div className="mt-8">
+                <h2 className="text-gray-900 font-bold mb-3">Defect Evidence</h2>
+                {findings.length === 0 ? (
+                    <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm text-sm text-gray-400 italic">
+                        No defects recorded in this inspection.
+                    </div>
+                ) : (
+                    <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b border-gray-200">
+                                <tr className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    <th className="px-4 py-3">Defect / Process</th>
+                                    <th className="px-4 py-3 text-right">Defect</th>
+                                    <th className="px-4 py-3">Status</th>
+                                    <th className="px-4 py-3 min-w-[260px]">Follow-up</th>
+                                    <th className="px-4 py-3">Photos</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {findings.map(f => {
+                                    // Immediate Action only has an Action Plan; CAP has Root Cause + Corrective Action
+                                    const fields = f.isCap
+                                        ? [{ label: 'Root Cause', value: f.rootCause }, { label: 'Corrective Action', value: f.corrective }]
+                                        : [{ label: 'Action Plan', value: f.actionPlan }];
+                                    const rate = f.qtyChecking > 0 ? (f.qtyDefect / f.qtyChecking) * 100 : 0;
+                                    return (
+                                        <tr key={f.id} className="align-top">
+                                            <td className="px-4 py-3">
+                                                <div className="font-semibold text-gray-900">{f.defectName}</div>
+                                                <div className="text-xs text-gray-500 mt-0.5">{f.processName}</div>
+                                            </td>
+                                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                                                <div className="font-semibold text-red-600">{f.qtyDefect} / {f.qtyChecking}</div>
+                                                <div className="text-xs text-gray-500">{rate.toFixed(2)}%</div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${f.isCap ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                                    {f.isCap ? 'CAP' : 'Immediate Action'}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <dl className="space-y-1.5">
+                                                    {fields.map(field => (
+                                                        <div key={field.label}>
+                                                            <dt className="text-xs font-medium text-gray-500">{field.label}</dt>
+                                                            <dd className={`whitespace-pre-line break-words ${hasText(field.value) ? 'text-gray-900' : 'text-gray-400 italic'}`}>
+                                                                {hasText(field.value) ? field.value : 'Belum diisi'}
+                                                            </dd>
+                                                        </div>
+                                                    ))}
+                                                </dl>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex gap-2">
+                                                    {[
+                                                        { label: 'Defect', url: f.photoDefect },
+                                                        { label: 'Improvement', url: f.photoAfterActionPlan },
+                                                    ].map(photo => (
+                                                        <div key={photo.label} className="w-24">
+                                                            {photo.url ? (
+                                                                <a href={processImageUrl(photo.url)} target="_blank" rel="noopener noreferrer" title={`Open ${photo.label} photo`}>
+                                                                    <img src={processImageUrl(photo.url)} alt={photo.label} className="w-24 h-16 object-cover rounded-md border border-gray-200 hover:opacity-80 transition-opacity" />
+                                                                </a>
+                                                            ) : (
+                                                                <div className="w-24 h-16 rounded-md border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400">No photo</div>
+                                                            )}
+                                                            <p className="text-[10px] text-gray-500 mt-1 text-center">{photo.label}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
             {/* Striped Background Style */}
