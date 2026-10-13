@@ -85,23 +85,13 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
     // Metrics computation
     let totalQtyChecking = 0;
     let totalQtyDefect = 0;
-    let iaCount = 0;
-    let capCount = 0;
-    let totalProcesses = 0;
-
-    const iaProcesses: string[] = [];
-    const capProcesses: string[] = [];
     const findings: any[] = [];
 
     if (header.rqcAreas) {
         header.rqcAreas.forEach((area: any) => {
             if (area.rqcProcesses) {
                 area.rqcProcesses.forEach((proc: any) => {
-                    totalProcesses++;
                     totalQtyChecking += proc.qtyChecking;
-
-                    let hasCap = false;
-                    let hasIa = false;
 
                     proc.rqcInspections?.forEach((insp: any) => {
                         totalQtyDefect += insp.qtyDefect;
@@ -120,17 +110,7 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                                 photoAfterActionPlan: insp.photoAfterActionPlan,
                             });
                         }
-                        if (insp.status === 'CAP') hasCap = true;
-                        if (insp.status === 'IMMEDIATE_ACTION' || insp.status === 'IA') hasIa = true;
                     });
-
-                    if (hasCap) {
-                        capCount++;
-                        capProcesses.push(proc.setupProcess?.masterProcess?.process || 'Unknown Process');
-                    } else if (hasIa) {
-                        iaCount++;
-                        iaProcesses.push(proc.setupProcess?.masterProcess?.process || 'Unknown Process');
-                    }
                 });
             }
         });
@@ -139,8 +119,15 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
     const defectRate = totalQtyChecking > 0 ? (totalQtyDefect / totalQtyChecking) * 100 : 0;
     const passRate = 100 - defectRate;
 
-    const iaPercent = totalProcesses > 0 ? (iaCount / totalProcesses) * 100 : 0;
-    const capPercent = totalProcesses > 0 ? (capCount / totalProcesses) * 100 : 0;
+    // Resolution tracking is counted per defect (same rows as Defect Evidence), so a process
+    // that has both an Immediate Action defect and a CAP defect shows up in both lists.
+    const defectFindings = findings.filter(f => f.qtyDefect > 0);
+    const iaFindings = defectFindings.filter(f => !f.isCap);
+    const capFindings = defectFindings.filter(f => f.isCap);
+    const iaCount = iaFindings.length;
+    const capCount = capFindings.length;
+    const iaPercent = defectFindings.length > 0 ? (iaCount / defectFindings.length) * 100 : 0;
+    const capPercent = defectFindings.length > 0 ? (capCount / defectFindings.length) * 100 : 0;
 
     return (
         <div className="space-y-6 max-w-5xl">
@@ -221,18 +208,21 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                         <div>
                             <div className="flex justify-between items-end mb-3">
                                 <span className="text-sm font-bold text-gray-800">Immediate Action Triggered</span>
-                                <span className="text-sm font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">{iaCount} Process{iaCount !== 1 && 'es'}</span>
+                                <span className="text-sm font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">{iaCount} Defect{iaCount !== 1 && 's'}</span>
                             </div>
                             <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden flex mb-4 relative">
                                 <div className="h-full bg-orange-500" style={{ width: `${iaPercent}%` }}></div>
                                 <div className="h-full bg-gray-200 striped-bg opacity-30" style={{ width: `${100 - iaPercent}%` }}></div>
                             </div>
-                            {iaProcesses.length > 0 ? (
+                            {iaFindings.length > 0 ? (
                                 <ul className="space-y-2 mt-4 bg-orange-50/50 p-4 rounded-lg border border-orange-100">
-                                    {iaProcesses.map((p, i) => (
-                                        <li key={i} className="text-sm font-medium text-gray-700 flex items-center">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 mr-2.5"></span>
-                                            {p}
+                                    {iaFindings.map(f => (
+                                        <li key={f.id} className="text-sm flex items-start">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 mr-2.5 mt-2 flex-shrink-0"></span>
+                                            <span>
+                                                <span className="font-semibold text-gray-900">{f.defectName}</span>
+                                                <span className="block text-xs text-gray-500">{f.processName}</span>
+                                            </span>
                                         </li>
                                     ))}
                                 </ul>
@@ -245,18 +235,21 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                         <div>
                             <div className="flex justify-between items-end mb-3">
                                 <span className="text-sm font-bold text-gray-800">Corrective Action Plan (CAP) Triggered</span>
-                                <span className="text-sm font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{capCount} Process{capCount !== 1 && 'es'}</span>
+                                <span className="text-sm font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{capCount} Defect{capCount !== 1 && 's'}</span>
                             </div>
                             <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden flex mb-4 relative">
                                 <div className="h-full bg-red-600" style={{ width: `${capPercent}%` }}></div>
                                 <div className="h-full bg-gray-200 striped-bg opacity-30" style={{ width: `${100 - capPercent}%` }}></div>
                             </div>
-                            {capProcesses.length > 0 ? (
+                            {capFindings.length > 0 ? (
                                 <ul className="space-y-2 mt-4 bg-red-50/50 p-4 rounded-lg border border-red-100">
-                                    {capProcesses.map((p, i) => (
-                                        <li key={i} className="text-sm font-medium text-gray-700 flex items-center">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-2.5"></span>
-                                            {p}
+                                    {capFindings.map(f => (
+                                        <li key={f.id} className="text-sm flex items-start">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-2.5 mt-2 flex-shrink-0"></span>
+                                            <span>
+                                                <span className="font-semibold text-gray-900">{f.defectName}</span>
+                                                <span className="block text-xs text-gray-500">{f.processName}</span>
+                                            </span>
                                         </li>
                                     ))}
                                 </ul>
