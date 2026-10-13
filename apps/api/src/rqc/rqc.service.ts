@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateHeaderDto, CreateInspectionDto } from './rqc.dto';
+import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 
 @Injectable()
 export class RqcService {
@@ -16,32 +16,7 @@ export class RqcService {
             throw new NotFoundException(`PO ${dto.po} not found in master data.`);
         }
 
-        let resolvedFactoryId: bigint;
-        if (dto.factoryId === 'INHOUSE') {
-            let inhouseFactory = await this.prisma.masterFactory.findUnique({
-                where: { factory: 'INHOUSE' }
-            });
-            if (!inhouseFactory) {
-                inhouseFactory = await this.prisma.masterFactory.create({
-                    data: { factory: 'INHOUSE' }
-                });
-            }
-            resolvedFactoryId = inhouseFactory.factoryId;
-        } else if (dto.factoryId === 'BOTTOM' || dto.factoryId === 'BOTTOM 1' || dto.factoryId === 'BOTTOM 2') {
-            // Resolve BOTTOM, BOTTOM 1, BOTTOM 2 — stored as-is in masterFactory
-            const factoryName = dto.factoryId; // 'BOTTOM', 'BOTTOM 1', or 'BOTTOM 2'
-            let bottomFactory = await this.prisma.masterFactory.findUnique({
-                where: { factory: factoryName }
-            });
-            if (!bottomFactory) {
-                bottomFactory = await this.prisma.masterFactory.create({
-                    data: { factory: factoryName }
-                });
-            }
-            resolvedFactoryId = bottomFactory.factoryId;
-        } else {
-            resolvedFactoryId = BigInt(dto.factoryId);
-        }
+        const resolvedFactoryId = await this.resolveFactoryId(dto.factoryId);
 
         const header = await this.prisma.rqcHeader.create({
             data: {
@@ -59,6 +34,79 @@ export class RqcService {
         });
 
         return this.serializeBigInt(header);
+    }
+
+    async updateHeader(headerId: string, dto: UpdateHeaderDto) {
+        const existing = await this.prisma.rqcHeader.findUnique({
+            where: { rqcHeaderId: headerId },
+            select: { po: true }
+        });
+        if (!existing) {
+            throw new NotFoundException(`RqcHeader ${headerId} not found`);
+        }
+
+        const data: any = {
+            date: new Date(dto.date),
+            checkingTime: dto.checkingTime,
+            factoryId: await this.resolveFactoryId(dto.factoryId),
+            cell: dto.cell,
+        };
+
+        // Only re-snapshot PO data when the PO itself changed
+        if (dto.po !== existing.po) {
+            const poData = await this.prisma.masterPo.findUnique({ where: { po: dto.po } });
+            if (!poData) {
+                throw new NotFoundException(`PO ${dto.po} not found in master data.`);
+            }
+            Object.assign(data, {
+                po: dto.po,
+                article: poData.article,
+                model: poData.model,
+                qtyOrder: poData.qtyOrder,
+            });
+        }
+
+        const [header] = await this.prisma.$transaction([
+            this.prisma.rqcHeader.update({ where: { rqcHeaderId: headerId }, data }),
+            // Inspections carry a copy of the header date; keep them in sync
+            this.prisma.rqcInspection.updateMany({
+                where: { rqcProcess: { rqcArea: { rqcHeaderId: headerId } } },
+                data: { date: data.date }
+            }),
+        ]);
+
+        return this.serializeBigInt(header);
+    }
+
+    private async resolveFactoryId(factoryId: string): Promise<bigint> {
+        let resolvedFactoryId: bigint;
+        if (factoryId === 'INHOUSE') {
+            let inhouseFactory = await this.prisma.masterFactory.findUnique({
+                where: { factory: 'INHOUSE' }
+            });
+            if (!inhouseFactory) {
+                inhouseFactory = await this.prisma.masterFactory.create({
+                    data: { factory: 'INHOUSE' }
+                });
+            }
+            resolvedFactoryId = inhouseFactory.factoryId;
+        } else if (factoryId === 'BOTTOM' || factoryId === 'BOTTOM 1' || factoryId === 'BOTTOM 2') {
+            // Resolve BOTTOM, BOTTOM 1, BOTTOM 2 — stored as-is in masterFactory
+            const factoryName = factoryId; // 'BOTTOM', 'BOTTOM 1', or 'BOTTOM 2'
+            let bottomFactory = await this.prisma.masterFactory.findUnique({
+                where: { factory: factoryName }
+            });
+            if (!bottomFactory) {
+                bottomFactory = await this.prisma.masterFactory.create({
+                    data: { factory: factoryName }
+                });
+            }
+            resolvedFactoryId = bottomFactory.factoryId;
+        } else {
+            resolvedFactoryId = BigInt(factoryId);
+        }
+
+        return resolvedFactoryId;
     }
 
     async submitProcessInspection(

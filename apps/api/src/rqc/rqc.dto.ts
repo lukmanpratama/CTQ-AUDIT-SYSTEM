@@ -31,6 +31,28 @@ export class CreateHeaderDto {
     cell?: string;
 }
 
+export class UpdateHeaderDto {
+    @IsString()
+    @IsNotEmpty()
+    date!: string;
+
+    @IsString()
+    @IsNotEmpty()
+    checkingTime!: string;
+
+    @IsString()
+    @IsNotEmpty()
+    po!: string;
+
+    @IsString()
+    @IsNotEmpty()
+    factoryId!: string;
+
+    @IsString()
+    @IsOptional()
+    cell?: string;
+}
+
 export class DefectInputDto {
     @IsString()
     @IsNotEmpty()

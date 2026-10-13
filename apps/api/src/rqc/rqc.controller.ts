@@ -1,6 +1,6 @@
-import { Controller, Post, Body, Param, Get, Delete, Query, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, Put, Body, Param, Get, Delete, Query, UseInterceptors } from '@nestjs/common';
 import { RqcService } from './rqc.service';
-import { CreateHeaderDto, CreateInspectionDto } from './rqc.dto';
+import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { CacheInterceptor } from '@nestjs/cache-manager';
 
 @Controller('rqc')
@@ -141,6 +141,11 @@ export class RqcController {
         @Query('cell') cell?: string
     ) {
         return this.rqcService.getAllHeaders({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell });
+    }
+
+    @Put('headers/:headerId')
+    async updateHeader(@Param('headerId') headerId: string, @Body() dto: UpdateHeaderDto) {
+        return this.rqcService.updateHeader(headerId, dto);
     }
 
     @Delete('headers/:headerId')
