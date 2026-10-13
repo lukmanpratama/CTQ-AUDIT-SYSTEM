@@ -92,6 +92,17 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         fetchAllData();
     }, [headerId]);
 
+    const headerEditUrl = headerData?.setupModelId
+        ? `/audit/${headerData.setupModelId}/header?headerId=${headerId}`
+        : null;
+
+    // Prefetch neighbouring wizard steps so Previous / Next feel instant
+    useEffect(() => {
+        if (viewOnly) return;
+        router.prefetch(`/audit/session/${headerId}/summary`);
+        if (headerEditUrl) router.prefetch(headerEditUrl);
+    }, [headerId, headerEditUrl, viewOnly]);
+
     // Derived states to map saved DB records against setup tree
     const getSavedProcessState = (setupAreaId: string, setupProcessId: string) => {
         if (!headerData || !headerData.rqcAreas) return null;
@@ -379,9 +390,15 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
             {/* Stepper UI Progress - Inspection is Active */}
             <div className="bg-white px-2 py-5 shadow-sm mb-6 flex justify-center items-center text-sm font-medium sticky top-[56px] z-20">
-                <div className="flex items-center text-primary-600">
+                <button
+                    type="button"
+                    disabled={viewOnly || !headerEditUrl}
+                    onClick={() => headerEditUrl && router.push(headerEditUrl)}
+                    className="flex items-center text-primary-600 enabled:hover:underline disabled:cursor-default"
+                    title={viewOnly ? undefined : 'Edit Header'}
+                >
                     <svg className="w-4 h-4 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg> Header
-                </div>
+                </button>
                 <div className="w-8 h-px bg-gray-300 mx-2"></div>
                 <div className="flex items-center text-gray-900 font-bold">
                     <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Inspection
@@ -614,8 +631,9 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                         <div className="flex justify-between gap-4">
                             <button
                                 onClick={() => {
-                                    if (headerData?.setupModelId) {
-                                        router.push(`/audit/${headerData.setupModelId}/header`);
+                                    // Open the header form for THIS session so it is pre-filled for editing
+                                    if (headerEditUrl) {
+                                        router.push(headerEditUrl);
                                     } else {
                                         router.back();
                                     }

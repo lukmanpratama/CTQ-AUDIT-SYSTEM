@@ -1,14 +1,83 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 
+// Shared top bar + stepper so the loading state keeps the same layout as the form
+function HeaderPageChrome({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
+    return (
+        <div className="min-h-screen bg-gray-50 flex flex-col pb-20">
+            <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
+                <button onClick={onBack} className="flex items-center text-gray-600 font-medium">
+                    <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    New Report
+                </button>
+                <div className="text-gray-500 font-medium flex items-center gap-1">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                    Save
+                </div>
+            </nav>
+
+            {/* Stepper UI Progress */}
+            <div className="bg-white px-4 py-5 shadow-sm mb-6 flex justify-center items-center text-sm font-medium">
+                <div className="flex items-center text-gray-900 font-bold">
+                    <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Header
+                </div>
+                <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                <div className="flex items-center text-gray-400">
+                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Inspection
+                </div>
+                <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                <div className="flex items-center text-gray-400">
+                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Summary
+                </div>
+            </div>
+
+            <div className="max-w-2xl mx-auto w-full px-4">{children}</div>
+        </div>
+    );
+}
+
+function HeaderFormSkeleton() {
+    return (
+        <div className="bg-white rounded-xl shadow border border-gray-100 overflow-hidden animate-pulse">
+            <div className="border-b border-gray-100 px-8 py-5">
+                <div className="h-6 w-40 bg-gray-200 rounded" />
+            </div>
+            <div className="px-8 py-6 space-y-6">
+                {[0, 1, 2, 3, 4].map(i => (
+                    <div key={i}>
+                        <div className="h-4 w-32 bg-gray-200 rounded mb-2" />
+                        <div className="h-12 w-full bg-gray-100 rounded-lg" />
+                    </div>
+                ))}
+                <div className="pt-4 flex gap-4">
+                    <div className="flex-1 h-12 bg-gray-100 rounded-lg" />
+                    <div className="flex-1 h-12 bg-gray-200 rounded-lg" />
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function HeaderAuditPage({ params }: { params: Promise<{ modelId: string }> }) {
+    return (
+        <Suspense fallback={<HeaderPageChrome onBack={() => { }}><HeaderFormSkeleton /></HeaderPageChrome>}>
+            <HeaderAuditInner params={params} />
+        </Suspense>
+    );
+}
+
+function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) {
     const router = useRouter();
     // In Next.js 15, params is a Promise that needs to be unwrapped
     const resolvedParams = use(params);
     const modelId = resolvedParams.modelId;
+    // When coming back from the Inspection step, the existing header id is passed so the form is pre-filled
+    const searchParams = useSearchParams();
+    const editHeaderId = searchParams.get('headerId');
+    const isEditMode = !!editHeaderId;
 
     const [modelName, setModelName] = useState('');
     const [factories, setFactories] = useState<any[]>([]);
@@ -28,15 +97,44 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
     });
 
     useEffect(() => {
+        const applyExistingHeader = (h: any) => {
+            if (h.date) setDate(String(h.date).slice(0, 10));
+            setCheckingTime(h.checkingTime || '');
+            setPo(h.po || '');
+            const factoryName: string = h.factory?.factory || '';
+            const savedCell: string = h.cell && h.cell !== '-' ? h.cell : '';
+            if (factoryName === 'INHOUSE' || factoryName === 'BOTTOM 1' || factoryName === 'BOTTOM 2') {
+                // Part is not stored; derive it from the cell (e.g. "NOSEW 3" -> "NOSEW")
+                setFactoryId(factoryName);
+                if (savedCell) {
+                    setPart(savedCell.replace(/\s+\d+$/, ''));
+                } else if (factoryName !== 'INHOUSE') {
+                    setPart('INCOMING MIDSOLE'); // the only BOTTOM part without a cell
+                }
+                setCell(savedCell);
+            } else {
+                setFactoryId(h.factoryId != null ? String(h.factoryId) : '');
+                setCell(savedCell);
+            }
+        };
+
         const fetchInitialData = async () => {
             try {
-                const [modelsRes, factoriesRes] = await Promise.all([
+                const [modelsRes, factoriesRes, headerRes] = await Promise.all([
                     fetch('/api/ctq-setup/models'),
-                    fetch('/api/master/factories')
+                    fetch('/api/master/factories'),
+                    editHeaderId ? fetch(`/api/rqc/headers/${editHeaderId}`) : Promise.resolve(null)
                 ]);
 
                 const models = await modelsRes.json();
                 const factoryData = await factoriesRes.json();
+                if (headerRes) {
+                    if (headerRes.ok) {
+                        applyExistingHeader(await headerRes.json());
+                    } else {
+                        alert('Failed to load the existing header data.');
+                    }
+                }
 
                 let currentName = '';
                 const currentModel = models.find((m: any) => String(m.setupModelId) === String(modelId));
@@ -61,7 +159,17 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             }
         };
         fetchInitialData();
-    }, [modelId]);
+    }, [modelId, editHeaderId]);
+
+    // Prefetch the next step so moving back to Inspection feels instant
+    useEffect(() => {
+        if (editHeaderId) router.prefetch(`/audit/session/${editHeaderId}`);
+    }, [editHeaderId]);
+
+    const handleCancel = () => {
+        if (editHeaderId) router.push(`/audit/session/${editHeaderId}`);
+        else router.push('/dashboard');
+    };
 
 
     // Helper: is BOTTOM factory selected
@@ -105,6 +213,29 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             return;
         }
 
+        if (editHeaderId) {
+            setSubmitting(true);
+            try {
+                const res = await fetch(`/api/rqc/headers/${editHeaderId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date, checkingTime, po, factoryId, cell })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    router.push(`/audit/session/${editHeaderId}`);
+                } else {
+                    alert('Failed to update header: ' + (data.message || 'Unknown error'));
+                    setSubmitting(false);
+                }
+            } catch (error) {
+                console.error("Update error:", error);
+                alert('A network error occurred.');
+                setSubmitting(false);
+            }
+            return;
+        }
+
         const payload = {
             date: date,
             checkingTime: checkingTime,
@@ -125,24 +256,26 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             const data = await res.json();
 
             if (res.ok && data.rqcHeaderId) {
-                // Navigate to the actual audit session page for this header
-                router.push(`/audit/session/${data.rqcHeaderId}`);
+                // Navigate to the actual audit session page for this header.
+                // Replace (not push) so the browser Back button doesn't reopen an empty "new" form
+                // and create a duplicate session; "Previous" on the Inspection step reopens it pre-filled.
+                router.replace(`/audit/session/${data.rqcHeaderId}`);
             } else {
                 alert('Failed to start session: ' + (data.message || 'Unknown error'));
+                setSubmitting(false);
             }
         } catch (error) {
             console.error("Submission error:", error);
             alert('A network error occurred.');
-        } finally {
             setSubmitting(false);
         }
     };
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
-                <p className="animate-pulse text-gray-500">Loading audit setup...</p>
-            </div>
+            <HeaderPageChrome onBack={handleCancel}>
+                <HeaderFormSkeleton />
+            </HeaderPageChrome>
         );
     }
 
@@ -178,7 +311,7 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
                 return <option value="-" >No Cell Required</option>;
             }
             const maxCell = selectedBottomPart?.maxCell ?? 10;
-            const options: JSX.Element[] = [];
+            const options: React.JSX.Element[] = [];
             options.push(<option key="default" value="" disabled>Select Cell ({part})</option>);
             for (let i = 1; i <= maxCell; i++) {
                 const val = `${part} ${i}`;
@@ -198,7 +331,7 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             return <option value="" disabled>Invalid Factory Format</option>;
         }
 
-        const options: JSX.Element[] = [];
+        const options: React.JSX.Element[] = [];
         options.push(<option key="default" value="" disabled>Select Cell (F{fNum}-xxx)</option>);
         for (let i = 1; i <= 23; i++) {
             const val = `F${fNum}-${i}`;
@@ -208,38 +341,10 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col pb-20">
-            {/* Top Navigation Bar from Design */}
-            <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
-                <button onClick={() => router.push('/dashboard')} className="flex items-center text-gray-600 font-medium">
-                    <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                    New Report
-                </button>
-                <div className="text-gray-500 font-medium flex items-center gap-1">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                    Save
-                </div>
-            </nav>
-
-            {/* Stepper UI Progress */}
-            <div className="bg-white px-4 py-5 shadow-sm mb-6 flex justify-center items-center text-sm font-medium">
-                <div className="flex items-center text-gray-900 font-bold">
-                    <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Header
-                </div>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-400">
-                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Inspection
-                </div>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-400">
-                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Summary
-                </div>
-            </div>
-
-            <div className="max-w-2xl mx-auto w-full px-4">
+        <HeaderPageChrome onBack={handleCancel}>
                 <div className="bg-white rounded-xl shadow border border-gray-100 overflow-hidden">
                     <div className="border-b border-gray-100 px-8 py-5 bg-white">
-                        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Header Audit</h1>
+                        <h1 className="text-xl font-bold text-gray-900 tracking-tight">{isEditMode ? 'Edit Header Audit' : 'Header Audit'}</h1>
                     </div>
 
                     <form onSubmit={handleSubmit} className="px-8 py-6 space-y-6">
@@ -403,7 +508,7 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
                         <div className="pt-4 flex gap-4">
                             <button
                                 type="button"
-                                onClick={() => router.push('/dashboard')}
+                                onClick={handleCancel}
                                 className="flex-1 px-4 py-3 rounded-lg border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
                             >
                                 Cancel
@@ -413,12 +518,13 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
                                 disabled={submitting}
                                 className="flex-1 px-4 py-3 rounded-lg bg-gray-900 text-white font-semibold hover:bg-gray-800 transition-colors disabled:bg-gray-400"
                             >
-                                {submitting ? 'Starting Session...' : 'Start Audit'}
+                                {isEditMode
+                                    ? (submitting ? 'Saving...' : 'Save & Continue')
+                                    : (submitting ? 'Starting Session...' : 'Start Audit')}
                             </button>
                         </div>
                     </form>
                 </div>
-            </div>
-        </div>
+        </HeaderPageChrome>
     );
 }
