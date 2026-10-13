@@ -71,6 +71,11 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
         fetchHeader();
     }, [headerId]);
 
+    // Prefetch the history page so the transition after Submit is instant
+    useEffect(() => {
+        if (!viewOnly && header?.setupModelId) router.prefetch(`/audit/${header.setupModelId}/history`);
+    }, [viewOnly, header?.setupModelId]);
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
@@ -133,10 +138,9 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     const handleSubmit = async () => {
         setSubmitting(true);
-        // Usually transitions to a success screen or history
-        setTimeout(() => {
-            router.push('/dashboard');
-        }, 1000);
+        // Data is already saved per inspection; submitting returns the RQC to this model's Inspection History.
+        // replace() so the browser Back button doesn't reopen the draft summary.
+        router.replace(header?.setupModelId ? `/audit/${header.setupModelId}/history` : '/dashboard');
     };
 
     return (

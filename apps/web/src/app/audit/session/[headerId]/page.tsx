@@ -56,6 +56,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
     // Edit mode tracking
     const [isEditMode, setIsEditMode] = useState(false);
+    const [editingDefectId, setEditingDefectId] = useState<string | null>(null);
 
     // Validation State
     const [attemptedNext, setAttemptedNext] = useState(false);
@@ -129,6 +130,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             // Edit mode: pre-fill all fields from existing inspection
             setIsEditMode(true);
             setModalDefectId(String(existingInsp.defectId));
+            setEditingDefectId(String(existingInsp.defectId));
             const savedProc = getSavedProcessState(area.setupAreaId, process.setupProcessId);
             setQtyChecking(String(savedProc?.qtyChecking || 20));
             setQtyDefect(String(existingInsp.qtyDefect || ''));
@@ -144,6 +146,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             // New mode: reset all fields
             setIsEditMode(false);
             setModalDefectId('');
+            setEditingDefectId(null);
             setQtyChecking('20');
             setQtyDefect('');
             setActionPlan('');
@@ -343,6 +346,18 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
     // New validation rule: user can proceed if at least 1 process is completed across inspection
     const canProceed = totalProgress.completed >= 1;
 
+    // Defects already recorded on the process are hidden from the "Add Defect" dropdown.
+    // When editing, the defect being edited stays in the list so it remains selected.
+    const usedDefectIds = new Set<string>(
+        (modalArea && modalProcess
+            ? getSavedProcessState(modalArea.setupAreaId, modalProcess.setupProcessId)?.rqcInspections || []
+            : []
+        ).map((insp: any) => String(insp.defectId))
+    );
+    const availableDefects = (modalProcess?.setupDefects || []).filter((sd: any) =>
+        !usedDefectIds.has(String(sd.defectId)) || (isEditMode && String(sd.defectId) === editingDefectId)
+    );
+
     const handleNextClick = () => {
         if (!canProceed) {
             setAttemptedNext(true);
@@ -528,19 +543,32 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                                                 <span className="font-semibold">Qty : {insp.qtyDefect} / {savedProcess.qtyChecking}</span>
                                                                 <span className="font-semibold">Rate : {ratePct}%</span>
                                                             </div>
-                                                            <div className="px-2 py-1.5 rounded-md text-center text-xs font-bold uppercase tracking-wider bg-green-50 text-green-600 border border-green-200">
-                                                                ✔️ DONE
-                                                            </div>
-                                                            {insp.status === 'IMMEDIATE_ACTION' && (
-                                                                <div className={`mt-2 px-2 py-1.5 rounded-md text-xs font-bold text-center border ${insp.actionPlan ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                                                    {insp.actionPlan ? '✔️ Immediate Action sudah diisi' : '❌ Immediate Action belum diisi'}
-                                                                </div>
-                                                            )}
-                                                            {insp.status === 'CAP' && (
-                                                                <div className={`mt-2 px-2 py-1.5 rounded-md text-xs font-bold text-center border ${insp.rootCause ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                                                    {insp.rootCause ? '✔️ CAP sudah diisi' : '❌ CAP belum diisi'}
-                                                                </div>
-                                                            )}
+                                                            {/* Status row: Done on the left, Immediate Action / CAP follow-up on the right */}
+                                                            {(() => {
+                                                                const isCap = insp.status === 'CAP';
+                                                                const followUpFilled = isCap
+                                                                    ? !!(insp.rootCause && String(insp.rootCause).trim())
+                                                                    : !!(insp.actionPlan && String(insp.actionPlan).trim());
+                                                                return (
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-50 text-green-700 border border-green-200">
+                                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                                                            Done
+                                                                        </span>
+                                                                        <span
+                                                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${followUpFilled ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
+                                                                            title={followUpFilled ? 'Sudah diisi' : 'Belum diisi'}
+                                                                        >
+                                                                            {followUpFilled ? (
+                                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                                                            ) : (
+                                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                            )}
+                                                                            {isCap ? 'CAP' : 'Immediate Action'} {followUpFilled ? 'sudah diisi' : 'belum diisi'}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                             {/* Photo Thumbnails */}
                                                             {(insp.photoDefect || insp.photoAfterActionPlan) && (
                                                                 <div className="flex gap-3 mt-3 pt-3 border-t border-gray-100">
@@ -674,12 +702,15 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                     className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 bg-gray-50 font-medium"
                                 >
                                     <option value="" disabled>Search Defect...</option>
-                                    {modalProcess?.setupDefects?.map((sd: any) => (
+                                    {availableDefects.map((sd: any) => (
                                         <option key={sd.defectId} value={sd.defectId}>
                                             {sd.masterDefect.defect}
                                         </option>
                                     ))}
                                 </select>
+                                {availableDefects.length === 0 && (
+                                    <p className="mt-2 text-xs text-amber-600 font-medium">Semua defect untuk proses ini sudah dipilih.</p>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4 mb-5">
