@@ -306,7 +306,9 @@ export class RqcService {
                     include: {
                         rqcProcesses: {
                             include: {
-                                rqcInspections: true,
+                                rqcInspections: {
+                                    include: { masterDefect: true }
+                                },
                                 setupProcess: {
                                     include: {
                                         masterProcess: true
