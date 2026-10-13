@@ -20,8 +20,8 @@ export class TqcService implements OnModuleInit {
     }
 
     async createMany(data: any[], moduleType: string) {
-        // Delete existing data for this module to replace everything with the newly imported data
-        await this.deleteByModule(moduleType);
+        // Existing data is kept: imported rows are appended, and rows identical to an
+        // existing record (or repeated within the same file) are skipped to avoid duplicates.
 
         // We will receive an array of records parsed from the Excel file
         // Map them to the Prisma schema format
@@ -51,13 +51,42 @@ export class TqcService implements OnModuleInit {
         // Use raw SQL batch insert to bypass Prisma client type validation
         // This is required because the Prisma generated client may be stale after schema changes
         try {
-            if (records.length === 0) return { count: 0 };
+            if (records.length === 0) return { count: 0, skipped: 0 };
+
+            // Build a signature of every data column so duplicates can be detected
+            const str = (v: any) => (v == null ? '' : String(v).trim());
+            const num = (v: any) => (v == null || v === '' ? '' : String(Number(v)));
+            const signature = (r: any) => [
+                str(r.date), str(r.time), str(r.building), str(r.cell), str(r.model), str(r.article),
+                str(r.orderNo), num(r.seq), str(r.pwiNo), num(r.qty), num(r.qtyDefect), num(r.qtyProduction),
+                str(r.destination), str(r.category), str(r.type), str(r.defectName), str(r.uspClassification),
+            ].join('|');
+
+            const existingRows = await this.prisma.$queryRawUnsafe<any[]>(
+                `SELECT to_char(date, 'YYYY-MM-DD') AS date, time, building, cell, model, article,
+                        order_no AS "orderNo", seq, pwi_no AS "pwiNo", qty, qty_defect AS "qtyDefect",
+                        qty_production AS "qtyProduction", destination, category, type,
+                        defect_name AS "defectName", usp_classification AS "uspClassification"
+                 FROM tqc_report WHERE module_type = $1`,
+                moduleType.toUpperCase()
+            );
+            const seen = new Set<string>(existingRows.map(signature));
+
+            const newRecords = records.filter((r: any) => {
+                const key = signature({ ...r, date: r.date.toISOString().slice(0, 10) });
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+            const skipped = records.length - newRecords.length;
+
+            if (newRecords.length === 0) return { count: 0, skipped };
 
             const BATCH_SIZE = 100;
             let totalInserted = 0;
 
-            for (let i = 0; i < records.length; i += BATCH_SIZE) {
-                const batch = records.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < newRecords.length; i += BATCH_SIZE) {
+                const batch = newRecords.slice(i, i + BATCH_SIZE);
                 const values = batch.map((r: any) => `(
                     ${r.date instanceof Date ? `'${r.date.toISOString()}'` : `'${new Date(r.date).toISOString()}'`},
                     ${r.time ? `'${String(r.time).replace(/'/g, "''")}'` : 'NULL'},
@@ -89,7 +118,7 @@ export class TqcService implements OnModuleInit {
                 totalInserted += batch.length;
             }
 
-            return { count: totalInserted };
+            return { count: totalInserted, skipped };
         } catch (error) {
             console.error("TQC UPLOAD DB ERROR:", error);
             throw new HttpException(`Failed to upload to DB: ${(error as any).message}`, HttpStatus.INTERNAL_SERVER_ERROR);

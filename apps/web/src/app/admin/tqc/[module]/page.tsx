@@ -230,7 +230,13 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                 });
 
                 if (response.ok) {
-                    alert('Data imported successfully!');
+                    let msg = 'Data imported successfully!';
+                    try {
+                        const result = await response.json();
+                        msg = `Data imported successfully!\n${result.count ?? 0} new record(s) added` +
+                            (result.skipped ? `, ${result.skipped} duplicate record(s) skipped.` : '.');
+                    } catch (e) { }
+                    alert(msg);
                     fetchData(); // Reload table
                 } else {
                     let errMsg = 'Failed to import data on the server.';
