@@ -55,23 +55,40 @@ export class MasterService {
     async createFactory(data: { factory: string }) { return this.prisma.masterFactory.create({ data }); }
 
     // --- POS ---
-    async findAllPos(modelLike?: string) {
-        if (modelLike) {
-            // Excel imports often contain Non-Breaking Spaces (\xA0) instead of normal spaces.
-            // A direct string match (e.g. 'BAD BUNNY') will fail if the DB has 'BAD\xA0BUNNY'.
-            // Solution: split the search phrase by any space character and require ALL terms to match.
-            const searchWords = modelLike.split(/\s+/).map(w => w.trim()).filter(w => w.length > 0);
+    private buildModelLikeWhere(modelLike?: string) {
+        if (!modelLike) return undefined;
+        // Excel imports often contain Non-Breaking Spaces (\xA0) instead of normal spaces.
+        // A direct string match (e.g. 'BAD BUNNY') will fail if the DB has 'BAD\xA0BUNNY'.
+        // Solution: split the search phrase by any space character and require ALL terms to match.
+        const searchWords = modelLike.split(/\s+/).map(w => w.trim()).filter(w => w.length > 0);
+        return searchWords.length > 0 ? {
+            AND: searchWords.map(word => ({
+                model: { contains: word, mode: 'insensitive' as const }
+            }))
+        } : undefined;
+    }
 
-            return this.prisma.masterPo.findMany({
-                where: searchWords.length > 0 ? {
-                    AND: searchWords.map(word => ({
-                        model: { contains: word, mode: 'insensitive' }
-                    }))
-                } : undefined,
-                orderBy: { po: 'desc' }
-            });
-        }
-        return this.prisma.masterPo.findMany({ orderBy: { po: 'desc' } });
+    async findAllPos(modelLike?: string) {
+        return this.prisma.masterPo.findMany({
+            where: this.buildModelLikeWhere(modelLike),
+            orderBy: { po: 'desc' }
+        });
+    }
+
+    async findPosPaged(page = 1, limit = 100, modelLike?: string) {
+        const take = Math.min(Math.max(limit || 100, 1), 500);
+        const currentPage = Math.max(page || 1, 1);
+        const where = this.buildModelLikeWhere(modelLike);
+        const [data, total] = await this.prisma.$transaction([
+            this.prisma.masterPo.findMany({
+                where,
+                orderBy: { po: 'desc' },
+                skip: (currentPage - 1) * take,
+                take
+            }),
+            this.prisma.masterPo.count({ where })
+        ]);
+        return { data, total, page: currentPage, limit: take };
     }
     async createPo(data: { po: string; article: string; model: string; qtyOrder: number; destination?: string }) { return this.prisma.masterPo.create({ data }); }
 

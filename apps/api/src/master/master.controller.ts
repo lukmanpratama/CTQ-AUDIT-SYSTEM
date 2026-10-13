@@ -55,6 +55,15 @@ export class MasterController {
     @Get('pos')
     async getPos(@Query('modelLike') modelLike?: string) { return this.masterService.findAllPos(modelLike); }
 
+    @Get('pos/paged')
+    async getPosPaged(
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+        @Query('model') model?: string
+    ) {
+        return this.masterService.findPosPaged(parseInt(page || '1', 10), parseInt(limit || '100', 10), model);
+    }
+
     @Post('pos')
     async createPo(@Body() dto: CreatePoDto) { return this.masterService.createPo(dto); }
 

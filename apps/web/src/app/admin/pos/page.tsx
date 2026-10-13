@@ -5,22 +5,52 @@ import * as XLSX from 'xlsx';
 
 type Po = { po: string; article: string; model: string; destination?: string; qtyOrder: number };
 
+const PAGE_SIZE = 100;
+
 export default function PoManagementPage() {
     const [pos, setPos] = useState<Po[]>([]);
     const [loading, setLoading] = useState(true);
     const [modelSearch, setModelSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
     const [form, setForm] = useState<Partial<Po>>({});
     const [editPo, setEditPo] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchPos = async () => {
         setLoading(true);
-        const res = await fetch('/api/master/pos');
-        setPos(await res.json());
-        setLoading(false);
+        try {
+            const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+            if (debouncedSearch.trim()) params.set('model', debouncedSearch.trim());
+            const res = await fetch(`/api/master/pos/paged?${params.toString()}`);
+            const result = await res.json();
+            setPos(result.data || []);
+            setTotal(result.total || 0);
+        } catch (e) {
+            console.error('Error fetching POs:', e);
+            setPos([]);
+            setTotal(0);
+        } finally {
+            setLoading(false);
+        }
     };
 
-    useEffect(() => { fetchPos(); }, []);
+    // Debounce the model filter so the server isn't queried on every keystroke
+    useEffect(() => {
+        if (modelSearch === debouncedSearch) return;
+        const t = setTimeout(() => { setDebouncedSearch(modelSearch); setPage(1); }, 400);
+        return () => clearTimeout(t);
+    }, [modelSearch]);
+
+    useEffect(() => { fetchPos(); }, [page, debouncedSearch]);
+
+    const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
+
+    // If rows were deleted and the current page no longer exists, step back to the last page
+    useEffect(() => {
+        if (!loading && page > totalPages) setPage(totalPages);
+    }, [loading, page, totalPages]);
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -53,7 +83,7 @@ export default function PoManagementPage() {
                 alert(`Operation failed: ${data.message || 'Some POs are actively being used in reports and cannot be deleted.'}`);
             } else {
                 alert('All Purchase Orders have been cleared successfully.');
-                fetchPos();
+                if (page !== 1) setPage(1); else fetchPos();
             }
         } catch (error) {
             alert('Failed to clear Purchase Orders.');
@@ -148,7 +178,7 @@ export default function PoManagementPage() {
     };
 
     const cancelEdit = () => { setEditPo(null); setForm({}); };
-    const displayedPos = pos.filter(p => p.model.toLowerCase().includes(modelSearch.toLowerCase()));
+    const displayedPos = pos;
 
     return (
         <div className="space-y-5">
@@ -220,7 +250,7 @@ export default function PoManagementPage() {
                     <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                         <h2 className="text-sm font-medium text-gray-800">
                             Purchase Orders
-                            <span className="ml-1.5 text-xs text-gray-400 font-normal">{displayedPos.length} records</span>
+                            <span className="ml-1.5 text-xs text-gray-400 font-normal">{total.toLocaleString()} records</span>
                         </h2>
                     </div>
                     {loading ? (
@@ -265,6 +295,30 @@ export default function PoManagementPage() {
                             </table>
                         </div>
                     )}
+                    <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                        <span>
+                            {total === 0
+                                ? 'Showing 0 results'
+                                : <>Showing <span className="font-medium text-gray-700">{((page - 1) * PAGE_SIZE + 1).toLocaleString()}</span> to <span className="font-medium text-gray-700">{Math.min(page * PAGE_SIZE, total).toLocaleString()}</span> of <span className="font-medium text-gray-700">{total.toLocaleString()}</span> results</>}
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setPage(p => Math.max(p - 1, 1))}
+                                disabled={loading || page <= 1}
+                                className="border border-gray-200 px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Previous
+                            </button>
+                            <span>Page {page} of {totalPages}</span>
+                            <button
+                                onClick={() => setPage(p => Math.min(p + 1, totalPages))}
+                                disabled={loading || page >= totalPages}
+                                className="border border-gray-200 px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
