@@ -1,15 +1,25 @@
 import { Controller, Post, Put, Body, Param, Get, Delete, Query, UseInterceptors } from '@nestjs/common';
 import { RqcService } from './rqc.service';
-import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
+import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto, ImportInspectionsDto } from './rqc.dto';
+import { RqcImportService } from './rqc-import.service';
 import { CacheInterceptor } from '@nestjs/cache-manager';
 
 @Controller('rqc')
 export class RqcController {
-    constructor(private readonly rqcService: RqcService) { }
+    constructor(
+        private readonly rqcService: RqcService,
+        private readonly rqcImportService: RqcImportService,
+    ) { }
 
     @Post('headers')
     async createHeader(@Body() dto: CreateHeaderDto) {
         return this.rqcService.createHeader(dto);
+    }
+
+    /** Bulk import from the Excel template. apply=false (default) only validates and returns a preview. */
+    @Post('import')
+    async importInspections(@Body() dto: ImportInspectionsDto) {
+        return this.rqcImportService.importInspections(dto.rows, dto.apply === true);
     }
 
     @Get('kpis')
