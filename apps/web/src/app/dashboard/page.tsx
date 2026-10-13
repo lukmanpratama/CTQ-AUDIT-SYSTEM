@@ -9,6 +9,7 @@ export default function DashboardPage() {
     const [models, setModels] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [nik, setNik] = useState<string>('');
+    const [namaUser, setNamaUser] = useState<string>('');
 
     useEffect(() => {
         // Check simulated auth
@@ -18,6 +19,25 @@ export default function DashboardPage() {
             return;
         }
         setNik(storedNik);
+
+        const storedName = localStorage.getItem('namaUser');
+        if (storedName) {
+            setNamaUser(storedName);
+        } else {
+            // Sessions from before the name was stored at login: look it up once
+            const token = localStorage.getItem('accessToken');
+            if (token) {
+                fetch('/api/auth/profile', { headers: { Authorization: `Bearer ${token}` } })
+                    .then(res => (res.ok ? res.json() : null))
+                    .then(profile => {
+                        if (profile?.namaUser) {
+                            localStorage.setItem('namaUser', profile.namaUser);
+                            setNamaUser(profile.namaUser);
+                        }
+                    })
+                    .catch(() => { /* keep showing the NIK only */ });
+            }
+        }
 
         // Fetch setup models via API
         fetch('/api/ctq-setup/models')
@@ -44,10 +64,10 @@ export default function DashboardPage() {
                 <h1 className="text-xl font-bold tracking-tight text-gray-900">RQC DATA AUDIT</h1>
                 <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-gray-600">
-                        Inspector: {nik}
+                        Inspector: {namaUser ? <><span className="font-semibold text-gray-900">{namaUser}</span> ({nik})</> : nik}
                     </span>
                     <button
-                        onClick={() => { localStorage.removeItem('nik'); router.push('/login'); }}
+                        onClick={() => { localStorage.removeItem('nik'); localStorage.removeItem('namaUser'); router.push('/login'); }}
                         className="text-sm text-red-600 font-semibold hover:underline"
                     >
                         Logout

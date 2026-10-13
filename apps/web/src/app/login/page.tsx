@@ -29,6 +29,7 @@ export default function LoginPage() {
             const data = await res.json();
 
             localStorage.setItem('nik', data.user.nik);
+            localStorage.setItem('namaUser', data.user.namaUser || '');
             localStorage.setItem('role', data.user.role);
             localStorage.setItem('accessToken', data.accessToken);
 
