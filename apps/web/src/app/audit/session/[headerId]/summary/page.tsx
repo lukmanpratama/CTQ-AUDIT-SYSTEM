@@ -32,6 +32,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     const [loading, setLoading] = useState(true);
     const [header, setHeader] = useState<any>(null);
+    const [defectNames, setDefectNames] = useState<Record<string, string>>({});
     const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
@@ -41,6 +42,25 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                 if (res.ok) {
                     const data = await res.json();
                     setHeader(data);
+                    if (data.setupModelId) {
+                        try {
+                            const treeRes = await fetch(`/api/ctq-setup/models/${data.setupModelId}/tree`);
+                            if (treeRes.ok) {
+                                const tree = await treeRes.json();
+                                const names: Record<string, string> = {};
+                                tree.areas?.forEach((area: any) => {
+                                    area.setupProcesses?.forEach((proc: any) => {
+                                        proc.setupDefects?.forEach((sd: any) => {
+                                            if (sd.masterDefect?.defect) names[String(sd.defectId)] = sd.masterDefect.defect;
+                                        });
+                                    });
+                                });
+                                setDefectNames(names);
+                            }
+                        } catch (e) {
+                            console.error('Failed to fetch defect names', e);
+                        }
+                    }
                 }
                 setLoading(false);
             } catch (err) {
@@ -278,13 +298,17 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                     header.rqcAreas?.forEach((area: any) => {
                         area.rqcProcesses?.forEach((proc: any) => {
                             proc.rqcInspections?.forEach((insp: any) => {
-                                if (insp.photoDefect || insp.photoAfterActionPlan) {
+                                // Show every finding (with or without photos) so its action details are visible
+                                if (insp.qtyDefect > 0 || insp.photoDefect || insp.photoAfterActionPlan) {
                                     photoInspections.push({
                                         processName: proc.setupProcess?.masterProcess?.process || 'Unknown',
-                                        defectName: insp.masterDefect?.defect || insp.defectId || '-',
+                                        defectName: insp.masterDefect?.defect || defectNames[String(insp.defectId)] || (insp.defectId ? `Defect #${insp.defectId}` : '-'),
                                         photoDefect: insp.photoDefect,
                                         photoAfterActionPlan: insp.photoAfterActionPlan,
                                         status: insp.status,
+                                        actionPlan: insp.actionPlan,
+                                        rootCause: insp.rootCause,
+                                        corrective: insp.corrective,
                                     });
                                 }
                             });
@@ -299,15 +323,32 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                             <div className="space-y-4">
                                 {photoInspections.map((item, idx) => (
                                     <div key={idx} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                                        <div className="flex justify-between items-center mb-3">
-                                            <div>
-                                                <p className="text-sm font-bold text-gray-900">{item.processName}</p>
-                                                <p className="text-xs text-gray-500">{item.defectName}</p>
-                                            </div>
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${item.status === 'CAP' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
-                                                {item.status === 'CAP' ? 'CAP' : 'IA'}
+                                        <div className="flex justify-between items-start gap-3 mb-3">
+                                            <p className="text-sm font-bold text-gray-900">{item.processName}</p>
+                                            <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded border whitespace-nowrap ${item.status === 'CAP' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                                {item.status === 'CAP' ? 'CAP' : 'Immediate Action'}
                                             </span>
                                         </div>
+                                        <dl className="mb-3 rounded-lg bg-gray-50 border border-gray-100 divide-y divide-gray-100 text-xs">
+                                            {[
+                                                { label: 'Defect Name', value: item.defectName },
+                                                // Immediate Action only has an Action Plan; CAP has Root Cause + Corrective Action
+                                                ...(item.status === 'CAP'
+                                                    ? [
+                                                        { label: 'Root Cause', value: item.rootCause },
+                                                        { label: 'Corrective Action', value: item.corrective },
+                                                    ]
+                                                    : [{ label: 'Action Plan', value: item.actionPlan }]),
+                                            ].map(row => (
+                                                <div key={row.label} className="flex gap-3 px-3 py-2">
+                                                    <dt className="w-32 flex-shrink-0 font-semibold text-gray-500">{row.label}</dt>
+                                                    <dd className={`flex-1 min-w-0 break-words whitespace-pre-line ${row.value && String(row.value).trim() ? 'text-gray-900 font-medium' : 'text-gray-400 italic'}`}>
+                                                        {row.value && String(row.value).trim() ? row.value : 'Belum diisi'}
+                                                    </dd>
+                                                </div>
+                                            ))}
+                                        </dl>
+                                        {(item.photoDefect || item.photoAfterActionPlan) && (
                                         <div className="flex gap-3">
                                             {item.photoDefect && (
                                                 <div className="flex-1">
@@ -326,6 +367,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                                                 </div>
                                             )}
                                         </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
