@@ -27,6 +27,18 @@ export class RqcService {
                 });
             }
             resolvedFactoryId = inhouseFactory.factoryId;
+        } else if (dto.factoryId === 'BOTTOM' || dto.factoryId === 'BOTTOM 1' || dto.factoryId === 'BOTTOM 2') {
+            // Resolve BOTTOM, BOTTOM 1, BOTTOM 2 — stored as-is in masterFactory
+            const factoryName = dto.factoryId; // 'BOTTOM', 'BOTTOM 1', or 'BOTTOM 2'
+            let bottomFactory = await this.prisma.masterFactory.findUnique({
+                where: { factory: factoryName }
+            });
+            if (!bottomFactory) {
+                bottomFactory = await this.prisma.masterFactory.create({
+                    data: { factory: factoryName }
+                });
+            }
+            resolvedFactoryId = bottomFactory.factoryId;
         } else {
             resolvedFactoryId = BigInt(dto.factoryId);
         }
@@ -241,6 +253,7 @@ export class RqcService {
         const header = await this.prisma.rqcHeader.findUnique({
             where: { rqcHeaderId: headerId },
             include: {
+                factory: true,
                 rqcAreas: {
                     include: {
                         rqcProcesses: {

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { use } from 'react';
+import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
 
 const processImageUrl = (url: string) => {
     if (!url) return '';
@@ -71,9 +72,15 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                     // 2. Fetch CTQ tree
                     const treeRes = await fetch(`/api/ctq-setup/models/${header.setupModelId}/tree`);
                     const treeData = await treeRes.json();
-                    setTree(treeData.areas || []);
-                    if (treeData.areas && treeData.areas.length > 0) {
-                        setExpandedArea(treeData.areas[0].setupAreaId);
+                    const allAreas = treeData.areas || [];
+                    setTree(allAreas);
+
+                    const currentFactoryLine = header?.factory?.factory || (header?.factoryId ? String(header.factoryId) : '');
+                    const filtered = allAreas.filter((a: any) => isAreaAllowedForFactory(a.masterArea?.area, currentFactoryLine));
+                    if (filtered.length > 0) {
+                        setExpandedArea(filtered[0].setupAreaId);
+                    } else if (allAreas.length > 0) {
+                        setExpandedArea(allAreas[0].setupAreaId);
                     }
                 }
                 setLoading(false);
@@ -294,6 +301,45 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         }
     };
 
+    const modalDefectRate = (qtyChecking && qtyDefect && parseInt(qtyChecking) > 0)
+        ? (parseInt(qtyDefect) / parseInt(qtyChecking))
+        : 0;
+    const modalCapRequired = modalDefectRate > 0.20;
+
+    const factoryLine = headerData?.factory?.factory || (headerData?.factoryId ? String(headerData.factoryId) : '');
+
+    // Dynamically filter areas according to Factory Line from Header Audit
+    const visibleAreas = useMemo(() => {
+        if (!factoryLine) return tree;
+        return tree.filter(area => isAreaAllowedForFactory(area.masterArea?.area, factoryLine));
+    }, [tree, factoryLine]);
+
+    useEffect(() => {
+        if (visibleAreas.length > 0) {
+            const isCurrentlyExpanded = visibleAreas.some(a => String(a.setupAreaId) === String(expandedArea));
+            if (!isCurrentlyExpanded) {
+                setExpandedArea(visibleAreas[0].setupAreaId);
+            }
+        }
+    }, [visibleAreas, expandedArea]);
+
+    // Check completion across all visible areas
+    const totalProgress = visibleAreas.reduce((acc, area) => {
+        const { total, completed } = getAreaProgress(area);
+        return { total: acc.total + total, completed: acc.completed + completed };
+    }, { total: 0, completed: 0 });
+
+    // New validation rule: user can proceed if at least 1 process is completed across inspection
+    const canProceed = totalProgress.completed >= 1;
+
+    const handleNextClick = () => {
+        if (!canProceed) {
+            setAttemptedNext(true);
+            return;
+        }
+        router.push(`/audit/session/${headerId}/summary`);
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
@@ -301,28 +347,6 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             </div>
         );
     }
-
-    const modalDefectRate = (qtyChecking && qtyDefect && parseInt(qtyChecking) > 0)
-        ? (parseInt(qtyDefect) / parseInt(qtyChecking))
-        : 0;
-    const modalCapRequired = modalDefectRate > 0.20;
-
-    // Check completion across all areas
-    const totalProgress = tree.reduce((acc, area) => {
-        const { total, completed } = getAreaProgress(area);
-        return { total: acc.total + total, completed: acc.completed + completed };
-    }, { total: 0, completed: 0 });
-
-    const isAllCompleted = totalProgress.total > 0 && totalProgress.completed === totalProgress.total;
-
-    const handleNextClick = () => {
-        if (!isAllCompleted) {
-            setAttemptedNext(true);
-            // Optionally, scroll to the top or show a toast
-            return;
-        }
-        router.push(`/audit/session/${headerId}/summary`);
-    };
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col pb-24 relative">
@@ -370,9 +394,17 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
             {/* Content List */}
             <div className="flex-1 px-4 overflow-y-auto w-full pb-10 max-w-2xl mx-auto">
-                {tree.map(area => {
+                {visibleAreas.length === 0 && (
+                    <div className="bg-white rounded-xl p-8 text-center border border-gray-200 text-gray-500 my-4 shadow-sm">
+                        <p className="font-semibold text-gray-700">Tidak ada Area untuk {factoryLine || 'Factory Line ini'}</p>
+                        <p className="text-sm mt-1 text-gray-500">Model ini belum memiliki konfigurasi Area yang sesuai.</p>
+                    </div>
+                )}
+                {visibleAreas.map(area => {
                     const { total, completed } = getAreaProgress(area);
                     const isExpanded = expandedArea === area.setupAreaId;
+                    // Area is considered completed if at least one process in it has been filled
+                    const isAreaCompleted = completed > 0;
 
                     return (
                         <div key={area.setupAreaId} className="mb-4">
@@ -385,8 +417,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                     <svg className={`w-4 h-4 mr-2 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                                     {area.masterArea.area}
                                 </div>
-                                <span className={`flex items-center gap-1 ${completed === total && total > 0 ? 'text-green-400 font-bold' : ''}`}>
-                                    {completed === total && total > 0 && (
+                                <span className={`flex items-center gap-1 ${isAreaCompleted ? 'text-green-500 font-bold' : ''}`}>
+                                    {isAreaCompleted && (
                                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
                                     )}
                                     {completed}/{total}
@@ -399,7 +431,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                     {area.setupProcesses?.map((proc: any, index: number) => {
                                         const savedProcess = getSavedProcessState(area.setupAreaId, proc.setupProcessId);
                                         const isCompleted = savedProcess !== null;
-                                        const showError = attemptedNext && !isCompleted;
+                                        // Only highlight error if user attempted next and no process has been completed yet
+                                        const showError = attemptedNext && totalProgress.completed === 0 && !isCompleted;
 
                                         return (
                                             <div key={proc.setupProcessId} className="mb-8 relative">
@@ -565,9 +598,9 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             {/* Bottom Navigation */}
             <div className="fixed bottom-0 left-0 w-full bg-white border-t p-4 z-10">
                 <div className="max-w-2xl mx-auto w-full flex flex-col gap-3">
-                    {!viewOnly && attemptedNext && !isAllCompleted && (
+                    {!viewOnly && attemptedNext && !canProceed && (
                         <div className="text-center text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-200 mb-[-4px]">
-                            Harap isi semua inspeksi sebelum melanjutkan ({totalProgress.completed}/{totalProgress.total} selesai)
+                            Harap isi minimal satu proses inspeksi sebelum melanjutkan ({totalProgress.completed}/{totalProgress.total} selesai)
                         </div>
                     )}
                     {viewOnly ? (
@@ -580,15 +613,21 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                     ) : (
                         <div className="flex justify-between gap-4">
                             <button
-                                onClick={() => router.push('history')}
+                                onClick={() => {
+                                    if (headerData?.setupModelId) {
+                                        router.push(`/audit/${headerData.setupModelId}/header`);
+                                    } else {
+                                        router.back();
+                                    }
+                                }}
                                 className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-lg"
                             >
                                 Previous
                             </button>
                             <button
                                 onClick={handleNextClick}
-                                disabled={!isAllCompleted && attemptedNext}
-                                className={`flex-1 py-3 font-bold rounded-lg shadow-md transition-colors ${!isAllCompleted && attemptedNext ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
+                                disabled={!canProceed && attemptedNext}
+                                className={`flex-1 py-3 font-bold rounded-lg shadow-md transition-colors ${!canProceed && attemptedNext ? 'bg-gray-400 text-gray-200 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
                             >
                                 Next
                             </button>

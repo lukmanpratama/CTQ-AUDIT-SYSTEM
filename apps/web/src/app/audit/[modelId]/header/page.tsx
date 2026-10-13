@@ -64,6 +64,20 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
     }, [modelId]);
 
 
+    // Helper: is BOTTOM factory selected
+    const isBottomFactory = factoryId === 'BOTTOM 1' || factoryId === 'BOTTOM 2';
+
+    // Parts definition for BOTTOM factories
+    const BOTTOM_PARTS: { value: string; label: string; maxCell: number | null }[] = [
+        { value: 'STOCKFIT', label: 'STOCKFIT', maxCell: 10 },
+        { value: 'HOTPRESS', label: 'HOTPRESS', maxCell: 20 },
+        { value: 'INCOMING MIDSOLE', label: 'INCOMING MIDSOLE', maxCell: null }, // no cell
+    ];
+
+    const selectedBottomPart = BOTTOM_PARTS.find(p => p.value === part) ?? null;
+    // Incoming Midsole has no cell requirement
+    const bottomPartNeedsCell = selectedBottomPart !== null && selectedBottomPart.maxCell !== null;
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -77,7 +91,9 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             return;
         }
 
-        if (!cell) {
+        // Cell is required unless it's Incoming Midsole (BOTTOM factory)
+        const needsCell = !(isBottomFactory && selectedBottomPart?.maxCell === null);
+        if (needsCell && !cell) {
             alert('Please select a Cell.');
             return;
         }
@@ -133,7 +149,7 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
     // Get selected PO data for read-only preview
     const selectedPoData = poOptions.find(p => p.po === po);
 
-    // Determine Cell options based on selected Factory
+    // Determine Cell options based on selected Factory + Part
     const renderCellOptions = () => {
         if (!factoryId) {
             return <option value="" disabled>Select Factory First</option>;
@@ -152,6 +168,25 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             return options;
         }
 
+        // BOTTOM 1 / BOTTOM 2
+        if (isBottomFactory) {
+            if (!part) {
+                return <option value="" disabled>Select Part First</option>;
+            }
+            // Incoming Midsole has no cell
+            if (selectedBottomPart?.maxCell === null) {
+                return <option value="-" >No Cell Required</option>;
+            }
+            const maxCell = selectedBottomPart?.maxCell ?? 10;
+            const options: JSX.Element[] = [];
+            options.push(<option key="default" value="" disabled>Select Cell ({part})</option>);
+            for (let i = 1; i <= maxCell; i++) {
+                const val = `${part} ${i}`;
+                options.push(<option key={val} value={val}>{val}</option>);
+            }
+            return options;
+        }
+
         const selectedFactory = factories.find(f => String(f.factoryId) === String(factoryId));
         if (!selectedFactory) return null;
 
@@ -163,7 +198,7 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
             return <option value="" disabled>Invalid Factory Format</option>;
         }
 
-        const options = [];
+        const options: JSX.Element[] = [];
         options.push(<option key="default" value="" disabled>Select Cell (F{fNum}-xxx)</option>);
         for (let i = 1; i <= 23; i++) {
             const val = `F${fNum}-${i}`;
@@ -294,14 +329,16 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
                                     // Filter strict to 1-4
                                     .filter(f => /Factory [1-4]/.test(f.factory))
                                     .map(f => (
-                                        <option key={f.factoryId} value={f.factoryId}>{f.factory}</option>
+                                        <option key={f.factoryId} value={f.factoryId}>{f.factory.toUpperCase()}</option>
                                     ))
                                 }
                                 <option value="INHOUSE">INHOUSE</option>
+                                <option value="BOTTOM 1">BOTTOM 1</option>
+                                <option value="BOTTOM 2">BOTTOM 2</option>
                             </select>
                         </div>
 
-                        {factoryId === 'INHOUSE' && (
+                        {(factoryId === 'INHOUSE' || isBottomFactory) && (
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2">Part</label>
                                 <select
@@ -313,27 +350,41 @@ export default function HeaderAuditPage({ params }: { params: Promise<{ modelId:
                                         setCell('');
                                     }}
                                 >
-                                    <option value="" disabled>Select Part</option>
-                                    <option value="NOSEW">NOSEW</option>
-                                    <option value="PRINTING">PRINTING</option>
-                                    <option value="EMBOSS">EMBOSS</option>
-                                    <option value="EMBROIDERY">EMBROIDERY</option>
+                                    {factoryId === 'INHOUSE' ? (
+                                        <>
+                                            <option value="" disabled>Select Part</option>
+                                            <option value="NOSEW">NOSEW</option>
+                                            <option value="PRINTING">PRINTING</option>
+                                            <option value="EMBOSS">EMBOSS</option>
+                                            <option value="EMBROIDERY">EMBROIDERY</option>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <option value="" disabled>Select Part</option>
+                                            <option value="STOCKFIT">STOCKFIT</option>
+                                            <option value="HOTPRESS">HOTPRESS</option>
+                                            <option value="INCOMING MIDSOLE">INCOMING MIDSOLE</option>
+                                        </>
+                                    )}
                                 </select>
                             </div>
                         )}
 
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Cell</label>
-                            <select
-                                required
-                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
-                                value={cell}
-                                onChange={(e) => setCell(e.target.value)}
-                                disabled={!factoryId}
-                            >
-                                {renderCellOptions()}
-                            </select>
-                        </div>
+                        {/* Hide Cell dropdown for Incoming Midsole (no cell required) */}
+                        {!(isBottomFactory && selectedBottomPart?.maxCell === null) && (
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Cell</label>
+                                <select
+                                    required={!(isBottomFactory && selectedBottomPart?.maxCell === null)}
+                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
+                                    value={cell}
+                                    onChange={(e) => setCell(e.target.value)}
+                                    disabled={!factoryId || (isBottomFactory && !part)}
+                                >
+                                    {renderCellOptions()}
+                                </select>
+                            </div>
+                        )}
 
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">Checking Time</label>
