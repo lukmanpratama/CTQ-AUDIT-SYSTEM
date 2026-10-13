@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsInt, IsOptional, ValidateNested, IsDecimal, Min, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsInt, IsOptional, ValidateNested, IsDecimal, Min, IsArray, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateHeaderDto {
@@ -51,6 +51,37 @@ export class UpdateHeaderDto {
     @IsString()
     @IsOptional()
     cell?: string;
+}
+
+/** One row of the RQC import template (one defect, or NO DEFECT, of one process in one audit). */
+export interface RqcImportRow {
+    rowNo: number;          // Excel row number, used in error messages
+    date: string;           // yyyy-mm-dd
+    checkingTime: string;   // Morning | Afternoon
+    nik: string;
+    model: string;          // CTQ setup model name
+    po: string;
+    factory: string;        // Factory 1-4 | INHOUSE | BOTTOM 1 | BOTTOM 2
+    cell?: string;
+    process: string;
+    qtyCheck: number;
+    defectName?: string;    // empty or NO DEFECT = process passed
+    qtyDefect?: number;
+    actionPlan?: string;
+    rootCause?: string;
+    corrective?: string;
+    durasiStopline?: number;
+    photoDefect?: string;
+    photoImprovement?: string;
+}
+
+export class ImportInspectionsDto {
+    @IsArray()
+    rows!: RqcImportRow[];
+
+    @IsBoolean()
+    @IsOptional()
+    apply?: boolean; // false/omitted = preview only
 }
 
 export class DefectInputDto {
