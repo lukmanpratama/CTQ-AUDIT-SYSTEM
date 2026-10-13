@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Delete, Patch } from '@nestjs/common';
 import { TqcService } from './tqc.service';
 
 @Controller('tqc')
@@ -18,6 +18,14 @@ export class TqcController {
         @Param('moduleType') moduleType: string
     ) {
         return this.tqcService.getByModule(moduleType);
+    }
+
+    @Patch(':id/usp')
+    async updateUspClassification(
+        @Param('id') id: string,
+        @Body() body: { uspClassification: string }
+    ) {
+        return this.tqcService.updateUspClassification(parseInt(id, 10), body?.uspClassification);
     }
 
     @Delete(':id')

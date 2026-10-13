@@ -176,6 +176,20 @@ export class TqcService implements OnModuleInit {
         }));
     }
 
+    async updateUspClassification(id: number, uspClassification: string) {
+        // Raw SQL because the generated Prisma client may not know usp_classification yet
+        const value = String(uspClassification ?? '').trim();
+        const updated = await this.prisma.$executeRawUnsafe(
+            `UPDATE tqc_report SET usp_classification = $1 WHERE tqc_id = $2`,
+            value || null,
+            id
+        );
+        if (!updated) {
+            throw new HttpException('TQC record not found', HttpStatus.NOT_FOUND);
+        }
+        return { tqcId: id, uspClassification: value };
+    }
+
     async deleteRecord(id: number) {
         return this.prisma.tqcReport.delete({
             where: { tqcId: id }

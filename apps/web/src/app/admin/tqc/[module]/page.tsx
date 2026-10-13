@@ -275,6 +275,27 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
         }
     };
 
+    const handleSaveUsp = async (id: number, value: string) => {
+        const newValue = value.trim();
+        const current = data.find((r) => r.tqcId === id);
+        if ((current?.uspClassification || '') === newValue) return;
+        try {
+            const response = await fetch(`/api/tqc/${id}/usp`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uspClassification: newValue })
+            });
+            if (response.ok) {
+                setData((prev) => prev.map((r) => r.tqcId === id ? { ...r, uspClassification: newValue } : r));
+            } else {
+                alert('Failed to save USP Classification.');
+            }
+        } catch (e) {
+            console.error("Error saving USP Classification:", e);
+            alert('Error saving USP Classification.');
+        }
+    };
+
     const handleClearAll = async () => {
         if (!confirm(`WARNING: Are you sure you want to delete ALL data for ${moduleType}? This cannot be undone.`)) return;
         try {
@@ -613,7 +634,24 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                                                 )}
                                             </td>
                                             <td className="px-5 py-3 text-red-600 font-medium max-w-[200px] truncate" title={row.defectName}>{row.defectName}</td>
-                                            <td className="px-5 py-3 text-gray-800 font-semibold">{row.uspClassification || '-'}</td>
+                                            <td className="px-5 py-3">
+                                                <input
+                                                    key={`${row.tqcId}-${row.uspClassification || ''}`}
+                                                    type="text"
+                                                    defaultValue={row.uspClassification || ''}
+                                                    placeholder="Add USP..."
+                                                    maxLength={100}
+                                                    onBlur={(e) => handleSaveUsp(row.tqcId, e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') e.currentTarget.blur();
+                                                        if (e.key === 'Escape') {
+                                                            e.currentTarget.value = row.uspClassification || '';
+                                                            e.currentTarget.blur();
+                                                        }
+                                                    }}
+                                                    className="w-40 px-2 py-1 text-xs font-semibold text-gray-800 border border-gray-200 rounded-md bg-white placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                />
+                                            </td>
                                             <td className="px-5 py-3 text-right">
                                                 <button
                                                     onClick={() => handleDeleteRow(row.tqcId)}
