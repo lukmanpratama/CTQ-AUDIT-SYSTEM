@@ -5,6 +5,26 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { use } from 'react';
 
+const isFilled = (v?: string | null) => !!(v && v.trim() !== '');
+
+function ActionBadge({ label, filled, total }: { label: string; filled: number; total: number }) {
+    if (total === 0) return null;
+    const done = filled >= total;
+    return (
+        <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${done ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
+            title={done ? `${label} sudah diisi semua` : `${total - filled} ${label} belum diisi`}
+        >
+            {done ? (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+            ) : (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 8v4m0 4h.01" /></svg>
+            )}
+            {label}: {done ? 'Sudah diisi' : 'Belum diisi'} ({filled}/{total})
+        </span>
+    );
+}
+
 export default function RqcModelHistoryPage({ params }: { params: Promise<{ modelId: string }> }) {
     const router = useRouter();
     const resolvedParams = use(params);
@@ -63,14 +83,27 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                             {headers.map(h => {
                                 let checks = 0;
                                 let defects = 0;
+                                // Follow-up status: same rule as the dashboard
+                                // (Immediate Action is filled when Action Plan has text, CAP when Root Cause has text)
+                                const ia = { total: 0, filled: 0 };
+                                const cap = { total: 0, filled: 0 };
                                 h.rqcAreas?.forEach((a: any) => {
                                     a.rqcProcesses?.forEach((p: any) => {
                                         checks += p.qtyChecking || 0;
                                         p.rqcInspections?.forEach((i: any) => {
                                             defects += i.qtyDefect || 0;
+                                            if (!(i.qtyDefect > 0)) return;
+                                            if (i.status === 'CAP') {
+                                                cap.total++;
+                                                if (isFilled(i.rootCause)) cap.filled++;
+                                            } else if (i.status === 'IMMEDIATE_ACTION' || i.status === 'IA') {
+                                                ia.total++;
+                                                if (isFilled(i.actionPlan)) ia.filled++;
+                                            }
                                         });
                                     });
                                 });
+                                const hasPendingAction = ia.filled < ia.total || cap.filled < cap.total;
 
                                 const defectRate = checks > 0 ? ((defects / checks) * 100).toFixed(2) : '0';
 
@@ -78,25 +111,37 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                     <div
                                         key={h.rqcHeaderId}
                                         onClick={() => router.push(`/audit/session/${h.rqcHeaderId}/summary?view=true`)}
-                                        className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:border-gray-400 hover:shadow-md transition-all cursor-pointer"
+                                        className={`bg-white border rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${hasPendingAction ? 'border-amber-300 hover:border-amber-400' : 'border-gray-200 hover:border-gray-400'}`}
                                     >
-                                        <div className="flex justify-between items-start mb-2">
-                                            <div className="font-bold text-gray-900 text-sm">{formatDate(h.date)}</div>
-                                            <div className="text-xs font-semibold px-2 py-1 rounded bg-gray-100 text-gray-600 border">PO: {h.po}</div>
-                                        </div>
-                                        <div className="text-xs text-gray-500 mb-3">{h.checkingTime} • Inspector: {h.nik}</div>
-
-                                        <div className="flex justify-between text-xs align-bottom">
-                                            <div>
-                                                <span className="font-semibold text-gray-800">{checks}</span> Checked<br />
-                                                <span className="font-semibold text-red-500">{defects}</span> Defects
-                                            </div>
-                                            <div className="flex flex-col items-end">
-                                                <div className="text-right mb-2">
-                                                    Rate<br />
-                                                    <span className="text-sm font-bold text-red-600">{defectRate}%</span>
+                                        <div className="flex justify-between items-start gap-3">
+                                            <div className="min-w-0">
+                                                <div className="font-bold text-gray-900 text-sm">
+                                                    {formatDate(h.date)}
+                                                    <span className="font-medium text-gray-400"> · {h.checkingTime}</span>
                                                 </div>
-                                                <div className="flex gap-1.5">
+                                                <div className="text-xs text-gray-500 mt-0.5 font-mono">PO {h.po}</div>
+                                            </div>
+                                            <div className="text-right flex-shrink-0">
+                                                <div className="text-base font-bold text-red-600 leading-tight">{defectRate}%</div>
+                                                <div className="text-[11px] text-gray-400">Defect rate</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex justify-between items-end gap-3 mt-3">
+                                            {/* Immediate Action / CAP follow-up status */}
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {ia.total === 0 && cap.total === 0 ? (
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500 border border-gray-200">
+                                                        Tidak ada temuan defect
+                                                    </span>
+                                                ) : (
+                                                    <>
+                                                        <ActionBadge label="Immediate Action" filled={ia.filled} total={ia.total} />
+                                                        <ActionBadge label="CAP" filled={cap.filled} total={cap.total} />
+                                                    </>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-1.5 flex-shrink-0">
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -125,7 +170,6 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                                     </button>
-                                                </div>
                                             </div>
                                         </div>
                                     </div>
