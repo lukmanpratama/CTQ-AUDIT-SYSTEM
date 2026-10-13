@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { RqcImportButton } from '../../../features/rqc/components/RqcImportButton';
 
 export default function AdminInspectionsPage() {
     const [headers, setHeaders] = useState<any[]>([]);
@@ -134,9 +135,12 @@ export default function AdminInspectionsPage() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-lg font-semibold text-gray-900">Inspection Report</h1>
-                <p className="text-sm text-gray-500 mt-0.5">Daftar laporan inspeksi yang dikelompokkan berdasarkan Model sepatu.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h1 className="text-lg font-semibold text-gray-900">Inspection Report</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">Daftar laporan inspeksi yang dikelompokkan berdasarkan Model sepatu.</p>
+                </div>
+                <RqcImportButton onImported={loadHeaders} />
             </div>
 
             {/* Filters */}
