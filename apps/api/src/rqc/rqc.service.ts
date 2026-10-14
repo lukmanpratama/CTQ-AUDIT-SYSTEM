@@ -370,7 +370,9 @@ export class RqcService {
             where: whereClause,
             orderBy: { createdAt: 'desc' },
             include: {
-                setupModel: true,
+                // Only the name: setupModel.picture is a large base64 image and was repeated
+                // for every header (117 headers ≈ 47 MB), making the browser fetch fail.
+                setupModel: { select: { setupModelId: true, modelName: true } },
                 factory: true,
                 inspector: {
                     select: {
@@ -776,9 +778,9 @@ export class RqcService {
                                 setupArea: { include: { masterArea: true } },
                                 rqcHeader: {
                                     include: {
-                                        setupModel: true,
+                                        setupModel: { select: { modelName: true } },
                                         factory: true,
-                                        inspector: true
+                                        inspector: { select: { namaUser: true } }
                                     }
                                 }
                             }
