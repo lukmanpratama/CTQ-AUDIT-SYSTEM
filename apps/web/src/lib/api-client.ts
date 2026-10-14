@@ -35,10 +35,11 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({
-      code: 'UNKNOWN_ERROR',
-      message: 'Request failed',
-    }));
+    // A non-JSON 5xx comes from the Next.js proxy when the API server is down or still starting
+    const unreachable = response.status >= 500
+      ? { code: 'BACKEND_UNAVAILABLE', message: 'Server API tidak dapat dihubungi (mungkin sedang start). Coba lagi beberapa saat.' }
+      : { code: 'UNKNOWN_ERROR', message: 'Request failed' };
+    const errorBody = await response.json().catch(() => unreachable);
     throw new ApiError(
       errorBody.code || 'UNKNOWN_ERROR',
       errorBody.message || 'Request failed',

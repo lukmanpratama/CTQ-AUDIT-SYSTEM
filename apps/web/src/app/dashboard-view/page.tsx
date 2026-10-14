@@ -12,22 +12,39 @@ export default function DashboardViewPage() {
     const [selectedModel, setSelectedModel] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [loadError, setLoadError] = useState('');
+    const [reloadKey, setReloadKey] = useState(0);
 
     useEffect(() => {
+        let cancelled = false;
         const fetchFilters = async () => {
-            try {
-                const res = await apiClient.get('/rqc/filters') as any;
-                if (res && res.models) {
-                    setModels(res.models);
+            setLoading(true);
+            setLoadError('');
+            // Retry a few times: right after a restart the API can take a while to come up
+            const delays = [0, 2000, 4000, 8000];
+            for (let attempt = 0; attempt < delays.length; attempt++) {
+                if (delays[attempt]) await new Promise(r => setTimeout(r, delays[attempt]));
+                if (cancelled) return;
+                try {
+                    const res = await apiClient.get('/rqc/filters') as any;
+                    if (cancelled) return;
+                    setModels(res?.models || []);
+                    setLoading(false);
+                    return;
+                } catch (err: any) {
+                    if (attempt === delays.length - 1) {
+                        console.warn('Failed to fetch models:', err);
+                        if (!cancelled) {
+                            setLoadError(err?.message || 'Gagal memuat daftar model.');
+                            setLoading(false);
+                        }
+                    }
                 }
-            } catch (err) {
-                console.error('Failed to fetch models:', err);
-            } finally {
-                setLoading(false);
             }
         };
         fetchFilters();
-    }, []);
+        return () => { cancelled = true; };
+    }, [reloadKey]);
 
     const filteredModels = models.filter(m =>
         m.modelName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -117,6 +134,18 @@ export default function DashboardViewPage() {
                                         </div>
                                     )}
                                 </div>
+                                {loadError && (
+                                    <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                                        <span className="text-xs text-red-700">{loadError}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setReloadKey(k => k + 1)}
+                                            className="flex-shrink-0 text-xs font-semibold text-red-700 hover:text-red-900 underline"
+                                        >
+                                            Coba lagi
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
                             <button
