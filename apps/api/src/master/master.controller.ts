@@ -55,13 +55,30 @@ export class MasterController {
     @Get('pos')
     async getPos(@Query('modelLike') modelLike?: string) { return this.masterService.findAllPos(modelLike); }
 
+    @Get('pos/filter-options')
+    async getPoFilterOptions(
+        @Query('field') field: string,
+        @Query('search') search?: string,
+        @Query('q') q?: string,
+        @Query('po') po?: string,
+        @Query('article') article?: string,
+        @Query('model') model?: string,
+        @Query('destination') destination?: string
+    ) {
+        return this.masterService.findPoFilterOptions(field, search, { q, po, article, model, destination });
+    }
+
     @Get('pos/paged')
     async getPosPaged(
         @Query('page') page?: string,
         @Query('limit') limit?: string,
-        @Query('model') model?: string
+        @Query('q') q?: string,
+        @Query('po') po?: string,
+        @Query('article') article?: string,
+        @Query('model') model?: string,
+        @Query('destination') destination?: string
     ) {
-        return this.masterService.findPosPaged(parseInt(page || '1', 10), parseInt(limit || '100', 10), model);
+        return this.masterService.findPosPaged(parseInt(page || '1', 10), parseInt(limit || '100', 10), { q, po, article, model, destination });
     }
 
     @Post('pos')

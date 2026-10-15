@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
 
@@ -75,10 +75,63 @@ export class MasterService {
         });
     }
 
-    async findPosPaged(page = 1, limit = 100, modelLike?: string) {
+    // Words of a search phrase (split on any whitespace, incl. non-breaking spaces from Excel)
+    private searchWords(text?: string) {
+        return (text || '').split(/\s+/).map(w => w.trim()).filter(w => w.length > 0);
+    }
+
+    /**
+     * q: every word must appear in at least one of PO, article, model or destination.
+     * po / article / model / destination: column dropdown filters, exact value.
+     * `except` leaves one column filter out (used to build that column's own dropdown options).
+     */
+    private buildPoWhere(filters: { q?: string; po?: string; article?: string; model?: string; destination?: string }, except?: string) {
+        const and: any[] = [];
+        for (const word of this.searchWords(filters.q)) {
+            and.push({
+                OR: (['po', 'article', 'model', 'destination'] as const).map(field => ({
+                    [field]: { contains: word, mode: 'insensitive' as const },
+                })),
+            });
+        }
+        for (const field of ['po', 'article', 'model', 'destination'] as const) {
+            if (field !== except && filters[field]) and.push({ [field]: filters[field] });
+        }
+        return and.length ? { AND: and } : undefined;
+    }
+
+    /**
+     * Values for a column dropdown filter (DataTables style): distinct values with row counts,
+     * narrowed by the search box and the other column filters, optionally searched within.
+     */
+    async findPoFilterOptions(field: string, search: string | undefined, filters: { q?: string; po?: string; article?: string; model?: string; destination?: string }) {
+        const allowed = ['po', 'article', 'model', 'destination'] as const;
+        if (!allowed.includes(field as any)) throw new BadRequestException(`Unknown filter field "${field}".`);
+        const col = field as typeof allowed[number];
+        const and: any[] = [];
+        const base = this.buildPoWhere(filters, col);
+        if (base) and.push(base);
+        if (col === 'destination') and.push({ destination: { not: null } }); // the only nullable column
+        for (const word of this.searchWords(search)) and.push({ [col]: { contains: word, mode: 'insensitive' as const } });
+
+        const LIMIT = 200; // PO has ~36k distinct values; the in-dropdown search narrows the rest
+        const groups: any[] = await (this.prisma.masterPo.groupBy as any)({
+            by: [col],
+            where: { AND: and },
+            _count: { _all: true },
+            orderBy: { [col]: col === 'po' ? 'desc' : 'asc' },
+            take: LIMIT + 1,
+        });
+        return {
+            options: groups.slice(0, LIMIT).map(g => ({ value: g[col], count: g._count._all })),
+            truncated: groups.length > LIMIT,
+        };
+    }
+
+    async findPosPaged(page = 1, limit = 100, filters: { q?: string; po?: string; article?: string; model?: string; destination?: string } = {}) {
         const take = Math.min(Math.max(limit || 100, 1), 500);
         const currentPage = Math.max(page || 1, 1);
-        const where = this.buildModelLikeWhere(modelLike);
+        const where = this.buildPoWhere(filters);
         const [data, total] = await this.prisma.$transaction([
             this.prisma.masterPo.findMany({
                 where,
@@ -90,7 +143,16 @@ export class MasterService {
         ]);
         return { data, total, page: currentPage, limit: take };
     }
-    async createPo(data: { po: string; article: string; model: string; qtyOrder: number; destination?: string }) { return this.prisma.masterPo.create({ data }); }
+    async createPo(data: { po: string; article: string; model: string; qtyOrder: number; destination?: string }) {
+        const po = data.po.trim();
+        if (!po) throw new BadRequestException('PO Number is required.');
+        // A duplicate PO used to fail as an unexplained 500
+        const existing = await this.prisma.masterPo.findUnique({ where: { po }, select: { po: true } });
+        if (existing) throw new ConflictException(`PO ${po} already exists. Search for it and use Edit to change it.`);
+        return this.prisma.masterPo.create({
+            data: { ...data, po, article: data.article.trim(), model: data.model.trim(), destination: data.destination?.trim() || null },
+        });
+    }
 
     async bulkCreatePos(data: { po: string; article: string; model: string; qtyOrder: number; destination?: string }[]) {
         const chunkSize = 50;
@@ -110,7 +172,11 @@ export class MasterService {
         return { success: true, processed };
     }
 
-    async updatePo(po: string, data: { article?: string; model?: string; qtyOrder?: number; destination?: string }) { return this.prisma.masterPo.update({ where: { po }, data }); }
+    async updatePo(po: string, data: { article?: string; model?: string; qtyOrder?: number; destination?: string }) {
+        const existing = await this.prisma.masterPo.findUnique({ where: { po }, select: { po: true } });
+        if (!existing) throw new NotFoundException(`PO ${po} not found.`);
+        return this.prisma.masterPo.update({ where: { po }, data });
+    }
     async deletePo(po: string) {
         try { return await this.prisma.masterPo.delete({ where: { po } }); }
         catch (e) { throw new BadRequestException('Cannot delete PO; it may be tied to existing RQC transactions.'); }

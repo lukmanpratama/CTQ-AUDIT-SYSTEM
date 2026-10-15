@@ -7,11 +7,158 @@ type Po = { po: string; article: string; model: string; destination?: string; qt
 
 const PAGE_SIZE = 100;
 
+type Filters = { q: string; po: string; article: string; model: string; destination: string };
+const EMPTY_FILTERS: Filters = { q: '', po: '', article: '', model: '', destination: '' };
+type ColumnKey = 'po' | 'article' | 'model' | 'destination';
+const COLUMN_FILTERS: { key: ColumnKey; label: string }[] = [
+    { key: 'po', label: 'POs' },
+    { key: 'article', label: 'Articles' },
+    { key: 'model', label: 'Models' },
+    { key: 'destination', label: 'Destinations' },
+];
+
+/**
+ * DataTables-style column filter: "All X ▾" button that opens a searchable list of the column's
+ * values (with row counts) from the server, narrowed by the other active filters.
+ * The panel is position:fixed so the table's scroll container doesn't clip it.
+ */
+function ColumnFilterDropdown({ field, label, value, onChange, activeFilters }: {
+    field: ColumnKey; label: string; value: string; onChange: (v: string) => void; activeFilters: Filters;
+}) {
+    const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [options, setOptions] = useState<{ value: string; count: number }[]>([]);
+    const [truncated, setTruncated] = useState(false);
+    const [loadingOptions, setLoadingOptions] = useState(false);
+    const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+    const otherFilters = JSON.stringify({ ...activeFilters, [field]: '' });
+
+    useEffect(() => {
+        if (!open) return;
+        const t = setTimeout(async () => {
+            setLoadingOptions(true);
+            const params = new URLSearchParams({ field });
+            if (search.trim()) params.set('search', search.trim());
+            Object.entries(JSON.parse(otherFilters) as Filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+            try {
+                const body = await fetch(`/api/master/pos/filter-options?${params.toString()}`).then(r => r.json());
+                setOptions(body.options || []);
+                setTruncated(!!body.truncated);
+            } catch {
+                setOptions([]);
+            } finally {
+                setLoadingOptions(false);
+            }
+        }, search ? 250 : 0);
+        return () => clearTimeout(t);
+    }, [open, search, field, otherFilters]);
+
+    // Close on outside click, Escape, or when anything else scrolls (the panel is fixed-positioned)
+    useEffect(() => {
+        if (!open) return;
+        const close = () => setOpen(false);
+        const onMouseDown = (e: MouseEvent) => {
+            const target = e.target as Node;
+            if (!panelRef.current?.contains(target) && !buttonRef.current?.contains(target)) close();
+        };
+        const onScroll = (e: Event) => { if (!panelRef.current?.contains(e.target as Node)) close(); };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+        document.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('scroll', onScroll, true);
+        document.addEventListener('keydown', onKey);
+        window.addEventListener('resize', close);
+        return () => {
+            document.removeEventListener('mousedown', onMouseDown);
+            document.removeEventListener('scroll', onScroll, true);
+            document.removeEventListener('keydown', onKey);
+            window.removeEventListener('resize', close);
+        };
+    }, [open]);
+
+    const toggle = () => {
+        if (open) return setOpen(false);
+        const rect = buttonRef.current!.getBoundingClientRect();
+        setPanelPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 296)) });
+        setSearch('');
+        setOpen(true);
+    };
+    const pick = (v: string) => { onChange(v); setOpen(false); };
+
+    return (
+        <>
+            <button
+                ref={buttonRef}
+                type="button"
+                onClick={toggle}
+                title={value || `All ${label}`}
+                className={`w-full flex items-center justify-between gap-1 border rounded px-2 py-1 text-xs font-normal text-left transition-colors ${value ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+            >
+                <span className="truncate">{value || `All ${label}`}</span>
+                <svg className={`w-3 h-3 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {open && panelPos && (
+                <div
+                    ref={panelRef}
+                    style={{ position: 'fixed', top: panelPos.top, left: panelPos.left, width: 288 }}
+                    className="z-50 bg-white border border-gray-200 rounded-lg shadow-lg text-xs font-normal text-left"
+                >
+                    <div className="p-2 border-b border-gray-100">
+                        <input
+                            autoFocus
+                            type="text"
+                            placeholder={`Search ${label.toLowerCase()}...`}
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            className="w-full border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-gray-400"
+                        />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto py-1">
+                        <button
+                            type="button"
+                            onClick={() => pick('')}
+                            className={`w-full px-3 py-1.5 text-left hover:bg-gray-50 ${!value ? 'font-semibold text-gray-900' : 'text-gray-600'}`}
+                        >
+                            All {label}
+                        </button>
+                        {loadingOptions && <div className="px-3 py-2 text-gray-400">Loading...</div>}
+                        {!loadingOptions && options.length === 0 && <div className="px-3 py-2 text-gray-400">No values found.</div>}
+                        {!loadingOptions && options.map(o => (
+                            <button
+                                type="button"
+                                key={o.value}
+                                onClick={() => pick(o.value)}
+                                className={`w-full px-3 py-1.5 flex items-center justify-between gap-2 text-left hover:bg-gray-50 ${o.value === value ? 'bg-blue-50 text-blue-800 font-semibold' : 'text-gray-700'}`}
+                            >
+                                <span className="truncate" title={o.value}>{o.value}</span>
+                                <span className="flex-shrink-0 text-gray-400 font-mono">{o.count.toLocaleString()}</span>
+                            </button>
+                        ))}
+                    </div>
+                    {truncated && !loadingOptions && (
+                        <div className="px-3 py-1.5 border-t border-gray-100 text-[11px] text-gray-400">Showing the first 200 values. Type to search.</div>
+                    )}
+                </div>
+            )}
+        </>
+    );
+}
+
+// API errors come back as { message: string | string[] }
+const readError = async (res: Response, fallback: string) => {
+    const body = await res.json().catch(() => null);
+    const msg = body?.message;
+    return Array.isArray(msg) ? msg.join('\n') : (msg || fallback);
+};
+
 export default function PoManagementPage() {
     const [pos, setPos] = useState<Po[]>([]);
     const [loading, setLoading] = useState(true);
-    const [modelSearch, setModelSearch] = useState('');
-    const [debouncedSearch, setDebouncedSearch] = useState('');
+    // Search box (q) + column filters, as typed; applied after a short debounce
+    const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+    const [appliedFilters, setAppliedFilters] = useState<Filters>(EMPTY_FILTERS);
+    const [notice, setNotice] = useState('');
     const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
     const [form, setForm] = useState<Partial<Po>>({});
@@ -22,7 +169,10 @@ export default function PoManagementPage() {
         setLoading(true);
         try {
             const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
-            if (debouncedSearch.trim()) params.set('model', debouncedSearch.trim());
+            if (appliedFilters.q.trim()) params.set('q', appliedFilters.q.trim());
+            // Column filters are exact values from the dropdown: send as-is (trim() would strip
+            // the non-breaking spaces some imported names contain and break the match)
+            COLUMN_FILTERS.forEach(({ key }) => { if (appliedFilters[key]) params.set(key, appliedFilters[key]); });
             const res = await fetch(`/api/master/pos/paged?${params.toString()}`);
             const result = await res.json();
             setPos(result.data || []);
@@ -36,14 +186,17 @@ export default function PoManagementPage() {
         }
     };
 
-    // Debounce the model filter so the server isn't queried on every keystroke
+    // Debounce search and filters so the server isn't queried on every keystroke
     useEffect(() => {
-        if (modelSearch === debouncedSearch) return;
-        const t = setTimeout(() => { setDebouncedSearch(modelSearch); setPage(1); }, 400);
+        if (JSON.stringify(filters) === JSON.stringify(appliedFilters)) return;
+        const t = setTimeout(() => { setAppliedFilters(filters); setPage(1); }, 400);
         return () => clearTimeout(t);
-    }, [modelSearch]);
+    }, [filters]);
 
-    useEffect(() => { fetchPos(); }, [page, debouncedSearch]);
+    useEffect(() => { fetchPos(); }, [page, appliedFilters]);
+
+    const setFilter = (key: keyof Filters, value: string) => setFilters(f => ({ ...f, [key]: value }));
+    const hasFilters = Object.values(filters).some(v => v.trim());
 
     const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
 
@@ -56,14 +209,36 @@ export default function PoManagementPage() {
         e.preventDefault();
         const qty = Number(String(form.qtyOrder || '0').replace(/\./g, '').replace(/,/g, ''));
         if (isNaN(qty) || qty < 1) return alert('Order Qty must be a valid positive number.');
-        if (editPo) {
-            await fetch(`/api/master/pos/${encodeURIComponent(editPo)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, qtyOrder: qty }) });
-        } else {
-            await fetch('/api/master/pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, qtyOrder: qty }) });
+        // Only the editable fields: the API rejects unknown properties (sending `po` on update made every edit fail)
+        const body = {
+            article: (form.article || '').trim(),
+            model: (form.model || '').trim(),
+            destination: (form.destination || '').trim(),
+            qtyOrder: qty,
+        };
+        const savedPo = editPo || (form.po || '').trim();
+        try {
+            const res = editPo
+                ? await fetch(`/api/master/pos/${encodeURIComponent(editPo)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+                : await fetch('/api/master/pos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, po: savedPo }) });
+            if (!res.ok) {
+                alert(`${editPo ? 'Update' : 'Create'} PO failed:\n${await readError(res, `HTTP ${res.status}`)}`);
+                return;
+            }
+        } catch (err) {
+            alert('Network error: the PO was not saved.');
+            return;
         }
         setEditPo(null);
         setForm({});
-        fetchPos();
+        // Show the saved PO: with 36k+ POs sorted by number it would otherwise sit on a later page
+        setNotice(`PO ${savedPo} ${editPo ? 'updated' : 'created'}.`);
+        const show = { ...EMPTY_FILTERS, po: savedPo };
+        const alreadyShown = JSON.stringify(show) === JSON.stringify(appliedFilters) && page === 1;
+        setFilters(show);
+        setAppliedFilters(show);
+        setPage(1);
+        if (alreadyShown) fetchPos(); // state didn't change, so the fetch effect won't re-run
     };
 
     const handleDelete = async (po: string) => {
@@ -190,10 +365,10 @@ export default function PoManagementPage() {
                 <div className="flex flex-wrap items-center gap-2">
                     <input
                         type="text"
-                        placeholder="Filter model..."
-                        className="border border-gray-200 rounded px-3 py-1.5 text-sm w-44 focus:outline-none focus:border-gray-400 transition-colors"
-                        value={modelSearch}
-                        onChange={e => setModelSearch(e.target.value)}
+                        placeholder="Search PO, article, model, destination..."
+                        className="border border-gray-200 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:border-gray-400 transition-colors"
+                        value={filters.q}
+                        onChange={e => { setFilter('q', e.target.value); setNotice(''); }}
                     />
                     <input type="file" accept=".xlsx,.xls,.csv" className="hidden" ref={fileInputRef} onChange={handleImportFile} />
                     <button onClick={downloadTemplate} className="border border-gray-200 text-gray-600 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition-colors">
@@ -252,11 +427,20 @@ export default function PoManagementPage() {
                             Purchase Orders
                             <span className="ml-1.5 text-xs text-gray-400 font-normal">{total.toLocaleString()} records</span>
                         </h2>
+                        {hasFilters && (
+                            <button
+                                onClick={() => { setFilters(EMPTY_FILTERS); setNotice(''); }}
+                                className="text-xs text-gray-500 hover:text-gray-800 underline"
+                            >
+                                Reset filters
+                            </button>
+                        )}
                     </div>
-                    {loading ? (
-                        <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
-                    ) : (
-                        <div className="overflow-auto flex-1">
+                    {notice && (
+                        <div className="px-4 py-2 text-xs text-green-800 bg-green-50 border-b border-green-100">{notice}</div>
+                    )}
+                    {/* Table stays mounted while loading so the filter inputs keep focus */}
+                    <div className="overflow-auto flex-1">
                             <table className="w-full text-sm">
                                 <thead className="sticky top-0 bg-white border-b border-gray-100 z-10">
                                     <tr>
@@ -267,9 +451,36 @@ export default function PoManagementPage() {
                                         <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 w-20">Qty</th>
                                         <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 w-24"></th>
                                     </tr>
+                                    <tr>
+                                        {COLUMN_FILTERS.map(c => (
+                                            <th key={c.key} className="px-3 pb-2 font-normal max-w-[220px]">
+                                                <ColumnFilterDropdown
+                                                    field={c.key}
+                                                    label={c.label}
+                                                    value={filters[c.key]}
+                                                    activeFilters={appliedFilters}
+                                                    onChange={v => {
+                                                        // Apply immediately (no debounce needed for a picked value)
+                                                        const next = { ...filters, [c.key]: v };
+                                                        setFilters(next);
+                                                        setAppliedFilters(next);
+                                                        setPage(1);
+                                                        setNotice('');
+                                                    }}
+                                                />
+                                            </th>
+                                        ))}
+                                        <th></th>
+                                        <th></th>
+                                    </tr>
                                 </thead>
                                 <tbody>
-                                    {displayedPos.map(p => (
+                                    {loading && (
+                                        <tr>
+                                            <td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-sm">Loading...</td>
+                                        </tr>
+                                    )}
+                                    {!loading && displayedPos.map(p => (
                                         <tr key={p.po} className={`border-b border-gray-50 transition-colors ${editPo === p.po ? 'bg-blue-50/40' : 'hover:bg-gray-50'}`}>
                                             <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{p.po}</td>
                                             <td className="px-4 py-2.5 text-gray-700">{p.article}</td>
@@ -284,17 +495,18 @@ export default function PoManagementPage() {
                                             </td>
                                         </tr>
                                     ))}
-                                    {displayedPos.length === 0 && (
+                                    {!loading && displayedPos.length === 0 && (
                                         <tr>
                                             <td colSpan={6} className="px-4 py-12 text-center text-gray-400 text-sm">
-                                                No purchase orders found. Use &quot;Import Excel&quot; to upload from your datasheet.
+                                                {hasFilters
+                                                    ? 'No purchase orders match the search / filters.'
+                                                    : <>No purchase orders found. Use &quot;Import Excel&quot; to upload from your datasheet.</>}
                                             </td>
                                         </tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
-                    )}
                     <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
                         <span>
                             {total === 0
