@@ -97,12 +97,13 @@ export function CtqDetailClient({ searchParams }: CtqDetailProps) {
                                     };
                                 }).filter(area => area.processes.length > 0);
 
-                                // Calculate Mathematical Average
+                                // Calculate Mathematical Average (processes without input in the date range are excluded)
                                 let totalProcs = 0;
                                 let totalPassRate = 0;
                                 let totalDefectRate = 0;
                                 filteredAreas.forEach(area => {
                                     area.processes.forEach((p: any) => {
+                                        if (p.hasData === false) return;
                                         totalProcs++;
                                         totalPassRate += p.passRate;
                                         totalDefectRate += p.defectRate;
