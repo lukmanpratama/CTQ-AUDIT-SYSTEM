@@ -1761,6 +1761,36 @@ export class RqcService {
             processMap: Map<string, { processName: string, uspName: string, isSellingPoint: boolean, totalChecking: number, totalDefect: number }>
         }>();
 
+        // Seed every configured process for this CTQ so processes without input in the date range still show (as 0%)
+        const setupProcesses = await this.prisma.setupProcess.findMany({
+            where: {
+                setupArea: { setupModelId: BigInt(filters.modelId) },
+                masterProcess: { ctq: { equals: filters.ctqType, mode: 'insensitive' } }
+            },
+            include: {
+                masterProcess: true,
+                setupArea: { include: { masterArea: true } },
+                masterUsp: true
+            }
+        });
+
+        for (const sp of setupProcesses) {
+            const areaName = sp.setupArea?.masterArea?.area || 'UNKNOWN';
+            const processName = sp.masterProcess?.process || 'UNKNOWN';
+            const uspName = sp.masterUsp?.uspName || '-';
+
+            if (!sellingPointMap.has(uspName)) {
+                sellingPointMap.set(uspName, { totalChecking: 0, totalDefect: 0 });
+            }
+            if (!areaMap.has(areaName)) {
+                areaMap.set(areaName, { areaName, processMap: new Map() });
+            }
+            const areaEntry = areaMap.get(areaName)!;
+            if (!areaEntry.processMap.has(processName)) {
+                areaEntry.processMap.set(processName, { processName, uspName, isSellingPoint: sp.isSellingPoint || false, totalChecking: 0, totalDefect: 0 });
+            }
+        }
+
         for (const rp of rqcProcesses) {
             const areaName = rp.setupProcess?.setupArea?.masterArea?.area || 'UNKNOWN';
             const processName = rp.setupProcess?.masterProcess?.process || 'UNKNOWN';
@@ -1797,7 +1827,8 @@ export class RqcService {
             return {
                 name: sp.toUpperCase(),
                 passRate,
-                defectRate
+                defectRate,
+                hasData: stat.totalChecking > 0
             };
         });
 
@@ -1811,7 +1842,8 @@ export class RqcService {
                     uspName: proc.uspName,
                     isSellingPoint: proc.isSellingPoint,
                     passRate,
-                    defectRate
+                    defectRate,
+                    hasData: proc.totalChecking > 0
                 };
             }).sort((a, b) => b.defectRate - a.defectRate) // sort highest defect first
         }));
