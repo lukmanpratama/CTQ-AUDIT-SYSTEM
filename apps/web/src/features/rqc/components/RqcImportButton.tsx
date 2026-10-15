@@ -96,7 +96,7 @@ export function RqcImportButton({ onImported }: { onImported?: () => void }) {
                 ['DATE', 'Ya', 'dd/mm/yyyy, contoh 13/10/2026'],
                 ['CHECKING TIME', 'Ya', 'Morning atau Afternoon'],
                 ['NIK', 'Ya', 'NIK inspector yang terdaftar di menu Users'],
-                ['MODEL', 'Ya', 'Nama model persis seperti di Setup CTQ (lihat sheet SETUP CTQ)'],
+                ['MODEL', 'Ya', 'Nama model atau Model No seperti di Setup CTQ (lihat sheet SETUP CTQ). Jika nama dipakai beberapa Model No, Model No ditentukan dari article PO; isi Model No jika article PO belum terdaftar'],
                 ['PO', 'Ya', 'Nomor PO yang ada di menu Purchase Orders'],
                 ['FACTORY', 'Ya', 'Factory 1, Factory 2, Factory 3, Factory 4, INHOUSE, BOTTOM 1 atau BOTTOM 2'],
                 ['CELL', 'Ya*', 'Contoh F2-17, NOSEW 9, PRINTING 1, STOCKFIT 3. *Kosongkan untuk BOTTOM INCOMING MIDSOLE'],
@@ -118,20 +118,21 @@ export function RqcImportButton({ onImported }: { onImported?: () => void }) {
             guide['!cols'] = [{ wch: 20 }, { wch: 8 }, { wch: 90 }];
 
             // Valid model / area / process / defect combinations from the current Setup CTQ
-            const setupRows: any[][] = [['MODEL', 'AREA', 'PROCESS', 'DEFECT NAME']];
+            const setupRows: any[][] = [['MODEL', 'MODEL NO', 'ARTICLES', 'AREA', 'PROCESS', 'DEFECT NAME']];
             try {
                 const models = await fetch('/api/ctq-setup/models').then(r => r.json());
                 const trees = await Promise.all((models || []).filter((m: any) => m.isActive !== false).map((m: any) =>
                     fetch(`/api/ctq-setup/models/${m.setupModelId}/tree`).then(r => r.ok ? r.json() : null).then(t => ({ m, t })).catch(() => ({ m, t: null }))));
                 trees.forEach(({ m, t }) => t?.areas?.forEach((a: any) => a.setupProcesses?.forEach((p: any) => {
                     const defects = p.setupDefects?.length ? p.setupDefects.map((sd: any) => sd.masterDefect?.defect) : [''];
-                    defects.forEach((d: string) => setupRows.push([m.modelName, a.masterArea?.area || '', p.masterProcess?.process || '', d]));
+                    const articles = (m.articles || []).map((x: any) => x.article).join(', ');
+                    defects.forEach((d: string) => setupRows.push([m.modelName, m.modelNo || '', articles, a.masterArea?.area || '', p.masterProcess?.process || '', d]));
                 })));
             } catch (e) {
                 console.error('Failed to load setup for template', e);
             }
             const setupSheet = XLSX.utils.aoa_to_sheet(setupRows);
-            setupSheet['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 42 }, { wch: 40 }];
+            setupSheet['!cols'] = [{ wch: 28 }, { wch: 12 }, { wch: 24 }, { wch: 18 }, { wch: 42 }, { wch: 40 }];
 
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, data, 'RQC_IMPORT');

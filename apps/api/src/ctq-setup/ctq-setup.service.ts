@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { modelLabel, parseArticles } from '../common/model-match';
 
 @Injectable()
 export class CtqSetupService {
@@ -9,7 +10,8 @@ export class CtqSetupService {
         // Only ACTIVE models are returned for auditing
         const models = await this.prisma.setupModel.findMany({
             where: { isActive: true },
-            orderBy: { modelName: 'asc' },
+            orderBy: [{ modelName: 'asc' }, { modelNo: 'asc' }],
+            include: { articles: { select: { article: true }, orderBy: { article: 'asc' } } },
         });
         return this.serializeBigInt(models);
     }
@@ -19,6 +21,7 @@ export class CtqSetupService {
 
         const model = await this.prisma.setupModel.findUnique({
             where: { setupModelId: id },
+            include: { articles: { select: { article: true }, orderBy: { article: 'asc' } } },
         });
         if (!model) {
             throw new NotFoundException(`Model with ID ${modelId} not found`);
@@ -76,11 +79,72 @@ export class CtqSetupService {
     }
 
     // Builder CRUD methods
-    async createModel(data: { modelName: string; isActive?: boolean }) {
+    async createModel(data: { modelName: string; modelNo?: string; articles?: string[]; isActive?: boolean }) {
+        const modelName = data.modelName.trim().toUpperCase();
+        // Model No and articles are optional; an empty Model No is stored as NULL
+        const modelNo = (data.modelNo ?? '').trim().toUpperCase() || null;
+        if (!modelName) throw new BadRequestException('Model Name is required.');
+        const articles = parseArticles(data.articles);
+
+        if (modelNo) await this.assertModelNoFree(modelNo);
+        await this.assertArticlesFree(articles);
+
         const model = await this.prisma.setupModel.create({
-            data: { modelName: data.modelName, isActive: data.isActive ?? true },
+            data: {
+                modelName,
+                modelNo,
+                isActive: data.isActive ?? true,
+                articles: { create: articles.map(article => ({ article })) },
+            },
+            include: { articles: true },
         });
         return this.serializeBigInt(model);
+    }
+
+    async updateModel(modelId: string, data: { modelName?: string; modelNo?: string; articles?: string[] }) {
+        const id = BigInt(modelId);
+        const update: { modelName?: string; modelNo?: string | null } = {};
+        if (data.modelName !== undefined) {
+            update.modelName = data.modelName.trim().toUpperCase();
+            if (!update.modelName) throw new BadRequestException('Model Name cannot be empty.');
+        }
+        if (data.modelNo !== undefined) {
+            // An empty value clears the Model No
+            update.modelNo = data.modelNo.trim().toUpperCase() || null;
+            if (update.modelNo) await this.assertModelNoFree(update.modelNo, id);
+        }
+        const articles = data.articles !== undefined ? parseArticles(data.articles) : undefined;
+        if (articles) await this.assertArticlesFree(articles, id);
+
+        const model = await this.prisma.$transaction(async (tx) => {
+            if (articles) {
+                await tx.setupModelArticle.deleteMany({ where: { setupModelId: id } });
+                if (articles.length > 0) {
+                    await tx.setupModelArticle.createMany({ data: articles.map(article => ({ setupModelId: id, article })) });
+                }
+            }
+            return tx.setupModel.update({ where: { setupModelId: id }, data: update, include: { articles: true } });
+        });
+        return this.serializeBigInt(model);
+    }
+
+    private async assertModelNoFree(modelNo: string, exceptModelId?: bigint) {
+        const existing = await this.prisma.setupModel.findUnique({ where: { modelNo } });
+        if (existing && existing.setupModelId !== exceptModelId) {
+            throw new ConflictException(`Model No ${modelNo} is already used by ${existing.modelName}.`);
+        }
+    }
+
+    private async assertArticlesFree(articles: string[], exceptModelId?: bigint) {
+        if (articles.length === 0) return;
+        const taken = await this.prisma.setupModelArticle.findMany({
+            where: { article: { in: articles }, ...(exceptModelId ? { setupModelId: { not: exceptModelId } } : {}) },
+            include: { setupModel: { select: { modelName: true, modelNo: true } } },
+        });
+        if (taken.length > 0) {
+            const list = taken.map(t => `${t.article} (${modelLabel(t.setupModel)})`).join(', ');
+            throw new ConflictException(`These articles already belong to another Model No: ${list}.`);
+        }
     }
 
     async updateModelPicture(modelId: string, pictureBase64: string) {
@@ -96,14 +160,6 @@ export class CtqSetupService {
         const model = await this.prisma.setupModel.update({
             where: { setupModelId: BigInt(modelId) },
             data: payload,
-        });
-        return this.serializeBigInt(model);
-    }
-
-    async updateModelName(modelId: string, modelName: string) {
-        const model = await this.prisma.setupModel.update({
-            where: { setupModelId: BigInt(modelId) },
-            data: { modelName: modelName.toUpperCase() },
         });
         return this.serializeBigInt(model);
     }

@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
+import { modelNameContainsWhere, poWhereForModel } from '../common/model-match';
 
 @Injectable()
 export class MasterService {
@@ -60,15 +61,19 @@ export class MasterService {
         // Excel imports often contain Non-Breaking Spaces (\xA0) instead of normal spaces.
         // A direct string match (e.g. 'BAD BUNNY') will fail if the DB has 'BAD\xA0BUNNY'.
         // Solution: split the search phrase by any space character and require ALL terms to match.
-        const searchWords = modelLike.split(/\s+/).map(w => w.trim()).filter(w => w.length > 0);
-        return searchWords.length > 0 ? {
-            AND: searchWords.map(word => ({
-                model: { contains: word, mode: 'insensitive' as const }
-            }))
-        } : undefined;
+        return modelNameContainsWhere(modelLike);
     }
 
-    async findAllPos(modelLike?: string) {
+    async findAllPos(modelLike?: string, setupModelId?: string) {
+        // With a Setup CTQ model, match its articles so models sharing a name get only their own POs
+        if (setupModelId) {
+            const model = await this.prisma.setupModel.findUnique({
+                where: { setupModelId: BigInt(setupModelId) },
+                select: { modelName: true, articles: { select: { article: true } } }
+            });
+            if (!model) return [];
+            return this.prisma.masterPo.findMany({ where: poWhereForModel(model), orderBy: { po: 'desc' } });
+        }
         return this.prisma.masterPo.findMany({
             where: this.buildModelLikeWhere(modelLike),
             orderBy: { po: 'desc' }
@@ -151,7 +156,7 @@ export class MasterService {
 
         const usps = await this.prisma.masterUsp.findMany({
             where,
-            include: { setupModel: { select: { modelName: true } } },
+            include: { setupModel: { select: { modelName: true, modelNo: true } } },
             orderBy: [{ setupModelId: 'asc' }, { uspCode: 'asc' }]
         });
         return this.serializeBigInt(usps);
@@ -167,7 +172,7 @@ export class MasterService {
                     description: data.description || null,
                     isActive: data.isActive
                 },
-                include: { setupModel: { select: { modelName: true } } }
+                include: { setupModel: { select: { modelName: true, modelNo: true } } }
             });
             return this.serializeBigInt(res);
         } catch (e: any) {
@@ -188,7 +193,7 @@ export class MasterService {
             const res = await this.prisma.masterUsp.update({
                 where: { uspId },
                 data: updateData,
-                include: { setupModel: { select: { modelName: true } } }
+                include: { setupModel: { select: { modelName: true, modelNo: true } } }
             });
             return this.serializeBigInt(res);
         } catch (e: any) {

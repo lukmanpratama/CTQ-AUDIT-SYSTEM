@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RqcImportRow } from './rqc.dto';
+import { modelLabel, normalizeArticle } from '../common/model-match';
 
 const MAX_ROWS = 5000;
 const MAX_ERRORS = 200;
@@ -40,6 +41,7 @@ export class RqcImportService {
         // ---- Reference data ----------------------------------------------------
         const models = await this.prisma.setupModel.findMany({
             include: {
+                articles: { select: { article: true } },
                 setupAreas: {
                     include: {
                         masterArea: true,
@@ -48,7 +50,29 @@ export class RqcImportService {
                 },
             },
         });
-        const modelByKey = new Map(models.map(m => [looseKey(m.modelName), m]));
+        // Several Model Nos can share one name; the PO's article (or a Model No typed in MODEL) decides which one
+        type SetupModelRef = typeof models[number];
+        const modelsByName = new Map<string, SetupModelRef[]>();
+        for (const m of models) {
+            const k = looseKey(m.modelName);
+            modelsByName.set(k, [...(modelsByName.get(k) || []), m]);
+        }
+        const modelByNo = new Map(models.filter(m => m.modelNo).map(m => [looseKey(m.modelNo), m]));
+        const modelByArticle = new Map(models.flatMap(m => m.articles.map(a => [normalizeArticle(a.article), m] as const)));
+        const resolveModel = (input: unknown, poArticle?: string): { model?: SetupModelRef; error?: string } => {
+            const key = looseKey(input);
+            const byNo = modelByNo.get(key);
+            if (byNo) return { model: byNo };
+            const candidates = modelsByName.get(key) || [];
+            if (candidates.length === 0) return { error: `Model "${input}" is not in Setup CTQ.` };
+            const byArticle = poArticle ? modelByArticle.get(normalizeArticle(poArticle)) : undefined;
+            if (byArticle && candidates.includes(byArticle)) return { model: byArticle };
+            if (candidates.length === 1) return { model: candidates[0] };
+            return {
+                error: `Model "${input}" has several Model Nos (${candidates.map(c => c.modelNo || 'no Model No').join(', ')}). ` +
+                    `Add article ${poArticle || '(of this PO)'} to the right one in Setup CTQ, or put the Model No in MODEL.`,
+            };
+        };
         const masterDefects = await this.prisma.masterDefect.findMany();
         const defectByKey = new Map(masterDefects.map(d => [looseKey(d.defect), d]));
         const factories = await this.prisma.masterFactory.findMany();
@@ -89,9 +113,10 @@ export class RqcImportService {
             if (!isNoDefect && (!Number.isInteger(qtyDefect) || qtyDefect <= 0)) addError(rowNo, `QTY DEFECT must be a whole number above 0 for defect "${defectInput}".`);
             if (Number.isInteger(qtyCheck) && Number.isInteger(qtyDefect) && qtyDefect > qtyCheck) addError(rowNo, `QTY DEFECT (${qtyDefect}) is larger than QTY CHECK (${qtyCheck}).`);
 
-            const model = modelByKey.get(looseKey(r.model));
+            const resolved = clean(r.model) ? resolveModel(r.model, po ? poByNo.get(po)?.article : undefined) : {};
+            const model = resolved.model;
             if (!clean(r.model)) addError(rowNo, `MODEL is empty.`);
-            else if (!model) addError(rowNo, `Model "${r.model}" is not in Setup CTQ.`);
+            else if (resolved.error) addError(rowNo, resolved.error);
 
             const factory = this.resolveFactoryName(factoryInput, factoryByKey);
             if (!factory) addError(rowNo, `FACTORY "${factoryInput ?? ''}" is not valid (use Factory 1-4, INHOUSE, BOTTOM 1 or BOTTOM 2).`);
@@ -107,7 +132,7 @@ export class RqcImportService {
                     const sp = a.setupProcesses.find(p => looseKey(p.masterProcess.process) === looseKey(processInput));
                     if (sp) { setupProcess = sp; setupArea = a; break; }
                 }
-                if (!setupProcess) addError(rowNo, `Process "${processInput}" is not in the Setup CTQ of ${model.modelName}.`);
+                if (!setupProcess) addError(rowNo, `Process "${processInput}" is not in the Setup CTQ of ${modelLabel(model)}.`);
             } else if (!processInput) addError(rowNo, `PROCESS is empty.`);
 
             // Defect must exist in master data; link it to the process setup if it isn't yet
@@ -119,7 +144,7 @@ export class RqcImportService {
                     setupDefectsToAdd.set(`${setupProcess.setupProcessId}|${masterDefect.defectId}`, {
                         setupProcessId: setupProcess.setupProcessId,
                         defectId: masterDefect.defectId,
-                        label: `${model!.modelName} / ${setupProcess.masterProcess.process} ← ${masterDefect.defect}`,
+                        label: `${modelLabel(model!)} / ${setupProcess.masterProcess.process} ← ${masterDefect.defect}`,
                     });
                 }
             }
@@ -129,7 +154,7 @@ export class RqcImportService {
             const key = [model!.setupModelId, date, checkingTime, looseKey(factory!.name), looseKey(cell), po].join('|');
             let audit = audits.get(key);
             if (!audit) {
-                audit = { key, rowNos: [], date: date!, checkingTime: checkingTime!, nik: nik!, setupModelId: model!.setupModelId, modelName: model!.modelName, po: po!, factoryName: factory!.name, cell, processes: new Map() };
+                audit = { key, rowNos: [], date: date!, checkingTime: checkingTime!, nik: nik!, setupModelId: model!.setupModelId, modelName: modelLabel(model!), po: po!, factoryName: factory!.name, cell, processes: new Map() };
                 audits.set(key, audit);
             } else if (audit.nik !== nik) {
                 addError(rowNo, `Same audit (date/time/factory/cell/PO) has a different NIK (${audit.nik} vs ${nik}).`);

@@ -97,16 +97,33 @@ model MasterPo {
 /// Shoe Model — central node of CTQ configuration
 model SetupModel {
   setupModelId      BigInt           @id @default(autoincrement()) @map("setup_model_id")
-  modelName         String           @unique @map("model_name") @db.VarChar(150)
+  /// Not unique: several Model Nos can share one name (e.g. 3 x TAEKWONDO MEI BALLET W)
+  modelName         String           @map("model_name") @db.VarChar(150)
+  /// Factory model number (e.g. 0Q990). Optional, unique when set
+  modelNo           String?          @unique @map("model_no") @db.VarChar(50)
   picture           String?
   internalAuditFile String?          @map("internal_audit_file")
   isActive          Boolean          @default(true) @map("is_active")
+  articles     SetupModelArticle[]
   poMappings   ModelPoMapping[]
   rqcHeaders   RqcHeader[]
   setupAreas   SetupArea[]
   masterUsps   MasterUsp[]
 
   @@map("setup_model")
+}
+
+/// Article numbers (e.g. LA0398) belonging to a Model No. PO and TQC rows are linked
+/// to the right SetupModel through their article, since model names can repeat.
+model SetupModelArticle {
+  setupModelArticleId BigInt     @id @default(autoincrement()) @map("setup_model_article_id")
+  setupModelId        BigInt     @map("setup_model_id")
+  /// Stored upper-case; an article belongs to exactly one Model No
+  article             String     @unique @db.VarChar(100)
+  setupModel          SetupModel @relation(fields: [setupModelId], references: [setupModelId], onDelete: Cascade)
+
+  @@index([setupModelId], map: "idx_setup_model_article_model")
+  @@map("setup_model_article")
 }
 
 /// Controlled mapping: SetupModel <-> MasterPo naming variants

@@ -9,6 +9,7 @@ import { DailyPassRateChart } from './DailyPassRateChart';
 import { WeeklyDefectRateChart } from './WeeklyDefectRateChart';
 import { ProcessDefectCharts } from './ProcessDefectCharts';
 import { CapDefectTrendModal } from './CapDefectTrendModal';
+import { modelLabel } from '../../../lib/model-label';
 
 export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
     const router = useRouter();
@@ -71,7 +72,7 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
             try {
                 const res = await apiClient.get(`/ctq-setup/models/${modelId}/tree`) as any;
                 if (res && res.model) {
-                    setModelName(res.model.modelName || "UNKNOWN MODEL");
+                    setModelName(modelLabel(res.model) || "UNKNOWN MODEL");
                     if (res.model.picture) {
                         setModelPicture(res.model.picture);
                     }

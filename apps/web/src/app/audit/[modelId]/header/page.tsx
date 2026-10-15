@@ -86,6 +86,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     const sessionUrl = (id: string) => `/audit/session/${id}${searchParams.get('source') === 'admin' ? '?source=admin' : ''}`;
 
     const [modelName, setModelName] = useState('');
+    const [hasArticles, setHasArticles] = useState(false);
     const [factories, setFactories] = useState<any[]>([]);
     const [poOptions, setPoOptions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -163,13 +164,14 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                 const currentModel = models.find((m: any) => String(m.setupModelId) === String(modelId));
                 if (currentModel) {
                     currentName = currentModel.modelName;
-                    setModelName(currentName);
+                    setModelName(currentModel.modelNo ? `${currentName} (${currentModel.modelNo})` : currentName);
+                    setHasArticles((currentModel.articles || []).length > 0);
                 }
 
-                // Fetch relevant POs by fuzzy matching the model name
+                // POs of this model: by its articles when set (models can share a name), else by name
                 let poData = [];
                 if (currentName) {
-                    const poRes = await fetch(`/api/master/pos?modelLike=${encodeURIComponent(currentName)}`);
+                    const poRes = await fetch(`/api/master/pos?setupModelId=${encodeURIComponent(String(modelId))}`);
                     if (poRes.ok) poData = await poRes.json();
                 }
 
@@ -430,7 +432,9 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                             </div>
                             {poOptions.length === 0 && (
                                 <p className="mt-2 text-sm text-amber-600 font-medium">
-                                    No PO found matching the model name "{modelName}". Ensure Master PO data is updated.
+                                    {hasArticles
+                                        ? <>No PO found for the articles of "{modelName}". Ensure Master PO data is updated.</>
+                                        : <>No PO found matching the model name "{modelName}". Ensure Master PO data is updated.</>}
                                 </p>
                             )}
                             {/* Auto-filled Preview Details */}

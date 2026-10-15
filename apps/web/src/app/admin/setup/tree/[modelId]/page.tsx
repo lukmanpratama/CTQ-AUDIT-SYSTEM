@@ -2,6 +2,7 @@
 
 import { useRouter, useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { modelLabel } from '../../../../../lib/model-label';
 
 const CTQ_CATEGORIES = [
     'External Compliance',
@@ -188,7 +189,7 @@ export default function SetupTreePage() {
                 <button onClick={() => router.push('/admin/setup-ctq')} className="text-gray-500 hover:text-gray-900 px-3 py-1.5 border border-gray-300 rounded-lg font-medium text-sm transition-colors">&larr; Back</button>
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-gray-900">CTQ Tree Builder</h1>
-                    <div className="text-sm font-medium text-gray-500">Configuring hierarchies for Model: <span className="text-blue-600 font-bold">{tree.model.modelName}</span></div>
+                    <div className="text-sm font-medium text-gray-500">Configuring hierarchies for Model: <span className="text-blue-600 font-bold">{modelLabel(tree.model)}</span></div>
                 </div>
             </div>
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown, Calendar, FileDown } from 'lucide-react';
+import { modelLabel } from '../../../lib/model-label';
 
 export function DashboardHeader({ filters, filtersOptions, onFilterChange }: any) {
     return (
@@ -17,7 +18,7 @@ export function DashboardHeader({ filters, filtersOptions, onFilterChange }: any
                 <FilterSelect
                     label="Model"
                     value={filters.modelId}
-                    options={[{ value: 'All', label: 'All' }, ...(filtersOptions?.models?.map((m: any) => ({ value: m.setupModelId, label: m.modelName })) || [])]}
+                    options={[{ value: 'All', label: 'All' }, ...(filtersOptions?.models?.map((m: any) => ({ value: m.setupModelId, label: modelLabel(m) })) || [])]}
                     onChange={(v: any) => onFilterChange('modelId', v)}
                 />
                 <FilterSelect
