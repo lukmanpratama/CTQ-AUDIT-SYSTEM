@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
+import { useAuditNav } from '../../../../features/rqc/audit-nav';
 
 const processImageUrl = (url: string) => {
     if (!url) return '';
@@ -21,7 +22,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
     const viewOnly = searchParams?.get('view') === 'true';
-    const source = searchParams?.get('source');
+    const { isAdmin, urls } = useAuditNav();
 
     const [loading, setLoading] = useState(true);
     const [tree, setTree] = useState<any[]>([]);
@@ -97,16 +98,13 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         fetchAllData();
     }, [headerId]);
 
-    // Admin edits run through the same wizard; keep ?source=admin on every step so it returns to the admin report
-    const adminQuery = source === 'admin' ? '?source=admin' : '';
-    const headerEditUrl = headerData?.setupModelId
-        ? `/audit/${headerData.setupModelId}/header?headerId=${headerId}${source === 'admin' ? '&source=admin' : ''}`
-        : null;
+    // Admin edits run through the same wizard inside the admin layout (/admin/inspections/[id]/edit/...)
+    const headerEditUrl = headerData?.setupModelId ? urls.headerEdit(headerData.setupModelId, headerId) : null;
 
     // Prefetch neighbouring wizard steps so Previous / Next feel instant
     useEffect(() => {
         if (viewOnly) return;
-        router.prefetch(`/audit/session/${headerId}/summary${adminQuery}`);
+        router.prefetch(urls.summary(headerId));
         if (headerEditUrl) router.prefetch(headerEditUrl);
     }, [headerId, headerEditUrl, viewOnly]);
 
@@ -374,24 +372,25 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             setAttemptedNext(true);
             return;
         }
-        router.push(`/audit/session/${headerId}/summary${adminQuery}`);
+        router.push(urls.summary(headerId));
     };
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+            <div className={`${isAdmin ? 'min-h-[60vh]' : 'min-h-screen'} bg-gray-50 flex flex-col items-center justify-center`}>
                 <p className="animate-pulse text-gray-500 font-medium">Loading Inspection Session...</p>
             </div>
         );
     }
 
+    // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col pb-24 relative">
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-24 relative'}>
 
             {/* Top Navigation Bar from Design */}
             <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-20">
-                {source === 'admin' ? (
-                    <button onClick={() => router.push('/admin/inspections')} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
+                {isAdmin ? (
+                    <button onClick={() => router.push(urls.adminReport)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
                         <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                         Inspection Report
                     </button>
@@ -652,7 +651,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             </div>
 
             {/* Bottom Navigation */}
-            <div className="fixed bottom-0 left-0 w-full bg-white border-t p-4 z-10">
+            <div className={`${isAdmin ? 'sticky' : 'fixed left-0'} bottom-0 w-full bg-white border-t p-4 z-10`}>
                 <div className="max-w-2xl mx-auto w-full flex flex-col gap-3">
                     {!viewOnly && attemptedNext && !canProceed && (
                         <div className="text-center text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-200 mb-[-4px]">
@@ -661,7 +660,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                     )}
                     {viewOnly ? (
                         <button
-                            onClick={() => router.push(`/audit/session/${headerId}/summary?view=true${source ? `&source=${source}` : ''}`)}
+                            onClick={() => router.push(urls.summary(headerId, '?view=true'))}
                             className="w-full flex-1 py-3 bg-gray-900 text-white font-bold rounded-lg shadow-md hover:bg-gray-800 transition-colors"
                         >
                             Back to Summary
