@@ -202,6 +202,8 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                     const qtyProductionVal = getVal(row, ['Qty Prod', 'QTY PROD', 'Qty Production', 'QTY PRODUCTION', 'Qty', 'QTY', 'Quantity', 'QTY PRODUCT']);
 
                     return {
+                        // Excel row number (SheetJS sets __rowNum__, 0-based) so the API can point at the bad row
+                        rowNo: typeof row.__rowNum__ === 'number' ? row.__rowNum__ + 1 : undefined,
                         date: finalDate,
                         time: parsedTime,
                         building: getVal(row, ['Building', 'FACTORY']) || '',
@@ -222,30 +224,53 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                     };
                 });
 
-                // Post to our API
-                const response = await fetch(`/api/tqc/${moduleType}/upload`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (response.ok) {
-                    let msg = 'Data imported successfully!';
-                    try {
-                        const result = await response.json();
-                        msg = `Data imported successfully!\n${result.count ?? 0} new record(s) added` +
-                            (result.skipped ? `, ${result.skipped} duplicate record(s) skipped.` : '.');
-                    } catch (e) { }
-                    alert(msg);
-                    fetchData(); // Reload table
-                } else {
-                    let errMsg = 'Failed to import data on the server.';
-                    try {
-                        const errText = await response.text();
-                        if (errText) errMsg += `\nDetail: ${errText}`;
-                    } catch (e) { }
-                    alert(errMsg);
+                if (payload.length === 0) {
+                    alert('The Excel file has no data rows.');
+                    return;
                 }
+
+                // Post in batches: the Next.js /api proxy rejects request bodies of ~10 MB or more
+                // with a plain "Internal Server Error", which large TQC exports (~24k+ rows) exceed.
+                // Re-importing is safe because the API skips rows that already exist.
+                const BATCH_SIZE = 1000;
+                const totalBatches = Math.ceil(payload.length / BATCH_SIZE);
+                let added = 0;
+                let skipped = 0;
+                for (let b = 0; b < totalBatches; b++) {
+                    const batch = payload.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+                    const response = await fetch(`/api/tqc/${moduleType}/upload`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(batch)
+                    });
+
+                    if (!response.ok) {
+                        const errText = await response.text().catch(() => '');
+                        let detail = errText;
+                        try {
+                            const body = JSON.parse(errText);
+                            detail = body.message || errText;
+                            if (Array.isArray(body.errors) && body.errors.length) {
+                                detail += '\n\n' + body.errors.slice(0, 15).map((e: any) => `Row ${e.row}: ${e.message}`).join('\n')
+                                    + (body.errors.length > 15 ? `\n…and ${body.errors.length - 15} more.` : '');
+                            }
+                        } catch (e) { }
+                        const progress = totalBatches > 1
+                            ? `\n\nBatch ${b + 1} of ${totalBatches} failed. ${added} row(s) from earlier batches were already saved; importing the same file again will skip them.`
+                            : '';
+                        alert(`Failed to import data (HTTP ${response.status}).\n${detail || 'No detail from server.'}${progress}`);
+                        if (added > 0) fetchData();
+                        return;
+                    }
+
+                    const result = await response.json().catch(() => ({}));
+                    added += result.count ?? 0;
+                    skipped += result.skipped ?? 0;
+                }
+
+                alert(`Data imported successfully!\n${added} new record(s) added` +
+                    (skipped ? `, ${skipped} duplicate record(s) skipped.` : '.'));
+                fetchData(); // Reload table
             } catch (error) {
                 console.error("Error parsing Excel:", error);
                 alert('Error parsing the uploaded Excel file. Please ensure it matches the template.');

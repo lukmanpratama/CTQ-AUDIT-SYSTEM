@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, OnModuleInit, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -22,6 +22,10 @@ export class TqcService implements OnModuleInit {
     async createMany(data: any[], moduleType: string) {
         // Existing data is kept: imported rows are appended, and rows identical to an
         // existing record (or repeated within the same file) are skipped to avoid duplicates.
+
+        if (!Array.isArray(data)) {
+            throw new BadRequestException('Request body must be a list of rows parsed from the Excel file.');
+        }
 
         // We will receive an array of records parsed from the Excel file
         // Map them to the Prisma schema format
@@ -47,6 +51,18 @@ export class TqcService implements OnModuleInit {
                 moduleType: moduleType.toUpperCase(),
             };
         });
+
+        // Validate before touching the DB: an invalid date, a too-long text or an out-of-range
+        // number used to surface as a 500 halfway through the insert. Report them per Excel row instead.
+        const errors = this.validateRecords(records, data);
+        if (errors.length > 0) {
+            throw new BadRequestException({
+                statusCode: 400,
+                error: 'Bad Request',
+                message: `${errors.length} invalid row(s) in the Excel file. Nothing was imported.`,
+                errors: errors.slice(0, 100),
+            });
+        }
 
         // Use raw SQL batch insert to bypass Prisma client type validation
         // This is required because the Prisma generated client may be stale after schema changes
@@ -123,6 +139,37 @@ export class TqcService implements OnModuleInit {
             console.error("TQC UPLOAD DB ERROR:", error);
             throw new HttpException(`Failed to upload to DB: ${(error as any).message}`, HttpStatus.INTERNAL_SERVER_ERROR);
         }
+    }
+
+    // Column sizes of tqc_report (VARCHAR(n)); values longer than this make the INSERT fail
+    private static readonly TEXT_LIMITS: Record<string, number> = {
+        time: 50, building: 50, cell: 50, model: 150, article: 100, orderNo: 50, pwiNo: 50,
+        destination: 100, category: 50, type: 100, defectName: 200, uspClassification: 100,
+    };
+
+    private validateRecords(records: any[], data: any[]) {
+        const errors: { row: number; message: string }[] = [];
+        records.forEach((r, i) => {
+            // rowNo is the Excel row number sent by the frontend; fall back to header + index
+            const row = Number(data[i]?.rowNo) || i + 2;
+            const raw = String(data[i]?.date ?? '');
+            const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            const valid = m && !isNaN(r.date.getTime())
+                && r.date.getUTCFullYear() === +m[1] && r.date.getUTCMonth() + 1 === +m[2] && r.date.getUTCDate() === +m[3];
+            if (!valid) errors.push({ row, message: `Date "${raw}" is not a valid date (expected a real date, e.g. 2026-09-19).` });
+
+            for (const [field, max] of Object.entries(TqcService.TEXT_LIMITS)) {
+                const len = String(r[field] ?? '').length;
+                if (len > max) errors.push({ row, message: `${field} is ${len} characters long; the maximum is ${max}.` });
+            }
+            if (r.seq != null && (!Number.isInteger(r.seq) || Math.abs(r.seq) > 2147483647)) {
+                errors.push({ row, message: `Seq "${data[i]?.seq}" must be a whole number below 2,147,483,647.` });
+            }
+            for (const field of ['qty', 'qtyDefect', 'qtyProduction']) {
+                if (r[field] != null && !Number.isFinite(r[field])) errors.push({ row, message: `${field} "${data[i]?.[field]}" is not a number.` });
+            }
+        });
+        return errors;
     }
 
     async getByModule(moduleType: string) {
