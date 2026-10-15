@@ -14,6 +14,7 @@ COPY packages/types/package.json ./packages/types/
 COPY packages/config/package.json ./packages/config/
 RUN npm ci
 COPY . .
+RUN npx prisma generate --schema packages/database/prisma/schema.prisma
 WORKDIR /app/apps/api
 EXPOSE 3001
 CMD ["npm", "run", "start:dev"]
@@ -29,6 +30,7 @@ COPY packages/types/package.json ./packages/types/
 COPY packages/config/package.json ./packages/config/
 RUN npm ci
 COPY . .
+RUN npx prisma generate --schema packages/database/prisma/schema.prisma
 RUN npm run build --workspace=apps/api
 
 # ─────────────────────────────
