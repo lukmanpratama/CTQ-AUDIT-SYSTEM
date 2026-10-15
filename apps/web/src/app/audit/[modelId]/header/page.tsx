@@ -3,6 +3,10 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { use } from 'react';
+import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
+
+// BOTTOM "INCOMING MIDSOLE" has one fixed cell, named after its Setup CTQ area
+const INCOMING_CELL = 'INCOMING BOTTOM';
 
 // Shared top bar + stepper so the loading state keeps the same layout as the form
 function HeaderPageChrome({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
@@ -78,6 +82,8 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     const searchParams = useSearchParams();
     const editHeaderId = searchParams.get('headerId');
     const isEditMode = !!editHeaderId;
+    // Admin edits keep ?source=admin so the wizard returns to the admin Inspection Report
+    const sessionUrl = (id: string) => `/audit/session/${id}${searchParams.get('source') === 'admin' ? '?source=admin' : ''}`;
 
     const [modelName, setModelName] = useState('');
     const [factories, setFactories] = useState<any[]>([]);
@@ -90,6 +96,9 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     const [part, setPart] = useState('');
     const [cell, setCell] = useState('');
     const [checkingTime, setCheckingTime] = useState('');
+    // Edit mode: original factory and the areas that already have inspections, to warn on a mismatching factory change
+    const [originalFactoryId, setOriginalFactoryId] = useState('');
+    const [recordedAreas, setRecordedAreas] = useState<string[]>([]);
     const [isPoDropdownOpen, setIsPoDropdownOpen] = useState(false);
     const [date, setDate] = useState(() => {
         const today = new Date();
@@ -106,16 +115,20 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
             if (factoryName === 'INHOUSE' || factoryName === 'BOTTOM 1' || factoryName === 'BOTTOM 2') {
                 // Part is not stored; derive it from the cell (e.g. "NOSEW 3" -> "NOSEW")
                 setFactoryId(factoryName);
-                if (savedCell) {
+                if (factoryName !== 'INHOUSE' && (!savedCell || savedCell === INCOMING_CELL)) {
+                    // Incoming midsole: older audits were saved without a cell, fill in the fixed one
+                    setPart('INCOMING MIDSOLE');
+                    setCell(INCOMING_CELL);
+                } else {
                     setPart(savedCell.replace(/\s+\d+$/, ''));
-                } else if (factoryName !== 'INHOUSE') {
-                    setPart('INCOMING MIDSOLE'); // the only BOTTOM part without a cell
+                    setCell(savedCell);
                 }
-                setCell(savedCell);
             } else {
                 setFactoryId(h.factoryId != null ? String(h.factoryId) : '');
+                setPart('');
                 setCell(savedCell);
             }
+            setOriginalFactoryId(['INHOUSE', 'BOTTOM 1', 'BOTTOM 2'].includes(factoryName) ? factoryName : String(h.factoryId ?? ''));
         };
 
         const fetchInitialData = async () => {
@@ -130,7 +143,17 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                 const factoryData = await factoriesRes.json();
                 if (headerRes) {
                     if (headerRes.ok) {
-                        applyExistingHeader(await headerRes.json());
+                        const h = await headerRes.json();
+                        applyExistingHeader(h);
+                        // Names of the areas that already have inspections in this audit
+                        const usedAreaIds = new Set((h.rqcAreas || []).filter((a: any) => a.rqcProcesses?.length).map((a: any) => String(a.setupAreaId)));
+                        if (usedAreaIds.size > 0) {
+                            const tree = await fetch(`/api/ctq-setup/models/${modelId}/tree`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+                            setRecordedAreas((tree?.areas || [])
+                                .filter((a: any) => usedAreaIds.has(String(a.setupAreaId)))
+                                .map((a: any) => a.masterArea?.area)
+                                .filter(Boolean));
+                        }
                     } else {
                         alert('Failed to load the existing header data.');
                     }
@@ -163,11 +186,11 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
 
     // Prefetch the next step so moving back to Inspection feels instant
     useEffect(() => {
-        if (editHeaderId) router.prefetch(`/audit/session/${editHeaderId}`);
+        if (editHeaderId) router.prefetch(sessionUrl(editHeaderId));
     }, [editHeaderId]);
 
     const handleCancel = () => {
-        if (editHeaderId) router.push(`/audit/session/${editHeaderId}`);
+        if (editHeaderId) router.push(sessionUrl(editHeaderId));
         else router.push('/dashboard');
     };
 
@@ -179,12 +202,10 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     const BOTTOM_PARTS: { value: string; label: string; maxCell: number | null }[] = [
         { value: 'STOCKFIT', label: 'STOCKFIT', maxCell: 10 },
         { value: 'HOTPRESS', label: 'HOTPRESS', maxCell: 20 },
-        { value: 'INCOMING MIDSOLE', label: 'INCOMING MIDSOLE', maxCell: null }, // no cell
+        { value: 'INCOMING MIDSOLE', label: 'INCOMING MIDSOLE', maxCell: null }, // single fixed cell: INCOMING_CELL
     ];
 
     const selectedBottomPart = BOTTOM_PARTS.find(p => p.value === part) ?? null;
-    // Incoming Midsole has no cell requirement
-    const bottomPartNeedsCell = selectedBottomPart !== null && selectedBottomPart.maxCell !== null;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -199,9 +220,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
             return;
         }
 
-        // Cell is required unless it's Incoming Midsole (BOTTOM factory)
-        const needsCell = !(isBottomFactory && selectedBottomPart?.maxCell === null);
-        if (needsCell && !cell) {
+        if (!cell) {
             alert('Please select a Cell.');
             return;
         }
@@ -214,6 +233,20 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
         }
 
         if (editHeaderId) {
+            // Changing the factory to one that doesn't fit the recorded inspections (e.g. an ASSEMBLY audit
+            // moved to BOTTOM 1) makes the audit inconsistent. Ask before saving.
+            if (factoryId !== originalFactoryId && recordedAreas.length > 0) {
+                const newFactoryName = factories.find(f => String(f.factoryId) === String(factoryId))?.factory || factoryId;
+                const mismatched = recordedAreas.filter(a => !isAreaAllowedForFactory(a, newFactoryName));
+                if (mismatched.length > 0 && !confirm(
+                    `Audit ini sudah berisi inspeksi area ${mismatched.join(', ')}, yang tidak termasuk factory ${newFactoryName}.
+
+` +
+                    `Pastikan Anda mengedit audit yang benar. Tetap simpan perubahan factory?`
+                )) {
+                    return;
+                }
+            }
             setSubmitting(true);
             try {
                 const res = await fetch(`/api/rqc/headers/${editHeaderId}`, {
@@ -223,7 +256,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    router.push(`/audit/session/${editHeaderId}`);
+                    router.push(sessionUrl(editHeaderId));
                 } else {
                     alert('Failed to update header: ' + (data.message || 'Unknown error'));
                     setSubmitting(false);
@@ -306,9 +339,9 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
             if (!part) {
                 return <option value="" disabled>Select Part First</option>;
             }
-            // Incoming Midsole has no cell
+            // Incoming Midsole has one fixed cell
             if (selectedBottomPart?.maxCell === null) {
-                return <option value="-" >No Cell Required</option>;
+                return <option value={INCOMING_CELL}>{INCOMING_CELL}</option>;
             }
             const maxCell = selectedBottomPart?.maxCell ?? 10;
             const options: React.JSX.Element[] = [];
@@ -452,7 +485,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                                     value={part}
                                     onChange={(e) => {
                                         setPart(e.target.value);
-                                        setCell('');
+                                        setCell(e.target.value === 'INCOMING MIDSOLE' ? INCOMING_CELL : '');
                                     }}
                                 >
                                     {factoryId === 'INHOUSE' ? (
@@ -475,12 +508,10 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                             </div>
                         )}
 
-                        {/* Hide Cell dropdown for Incoming Midsole (no cell required) */}
-                        {!(isBottomFactory && selectedBottomPart?.maxCell === null) && (
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Cell</label>
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Cell</label>
                                 <select
-                                    required={!(isBottomFactory && selectedBottomPart?.maxCell === null)}
+                                    required
                                     className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
                                     value={cell}
                                     onChange={(e) => setCell(e.target.value)}
@@ -488,8 +519,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                                 >
                                     {renderCellOptions()}
                                 </select>
-                            </div>
-                        )}
+                        </div>
 
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">Checking Time</label>

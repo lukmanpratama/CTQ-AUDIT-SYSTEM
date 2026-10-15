@@ -4,10 +4,11 @@
  * Rules:
  * - Factory 1, 2, 3, 4: Cutting, Sewing, Assembly
  * - INHOUSE: Treatment
- * - BOTTOM 1, BOTTOM 2: Stockfit, Hotpress, Incoming Midsole
+ * - BOTTOM 1, BOTTOM 2: Stockfit, Hotpress, Incoming Bottom (process: Incoming Midsole)
  */
 
-const BOTTOM_AREAS = ['STOCKFIT', 'HOTPRESS', 'INCOMING MIDSOLE'];
+// Master area for incoming midsole is named "INCOMING BOTTOM"; "INCOMING MIDSOLE" kept as an alias
+const BOTTOM_AREAS = ['STOCKFIT', 'HOTPRESS', 'INCOMING BOTTOM', 'INCOMING MIDSOLE'];
 
 export const FACTORY_AREA_MAPPING: Record<string, string[]> = {
     'FACTORY 1': ['CUTTING', 'SEWING', 'ASSEMBLY'],

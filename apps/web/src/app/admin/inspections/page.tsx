@@ -321,6 +321,10 @@ export default function AdminInspectionsPage() {
                                                             <Link href={`/admin/inspections/${h.rqcHeaderId}`} className="text-blue-600 hover:text-blue-800 hover:underline">
                                                                 View
                                                             </Link>
+                                                            {/* Opens the RQC edit wizard (header → inspection → summary), returning here afterwards */}
+                                                            <Link href={`/audit/session/${h.rqcHeaderId}?source=admin`} className="text-amber-600 hover:text-amber-800 hover:underline">
+                                                                Edit
+                                                            </Link>
                                                             <button
                                                                 onClick={() => handleDelete(h.rqcHeaderId)}
                                                                 className="text-red-500 hover:text-red-700 hover:underline transition-colors"

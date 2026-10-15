@@ -135,10 +135,17 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                 <Link href="/admin/inspections" className="p-2 border border-gray-200 rounded-md bg-white hover:bg-gray-50 text-gray-600 transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                 </Link>
-                <div>
+                <div className="flex-1">
                     <h1 className="text-xl font-semibold text-gray-900">Inspection Summary</h1>
                     <p className="text-sm text-gray-500 mt-0.5">Detailed view of `{header.po}` for {header.model}.</p>
                 </div>
+                <Link
+                    href={`/audit/session/${headerId}?source=admin`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-gray-900 rounded-md hover:bg-gray-800 transition-colors"
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                    Edit
+                </Link>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

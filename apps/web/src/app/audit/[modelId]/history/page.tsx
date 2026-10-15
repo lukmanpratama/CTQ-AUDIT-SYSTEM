@@ -119,7 +119,11 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                                     {formatDate(h.date)}
                                                     <span className="font-medium text-gray-400"> · {h.checkingTime}</span>
                                                 </div>
-                                                <div className="text-xs text-gray-500 mt-0.5 font-mono">PO {h.po}</div>
+                                                <div className="text-xs text-gray-500 mt-0.5">
+                                                    {/* Factory / cell tell apart audits with the same date, time and PO */}
+                                                    <span className="font-semibold text-gray-700">{h.factory?.factory || '-'} · {h.cell || '-'}</span>
+                                                    <span className="font-mono"> · PO {h.po}</span>
+                                                </div>
                                             </div>
                                             <div className="text-right flex-shrink-0">
                                                 <div className="text-base font-bold text-red-600 leading-tight">{defectRate}%</div>
