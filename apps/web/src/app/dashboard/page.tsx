@@ -59,8 +59,8 @@ export default function DashboardPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col">
-            {/* Navbar mock */}
-            <nav className="bg-white shadow border-b border-gray-100 flex items-center px-6 py-4 justify-between">
+            {/* Navbar stays at the top while the model list scrolls */}
+            <nav className="sticky top-0 z-30 bg-white shadow border-b border-gray-100 flex items-center px-6 py-4 justify-between">
                 <h1 className="text-xl font-bold tracking-tight text-gray-900">RQC DATA AUDIT</h1>
                 <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-gray-600">
