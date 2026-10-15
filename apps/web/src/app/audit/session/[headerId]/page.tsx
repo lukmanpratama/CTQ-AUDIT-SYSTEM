@@ -77,8 +77,12 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                     setTree(allAreas);
 
                     const currentFactoryLine = header?.factory?.factory || (header?.factoryId ? String(header.factoryId) : '');
+                    const savedAreaIds = new Set((header.rqcAreas || []).map((a: any) => String(a.setupAreaId)));
+                    const withData = allAreas.find((a: any) => savedAreaIds.has(String(a.setupAreaId)));
                     const filtered = allAreas.filter((a: any) => isAreaAllowedForFactory(a.masterArea?.area, currentFactoryLine));
-                    if (filtered.length > 0) {
+                    if (withData) {
+                        setExpandedArea(withData.setupAreaId); // open the area that already has inspections
+                    } else if (filtered.length > 0) {
                         setExpandedArea(filtered[0].setupAreaId);
                     } else if (allAreas.length > 0) {
                         setExpandedArea(allAreas[0].setupAreaId);
@@ -93,14 +97,16 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         fetchAllData();
     }, [headerId]);
 
+    // Admin edits run through the same wizard; keep ?source=admin on every step so it returns to the admin report
+    const adminQuery = source === 'admin' ? '?source=admin' : '';
     const headerEditUrl = headerData?.setupModelId
-        ? `/audit/${headerData.setupModelId}/header?headerId=${headerId}`
+        ? `/audit/${headerData.setupModelId}/header?headerId=${headerId}${source === 'admin' ? '&source=admin' : ''}`
         : null;
 
     // Prefetch neighbouring wizard steps so Previous / Next feel instant
     useEffect(() => {
         if (viewOnly) return;
-        router.prefetch(`/audit/session/${headerId}/summary`);
+        router.prefetch(`/audit/session/${headerId}/summary${adminQuery}`);
         if (headerEditUrl) router.prefetch(headerEditUrl);
     }, [headerId, headerEditUrl, viewOnly]);
 
@@ -323,10 +329,15 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
     const factoryLine = headerData?.factory?.factory || (headerData?.factoryId ? String(headerData.factoryId) : '');
 
     // Dynamically filter areas according to Factory Line from Header Audit
+    // An area that already has saved inspections in this audit is always shown,
+    // so recorded data never disappears when the factory/area mapping doesn't list it.
     const visibleAreas = useMemo(() => {
         if (!factoryLine) return tree;
-        return tree.filter(area => isAreaAllowedForFactory(area.masterArea?.area, factoryLine));
-    }, [tree, factoryLine]);
+        const savedAreaIds = new Set((headerData?.rqcAreas || []).map((a: any) => String(a.setupAreaId)));
+        return tree.filter(area =>
+            isAreaAllowedForFactory(area.masterArea?.area, factoryLine) || savedAreaIds.has(String(area.setupAreaId))
+        );
+    }, [tree, factoryLine, headerData?.rqcAreas]);
 
     useEffect(() => {
         if (visibleAreas.length > 0) {
@@ -363,7 +374,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             setAttemptedNext(true);
             return;
         }
-        router.push(`/audit/session/${headerId}/summary`);
+        router.push(`/audit/session/${headerId}/summary${adminQuery}`);
     };
 
     if (loading) {

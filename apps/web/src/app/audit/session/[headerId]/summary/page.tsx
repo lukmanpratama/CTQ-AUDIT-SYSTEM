@@ -73,7 +73,9 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     // Prefetch the history page so the transition after Submit is instant
     useEffect(() => {
-        if (!viewOnly && header?.setupModelId) router.prefetch(`/audit/${header.setupModelId}/history`);
+        if (viewOnly) return;
+        if (source === 'admin') router.prefetch('/admin/inspections');
+        else if (header?.setupModelId) router.prefetch(`/audit/${header.setupModelId}/history`);
     }, [viewOnly, header?.setupModelId]);
 
     if (loading) {
@@ -140,6 +142,11 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
         setSubmitting(true);
         // Data is already saved per inspection; submitting returns the RQC to this model's Inspection History.
         // replace() so the browser Back button doesn't reopen the draft summary.
+        // Admin edits go back to the admin Inspection Report
+        if (source === 'admin') {
+            router.replace('/admin/inspections');
+            return;
+        }
         router.replace(header?.setupModelId ? `/audit/${header.setupModelId}/history` : '/dashboard');
     };
 
@@ -393,7 +400,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                     ) : (
                         <>
                             <button
-                                onClick={() => router.push(`/audit/session/${headerId}`)}
+                                onClick={() => router.push(`/audit/session/${headerId}${source === 'admin' ? '?source=admin' : ''}`)}
                                 className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-lg"
                             >
                                 Previous
