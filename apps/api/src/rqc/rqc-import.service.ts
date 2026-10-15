@@ -34,7 +34,8 @@ export class RqcImportService {
         if (rows.length > MAX_ROWS) throw new BadRequestException(`Too many rows (${rows.length}). Maximum is ${MAX_ROWS} per import.`);
 
         const errors: { row: number; message: string }[] = [];
-        const addError = (row: number, message: string) => { if (errors.length < MAX_ERRORS) errors.push({ row, message }); };
+        let errorCount = 0; // counts every error, also the ones beyond MAX_ERRORS that are not returned
+        const addError = (row: number, message: string) => { errorCount++; if (errors.length < MAX_ERRORS) errors.push({ row, message }); };
 
         // ---- Reference data ----------------------------------------------------
         const models = await this.prisma.setupModel.findMany({
@@ -76,7 +77,7 @@ export class RqcImportService {
             const defectInput = clean(r.defectName);
             const isNoDefect = !defectInput || looseKey(defectInput) === 'NODEFECT';
             const qtyDefect = isNoDefect ? 0 : Number(r.qtyDefect);
-            const before = errors.length;
+            const before = errorCount;
 
             if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) addError(rowNo, `DATE is empty or invalid (use dd/mm/yyyy).`);
             if (!checkingTime) addError(rowNo, `CHECKING TIME must be Morning or Afternoon.`);
@@ -123,7 +124,7 @@ export class RqcImportService {
                 }
             }
 
-            if (errors.length > before) continue;
+            if (errorCount > before) continue;
 
             const key = [model!.setupModelId, date, checkingTime, looseKey(factory!.name), looseKey(cell), po].join('|');
             let audit = audits.get(key);
@@ -203,7 +204,7 @@ export class RqcImportService {
         };
 
         if (errors.length > 0 || !apply) {
-            return { applied: false, summary, errors, errorsTruncated: errors.length >= MAX_ERRORS };
+            return { applied: false, summary, errors, errorsTruncated: errorCount > errors.length };
         }
 
         // ---- Write (all or nothing) ---------------------------------------------------
