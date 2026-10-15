@@ -4,18 +4,21 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
+import { useAuditNav } from '../../../../features/rqc/audit-nav';
 
 // BOTTOM "INCOMING MIDSOLE" has one fixed cell, named after its Setup CTQ area
 const INCOMING_CELL = 'INCOMING BOTTOM';
 
 // Shared top bar + stepper so the loading state keeps the same layout as the form
 function HeaderPageChrome({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
+    // Inside the admin layout the page fills the content area (cancelling its p-6) so the sidebar stays visible
+    const { isAdmin } = useAuditNav();
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col pb-20">
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col pb-10' : 'min-h-screen bg-gray-50 flex flex-col pb-20'}>
             <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
                 <button onClick={onBack} className="flex items-center text-gray-600 font-medium">
                     <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                    New Report
+                    {isAdmin ? 'Inspection' : 'New Report'}
                 </button>
                 <div className="text-gray-500 font-medium flex items-center gap-1">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
@@ -82,8 +85,9 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     const searchParams = useSearchParams();
     const editHeaderId = searchParams.get('headerId');
     const isEditMode = !!editHeaderId;
-    // Admin edits keep ?source=admin so the wizard returns to the admin Inspection Report
-    const sessionUrl = (id: string) => `/audit/session/${id}${searchParams.get('source') === 'admin' ? '?source=admin' : ''}`;
+    // Admin edits stay inside the admin layout (/admin/inspections/[id]/edit/...)
+    const { urls } = useAuditNav();
+    const sessionUrl = (id: string) => urls.session(id);
 
     const [modelName, setModelName] = useState('');
     const [hasArticles, setHasArticles] = useState(false);

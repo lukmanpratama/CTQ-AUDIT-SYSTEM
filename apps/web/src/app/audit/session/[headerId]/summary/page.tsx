@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useAuditNav } from '../../../../../features/rqc/audit-nav';
 import { use } from 'react';
 
 const formatDate = (dateString: string) => {
@@ -28,7 +29,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
     // Better yet, since it's a client component, let's use `useSearchParams` hook to avoid Promise issues entirely.
     const searchParams = useSearchParams();
     const viewOnly = searchParams.get('view') === 'true';
-    const source = searchParams.get('source');
+    const { isAdmin, urls } = useAuditNav();
 
     const [loading, setLoading] = useState(true);
     const [header, setHeader] = useState<any>(null);
@@ -74,13 +75,13 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
     // Prefetch the history page so the transition after Submit is instant
     useEffect(() => {
         if (viewOnly) return;
-        if (source === 'admin') router.prefetch('/admin/inspections');
+        if (isAdmin) router.prefetch(urls.adminReport);
         else if (header?.setupModelId) router.prefetch(`/audit/${header.setupModelId}/history`);
     }, [viewOnly, header?.setupModelId]);
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+            <div className={`${isAdmin ? 'min-h-[60vh]' : 'min-h-screen'} bg-gray-50 flex flex-col items-center justify-center`}>
                 <p className="animate-pulse text-gray-500 font-medium">Loading Summary...</p>
             </div>
         );
@@ -88,7 +89,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     if (!header) {
         return (
-            <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+            <div className={`${isAdmin ? 'min-h-[60vh]' : 'min-h-screen'} bg-gray-50 flex flex-col items-center justify-center`}>
                 <p className="text-red-500 font-medium">Error loading data.</p>
             </div>
         );
@@ -143,20 +144,21 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
         // Data is already saved per inspection; submitting returns the RQC to this model's Inspection History.
         // replace() so the browser Back button doesn't reopen the draft summary.
         // Admin edits go back to the admin Inspection Report
-        if (source === 'admin') {
-            router.replace('/admin/inspections');
+        if (isAdmin) {
+            router.replace(urls.adminReport);
             return;
         }
         router.replace(header?.setupModelId ? `/audit/${header.setupModelId}/history` : '/dashboard');
     };
 
+    // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col pb-24 relative">
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-24 relative'}>
             {/* Top Navigation Bar */}
             <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-20">
                 <button
                     onClick={() => {
-                        if (source === 'admin') router.push('/admin/inspections');
+                        if (isAdmin) router.push(urls.adminReport);
                         else if (viewOnly) {
                             if (header?.setupModelId) {
                                 router.push(`/audit/${header.setupModelId}/history`);
@@ -164,14 +166,14 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                                 router.push('/dashboard');
                             }
                         }
-                        else router.push(`/audit/session/${headerId}`);
+                        else router.push(urls.session(headerId));
                     }}
                     className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors"
                 >
                     <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
-                    {source === 'admin' ? 'Inspection Report' : viewOnly ? 'Inspection History' : 'New Report'}
+                    {isAdmin ? 'Inspection Report' : viewOnly ? 'Inspection History' : 'New Report'}
                 </button>
                 <div className="flex items-center text-gray-400 text-sm font-semibold">
                     {viewOnly ? '✅ Completed' : '💾 Draft'}
@@ -388,11 +390,11 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
             </div>
 
             {/* Bottom Navigation */}
-            <div className="fixed bottom-0 left-0 w-full bg-white border-t p-4 z-10">
+            <div className={`${isAdmin ? 'sticky' : 'fixed left-0'} bottom-0 w-full bg-white border-t p-4 z-10`}>
                 <div className="max-w-2xl mx-auto w-full flex justify-between gap-4">
                     {viewOnly ? (
                         <button
-                            onClick={() => router.push(`/audit/session/${headerId}?view=true${source ? `&source=${source}` : ''}`)}
+                            onClick={() => router.push(urls.session(headerId, '?view=true'))}
                             className="w-full flex-1 py-3 bg-gray-900 text-white font-bold rounded-lg shadow-md hover:bg-gray-800 transition-colors"
                         >
                             View Details
@@ -400,7 +402,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                     ) : (
                         <>
                             <button
-                                onClick={() => router.push(`/audit/session/${headerId}${source === 'admin' ? '?source=admin' : ''}`)}
+                                onClick={() => router.push(urls.session(headerId))}
                                 className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-lg"
                             >
                                 Previous

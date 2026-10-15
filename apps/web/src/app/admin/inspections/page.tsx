@@ -329,7 +329,7 @@ export default function AdminInspectionsPage() {
                                                                 View
                                                             </Link>
                                                             {/* Opens the RQC edit wizard (header → inspection → summary), returning here afterwards */}
-                                                            <Link href={`/audit/session/${h.rqcHeaderId}?source=admin`} className="text-amber-600 hover:text-amber-800 hover:underline">
+                                                            <Link href={`/admin/inspections/${h.rqcHeaderId}/edit`} className="text-amber-600 hover:text-amber-800 hover:underline">
                                                                 Edit
                                                             </Link>
                                                             <button
