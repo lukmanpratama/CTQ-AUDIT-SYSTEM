@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { use } from 'react';
+import { modelLabel } from '../../../../lib/model-label';
 
 const isFilled = (v?: string | null) => !!(v && v.trim() !== '');
 
@@ -76,7 +77,7 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                     <>
                         {headers.length > 0 && headers[0].setupModel?.modelName && (
                             <p className="text-xs font-bold text-gray-800 bg-gray-100 uppercase tracking-widest inline-block px-3 py-1 rounded-full mb-4">
-                                {headers[0].setupModel.modelName}
+                                {modelLabel(headers[0].setupModel)}
                             </p>
                         )}
                         <div className="space-y-4 mt-2">

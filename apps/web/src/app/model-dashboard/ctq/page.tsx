@@ -15,6 +15,7 @@ import {
     Cell
 } from 'recharts';
 import { apiClient } from '../../../lib/api-client';
+import { tqcRowMatchesModel } from '../../../lib/model-label';
 
 const CustomBarLabel = (props: any) => {
     const { x, y, width, value } = props;
@@ -98,7 +99,8 @@ function CtqDashboardInner() {
                 if (activeTab === 'TQC') {
                     // --- TQC LOGIC ---
                     const treeRes = await apiClient.get<any>(`/ctq-setup/models/${modelId}/tree`);
-                    const modelName = treeRes?.model?.modelName;
+                    const setupModel = treeRes?.model;
+                    const modelName = setupModel?.modelName;
 
                     if (!modelName) {
                         setChartData([]);
@@ -109,7 +111,7 @@ function CtqDashboardInner() {
 
                     const tqcData = await apiClient.get<any[]>('/tqc/ASSEMBLY');
 
-                    const modelTqcData = tqcData.filter(r => r.model === modelName);
+                    const modelTqcData = tqcData.filter(r => tqcRowMatchesModel(r, setupModel));
 
                     const uniqueLocs = new Set<string>();
                     modelTqcData.forEach(r => {

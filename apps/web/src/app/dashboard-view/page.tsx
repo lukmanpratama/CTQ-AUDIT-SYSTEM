@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../lib/api-client';
 import { ChevronDown, Search, ArrowRight, LayoutDashboard } from 'lucide-react';
+import { modelLabel } from '../../lib/model-label';
 
 export default function DashboardViewPage() {
     const router = useRouter();
@@ -47,7 +48,7 @@ export default function DashboardViewPage() {
     }, [reloadKey]);
 
     const filteredModels = models.filter(m =>
-        m.modelName.toLowerCase().includes(searchQuery.toLowerCase())
+        modelLabel(m).toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     const handleProceed = () => {
@@ -56,7 +57,7 @@ export default function DashboardViewPage() {
         router.push(`/model-dashboard?modelId=${selectedModel}`);
     };
 
-    const selectedModelName = models.find(m => m.setupModelId === selectedModel)?.modelName || 'Select a Model';
+    const selectedModelName = modelLabel(models.find(m => m.setupModelId === selectedModel)) || 'Select a Model';
 
     return (
         <main className="min-h-screen flex items-center justify-center bg-[#F9FAFB] relative overflow-hidden">
@@ -126,7 +127,7 @@ export default function DashboardViewPage() {
                                                                 : 'text-gray-700 hover:bg-gray-50'
                                                                 }`}
                                                         >
-                                                            {model.modelName}
+                                                            {modelLabel(model)}
                                                         </button>
                                                     ))
                                                 )}

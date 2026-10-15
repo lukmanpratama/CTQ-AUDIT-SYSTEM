@@ -18,7 +18,7 @@ export function ModelCard({ model, isSelected, onClick }: ModelCardProps) {
       onClick={() => onClick(model)}
       className={`model-card ${isSelected ? 'selected' : ''}`}
       aria-pressed={isSelected}
-      aria-label={`Select model ${model.modelName}`}
+      aria-label={`Select model ${model.modelName}${model.modelNo ? ` ${model.modelNo}` : ''}`}
     >
       {/* Model Image */}
       <div className="w-24 h-24 mb-4 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
@@ -49,6 +49,9 @@ export function ModelCard({ model, isSelected, onClick }: ModelCardProps) {
       <span className="text-sm font-semibold text-center leading-tight">
         {model.modelName}
       </span>
+      {model.modelNo && (
+        <span className="mt-0.5 text-xs font-mono text-gray-500">{model.modelNo}</span>
+      )}
 
       {/* Active indicator */}
       {model.isActive && (

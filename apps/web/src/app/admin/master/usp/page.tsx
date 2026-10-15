@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { modelLabel } from '../../../../lib/model-label';
 
 export default function MasterUspPage() {
     const [usps, setUsps] = useState<any[]>([]);
@@ -174,7 +175,7 @@ export default function MasterUspPage() {
                         <option value="">-- All Models --</option>
                         {models.map(m => (
                             <option key={m.setupModelId} value={m.setupModelId}>
-                                {m.modelName}
+                                {modelLabel(m)}
                             </option>
                         ))}
                     </select>
@@ -222,7 +223,7 @@ export default function MasterUspPage() {
                                 filteredUsps.map(usp => (
                                     <tr key={usp.uspId} className="hover:bg-blue-50/50 transition-colors">
                                         <td className="px-4 py-2.5 font-medium text-gray-900 border-l-2 border-transparent">
-                                            {usp.setupModel?.modelName || 'UNKNOWN'}
+                                            {modelLabel(usp.setupModel) || 'UNKNOWN'}
                                         </td>
                                         <td className="px-4 py-2.5 font-medium text-blue-700">
                                             {usp.uspName}
@@ -277,7 +278,7 @@ export default function MasterUspPage() {
                                 >
                                     <option value="" disabled>-- Select Model --</option>
                                     {models.map(m => (
-                                        <option key={m.setupModelId} value={m.setupModelId}>{m.modelName}</option>
+                                        <option key={m.setupModelId} value={m.setupModelId}>{modelLabel(m)}</option>
                                     ))}
                                 </select>
                             </div>

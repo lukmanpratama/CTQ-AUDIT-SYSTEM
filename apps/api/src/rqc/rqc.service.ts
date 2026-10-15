@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
+import { modelLabel, tqcWhereForModel } from '../common/model-match';
 
 @Injectable()
 export class RqcService {
@@ -372,7 +373,7 @@ export class RqcService {
             include: {
                 // Only the name: setupModel.picture is a large base64 image and was repeated
                 // for every header (117 headers ≈ 47 MB), making the browser fetch fail.
-                setupModel: { select: { setupModelId: true, modelName: true } },
+                setupModel: { select: { setupModelId: true, modelName: true, modelNo: true } },
                 factory: true,
                 inspector: {
                     select: {
@@ -398,7 +399,7 @@ export class RqcService {
         // Query distinct models that have RQC Headers
         const models = await this.prisma.setupModel.findMany({
             where: { rqcHeaders: { some: {} } },
-            select: { setupModelId: true, modelName: true },
+            select: { setupModelId: true, modelName: true, modelNo: true },
             orderBy: { modelName: 'asc' }
         });
 
@@ -526,14 +527,12 @@ export class RqcService {
 
         if (filters?.modelId) {
             const masterModel = await this.prisma.setupModel.findUnique({
-                where: { setupModelId: BigInt(filters.modelId) }
+                where: { setupModelId: BigInt(filters.modelId) },
+                include: { articles: { select: { article: true } } }
             });
             if (masterModel && masterModel.modelName) {
                 const tqcConditions: any = {
-                    model: {
-                        contains: masterModel.modelName,
-                        mode: 'insensitive'
-                    },
+                    ...tqcWhereForModel(masterModel),
                     moduleType: 'ASSEMBLY'
                 };
                 if (filters?.startDate && filters?.endDate) {
@@ -778,7 +777,7 @@ export class RqcService {
                                 setupArea: { include: { masterArea: true } },
                                 rqcHeader: {
                                     include: {
-                                        setupModel: { select: { modelName: true } },
+                                        setupModel: { select: { modelName: true, modelNo: true } },
                                         factory: true,
                                         inspector: { select: { namaUser: true } }
                                     }
@@ -817,7 +816,7 @@ export class RqcService {
                 date: header.date,
                 namaRqc: header.inspector?.namaUser || '-',
                 factoryCell: `${header.factory?.factory || '-'} / ${header.cell || '-'}`,
-                model: header.setupModel.modelName,
+                model: modelLabel(header.setupModel),
                 area: areaName,
                 process: processName,
                 defectName: defectName,
@@ -925,14 +924,12 @@ export class RqcService {
         // Populate TQC Records from TqcReport natively 
         if (filters?.modelId) {
             const masterModel = await this.prisma.setupModel.findUnique({
-                where: { setupModelId: BigInt(filters.modelId) }
+                where: { setupModelId: BigInt(filters.modelId) },
+                include: { articles: { select: { article: true } } }
             });
             if (masterModel && masterModel.modelName) {
                 const tqcConditions: any = {
-                    model: {
-                        contains: masterModel.modelName,
-                        mode: 'insensitive'
-                    },
+                    ...tqcWhereForModel(masterModel),
                     moduleType: 'ASSEMBLY'
                 };
                 if (filters?.startDate && filters?.endDate) {
@@ -1245,11 +1242,12 @@ export class RqcService {
         const tqcAreas = [];
         if (filters?.modelId) {
             const masterModel = await this.prisma.setupModel.findUnique({
-                where: { setupModelId: BigInt(filters.modelId) }
+                where: { setupModelId: BigInt(filters.modelId) },
+                include: { articles: { select: { article: true } } }
             });
             if (masterModel && masterModel.modelName) {
                 const tqcConditions: any = {
-                    model: { contains: masterModel.modelName, mode: 'insensitive' },
+                    ...tqcWhereForModel(masterModel),
                     moduleType: 'ASSEMBLY'
                 };
                 if (filters?.startDate && filters?.endDate) {
@@ -1494,10 +1492,11 @@ export class RqcService {
 
         if (filters?.modelId) {
             const setupModel = await this.prisma.setupModel.findUnique({
-                where: { setupModelId: BigInt(filters.modelId) }
+                where: { setupModelId: BigInt(filters.modelId) },
+                include: { articles: { select: { article: true } } }
             });
             if (setupModel?.modelName) {
-                tqcWhere.model = { contains: setupModel.modelName, mode: 'insensitive' };
+                tqcWhere = { ...tqcWhere, ...tqcWhereForModel(setupModel) };
             } else {
                 return { cells: [], passRateData: [], averagePassRate: 0, averageDefectRate: 0, topDefects: [], qtyChecking: 0, qtyDefect: 0 };
             }
@@ -1880,10 +1879,10 @@ export class RqcService {
         if (cell) rqcWhere.cell = cell;
 
         // Fetch the model strictly for linking string names
-        const model = await this.prisma.setupModel.findUnique({ where: { setupModelId: modelId } });
+        const model = await this.prisma.setupModel.findUnique({ where: { setupModelId: modelId }, include: { articles: { select: { article: true } } } });
         if (!model) return { usps: [], rqcData: {}, tqcData: {}, rqcTopProcesses: [], tqcTopDefects: [] };
 
-        const tqcWhere: any = { model: model.modelName };
+        const tqcWhere: any = { ...tqcWhereForModel(model, 'equals') };
         if (dateFilterTqc) tqcWhere.date = dateFilterTqc;
         if (cell) tqcWhere.cell = cell;
 

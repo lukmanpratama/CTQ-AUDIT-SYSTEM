@@ -1,9 +1,20 @@
-import { IsString, IsNotEmpty, IsBoolean, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsBoolean, IsOptional, IsArray } from 'class-validator';
 
 export class CreateModelDto {
     @IsString()
     @IsNotEmpty()
     modelName!: string;
+
+    /** Optional; empty means no Model No */
+    @IsString()
+    @IsOptional()
+    modelNo?: string;
+
+    /** Articles of this Model No, e.g. ["LA0398", "LA0399"] */
+    @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    articles?: string[];
 
     @IsBoolean()
     @IsOptional()
@@ -40,10 +51,22 @@ export class UploadAuditFileDto {
     auditFileBase64!: string;
 }
 
-export class UpdateModelNameDto {
+export class UpdateModelDto {
     @IsString()
     @IsNotEmpty()
-    modelName!: string;
+    @IsOptional()
+    modelName?: string;
+
+    /** An empty string clears the Model No */
+    @IsString()
+    @IsOptional()
+    modelNo?: string;
+
+    /** Replaces the model's whole article list when given */
+    @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    articles?: string[];
 }
 
 export class UpdateSetupProcessDto {

@@ -53,7 +53,7 @@ export class MasterController {
 
 
     @Get('pos')
-    async getPos(@Query('modelLike') modelLike?: string) { return this.masterService.findAllPos(modelLike); }
+    async getPos(@Query('modelLike') modelLike?: string, @Query('setupModelId') setupModelId?: string) { return this.masterService.findAllPos(modelLike, setupModelId); }
 
     @Get('pos/filter-options')
     async getPoFilterOptions(

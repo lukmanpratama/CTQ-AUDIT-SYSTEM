@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../lib/api-client';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, LabelList } from 'recharts';
+import { modelLabel } from '../../../lib/model-label';
 
 export function DefectCtqClient({ searchParams }: { searchParams: any }) {
     const router = useRouter();
@@ -38,7 +39,7 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
             try {
                 // 1. Fetch Basic Model Info
                 const modelRes = await apiClient.get(`/ctq-setup/models/${modelId}/tree`) as any;
-                if (modelRes && modelRes.model) setModelName(modelRes.model.modelName || "UNKNOWN MODEL");
+                if (modelRes && modelRes.model) setModelName(modelLabel(modelRes.model) || "UNKNOWN MODEL");
 
                 // 2. Fetch the CTQ Defect Summary API
                 let url = `/rqc/defect-ctq-summary?modelId=${modelId}`;

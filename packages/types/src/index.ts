@@ -93,6 +93,9 @@ export interface MasterPoDto {
 export interface SetupModelDto {
   setupModelId: number;
   modelName: string;
+  /** Factory model number; several models can share a name, one per Model No */
+  modelNo?: string | null;
+  articles?: { article: string }[];
   picture?: string;
   isActive: boolean;
 }

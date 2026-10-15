@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { RqcImportButton } from '../../../features/rqc/components/RqcImportButton';
+import { modelLabel } from '../../../lib/model-label';
 
 export default function AdminInspectionsPage() {
     const [headers, setHeaders] = useState<any[]>([]);
@@ -39,7 +40,12 @@ export default function AdminInspectionsPage() {
         fetch(`/api/rqc/headers?${params.toString()}`)
             .then(res => res.json())
             .then(data => {
-                setHeaders(data);
+                // An API error returns an object, not a list; keep the page usable
+                if (!Array.isArray(data)) {
+                    console.error('Failed to load headers', data);
+                    alert(`Failed to load inspection reports: ${data?.message || 'unknown error'}`);
+                }
+                setHeaders(Array.isArray(data) ? data : []);
                 setLoading(false);
             })
             .catch(err => {
@@ -121,7 +127,8 @@ export default function AdminInspectionsPage() {
 
     // Group headers by Model
     const groupedByModel = headers.reduce((acc: any, h: any) => {
-        const modelName = h.model;
+        // Group by the Setup CTQ model (with Model No) so models sharing a name stay apart
+        const modelName = modelLabel(h.setupModel) || h.model;
         if (!acc[modelName]) {
             acc[modelName] = [];
         }
