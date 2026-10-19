@@ -161,12 +161,36 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
         fetchImmediateActions();
     }, [isImmediateActionModalOpen, modelId, currentCell, activeAreaFilter, immediateActionStartDate, immediateActionEndDate]);
 
-    // 2. Fetch KPIs and Trends (Depends on Area Filter to provide dynamic isolated Data)
+    // 2a. Pass rate trend: global date range only. A clicked date dims the other days (like Home) instead of removing them
     useEffect(() => {
         if (!modelId || !currentCell) return;
         if (activeTab === 'TREATMENT') return;
 
-        const fetchKpiAndTrends = async () => {
+        const fetchTrends = async () => {
+            try {
+                let dateParam = '';
+                if (globalStartDate) dateParam += `&startDate=${globalStartDate}`;
+                if (globalEndDate) dateParam += `&endDate=${globalEndDate}`;
+                let timeParam = '';
+                if (checkingTimeFilter && checkingTimeFilter !== 'CHECKING TIME') {
+                    timeParam = `&checkingTime=${checkingTimeFilter}`;
+                }
+                const areaParam = activeAreaFilter ? `&areaName=${encodeURIComponent(activeAreaFilter)}` : '';
+                const resTrends = await apiClient.get<any>(`/rqc/trends?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`);
+                setTrendsData(resTrends?.dailyTrend || []);
+            } catch (err) {
+                console.error("Failed to fetch trends:", err);
+            }
+        };
+        fetchTrends();
+    }, [modelId, currentCell, globalStartDate, globalEndDate, checkingTimeFilter, activeAreaFilter]);
+
+    // 2b. Fetch KPIs (follow the clicked date and the Area Filter)
+    useEffect(() => {
+        if (!modelId || !currentCell) return;
+        if (activeTab === 'TREATMENT') return;
+
+        const fetchKpis = async () => {
             try {
                 let dateParam = '';
                 if (activeDateFilter) {
@@ -190,31 +214,25 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                     areaParam = `&areaName=${encodeURIComponent(activeAreaFilter)}`;
                 }
 
-                const [resKpis, resTrends] = await Promise.all([
-                    apiClient.get<any>(`/rqc/kpis?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`),
-                    apiClient.get<any>(`/rqc/trends?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`)
-                ]);
-
+                const resKpis = await apiClient.get<any>(`/rqc/kpis?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`);
                 setKpiData(resKpis);
-                setTrendsData(resTrends?.dailyTrend || []);
             } catch (err) {
-                console.error("Failed to fetch KPIs and Trends:", err);
+                console.error("Failed to fetch KPIs:", err);
             }
         };
-        fetchKpiAndTrends();
+        fetchKpis();
     }, [modelId, currentCell, activeDateFilter, globalStartDate, globalEndDate, checkingTimeFilter, activeAreaFilter]);
 
     // Handle line chart click
+    // Clicking anywhere on a day's column (point, label or empty space) selects that day, like Home
     const handleLineChartClick = (data: any) => {
-        if (data && data.activePayload && data.activePayload.length > 0) {
-            const clickedDate = data.activePayload[0].payload.date;
-            if (activeDateFilter === clickedDate) {
-                setActiveDateFilter(null); // Toggle off
-            } else {
-                setActiveDateFilter(clickedDate); // Filter by this date
-            }
-        }
+        const clickedDate = data?.activeLabel ?? data?.activePayload?.[0]?.payload?.date;
+        if (!clickedDate) return;
+        setActiveDateFilter(prev => (prev === clickedDate ? null : clickedDate)); // same day again = clear
     };
+
+    // Days other than the clicked one are dimmed, not removed (same as the Home dashboard)
+    const isFaded = (date: string) => !!activeDateFilter && date !== activeDateFilter;
 
     // ---- Computed Data Map ----
 
@@ -504,17 +522,37 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <div className="w-6 h-[2px] bg-[#2482E4]"></div>
                         PASS RATE
                     </div>
+                    {activeDateFilter && (
+                        <button
+                            onClick={() => setActiveDateFilter(null)}
+                            className="absolute top-3 right-4 z-10 bg-red-100 text-red-600 border border-red-200 text-xs px-2 py-1 rounded shadow hover:bg-red-200"
+                        >
+                            Clear Filter: {activeDateFilter} ✕
+                        </button>
+                    )}
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={passRateData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }} onClick={handleLineChartClick}>
+                        <LineChart data={passRateData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }} onClick={handleLineChartClick} style={{ cursor: 'pointer' }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEEEEE" />
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#ccc', strokeWidth: 1, strokeDasharray: '5 5' }} />
                             <XAxis
                                 dataKey="date"
-                                angle={-35}
-                                tick={{ fontSize: 9, fill: '#666' }}
-                                textAnchor="end"
-                                dx={-5}
-                                dy={10}
+                                tick={(props: any) => {
+                                    const { x, y, payload } = props;
+                                    const selected = activeDateFilter === payload.value;
+                                    return (
+                                        <text
+                                            x={x} y={y} dx={-5} dy={10}
+                                            textAnchor="end"
+                                            transform={`rotate(-35, ${x}, ${y})`}
+                                            fontSize={9}
+                                            fill={selected ? '#FF9800' : '#666'}
+                                            fillOpacity={isFaded(payload.value) ? 0.3 : 1}
+                                            fontWeight={selected ? 'bold' : 'normal'}
+                                        >
+                                            {payload.value}
+                                        </text>
+                                    );
+                                }}
                                 axisLine={true}
                                 tickLine={true}
                                 interval={0}
@@ -533,16 +571,49 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                 dataKey="passRate"
                                 stroke="#2482E4"
                                 strokeWidth={2}
-                                dot={false}
+                                strokeOpacity={activeDateFilter ? 0.35 : 1}
+                                dot={(props: any) => {
+                                    const { cx, cy, payload } = props;
+                                    if (isNaN(cx) || isNaN(cy)) return <g key={`dot-${payload?.date}`} />;
+                                    const selected = activeDateFilter === payload.date;
+                                    return (
+                                        <g key={`dot-${payload.date}`} style={{ cursor: 'pointer' }}>
+                                            {/* Larger invisible hit area so the point is easy to click */}
+                                            <circle cx={cx} cy={cy} r={12} fill="transparent" />
+                                            <circle
+                                                cx={cx}
+                                                cy={cy}
+                                                r={selected ? 6 : 4}
+                                                fill={selected ? '#FF9800' : '#2482E4'}
+                                                fillOpacity={isFaded(payload.date) ? 0.2 : 1}
+                                                stroke={selected ? '#fff' : 'none'}
+                                                strokeWidth={selected ? 2 : 0}
+                                            />
+                                        </g>
+                                    );
+                                }}
                                 activeDot={{ r: 6, fill: '#FF9800', stroke: '#fff', strokeWidth: 2 }}
                             >
                                 <LabelList
                                     dataKey="passRate"
-                                    position="top"
-                                    offset={10}
-                                    fontSize={9}
-                                    fill="#2482E4"
-                                    formatter={(v: any) => (v % 1 === 0 ? `${v}0` : `${v}`) + '%'}
+                                    content={(props: any) => {
+                                        const { x, y, value, index } = props;
+                                        if (isNaN(x) || isNaN(y) || value == null) return null;
+                                        const item = passRateData[index];
+                                        const selected = !!item && activeDateFilter === item.date;
+                                        return (
+                                            <text
+                                                x={x} y={y - 10}
+                                                textAnchor="middle"
+                                                fontSize={9}
+                                                fill="#2482E4"
+                                                fillOpacity={item && isFaded(item.date) ? 0.2 : 1}
+                                                fontWeight={selected ? 'bold' : 'normal'}
+                                            >
+                                                {(value % 1 === 0 ? `${value}0` : `${value}`) + '%'}
+                                            </text>
+                                        );
+                                    }}
                                 />
                             </Line>
                         </LineChart>
