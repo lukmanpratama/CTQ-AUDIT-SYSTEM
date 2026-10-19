@@ -302,11 +302,15 @@ model TqcReport {
   qty          Float?
   qtyDefect    Float?   @map("qty_defect")
   qtyProduction Float?  @map("qty_production")
+  /// Edited checking qty of this hour slot; NULL = the standard 120
+  qtyChecking  Float?   @map("qty_checking")
   destination  String?  @db.VarChar(100)
   category     String?  @db.VarChar(50)
   type         String?  @db.VarChar(100)
   defectName         String?  @map("defect_name") @db.VarChar(200)
   uspClassification  String?  @map("usp_classification") @db.VarChar(100)
+  /// CTQ Type set for this row only; NULL = follow Setup Defect TQC by defect name
+  ctqType            String?  @map("ctq_type") @db.VarChar(100)
   moduleType   String   @map("module_type") @db.VarChar(50) /// "ASSEMBLY", "SEWING", "TREATMENT"
 
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

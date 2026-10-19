@@ -1,5 +1,6 @@
 import { Controller, Post, Body, Get, Param, Delete, Patch } from '@nestjs/common';
 import { TqcService } from './tqc.service';
+import { UpdateTqcRecordDto } from './tqc.dto';
 
 @Controller('tqc')
 export class TqcController {
@@ -26,6 +27,14 @@ export class TqcController {
         @Body() body: { uspClassification: string }
     ) {
         return this.tqcService.updateUspClassification(parseInt(id, 10), body?.uspClassification);
+    }
+
+    @Patch(':id')
+    async updateRecord(
+        @Param('id') id: string,
+        @Body() body: UpdateTqcRecordDto
+    ) {
+        return this.tqcService.updateRecord(parseInt(id, 10), body);
     }
 
     @Delete(':id')
