@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
-import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
+import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, isCtqTqcDefect, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
 
 @Injectable()
 export class RqcService {
@@ -1558,15 +1558,17 @@ export class RqcService {
         tqcRecords.forEach((t: any) => {
             const dateStr = t.date ? t.date.toISOString().split('T')[0] : 'Unknown';
             const cellVal = (t.cell || t.building || 'no-cell').trim().toUpperCase();
-            const defectQty = t.qtyDefect || 0;
             const defectName = t.defectName || 'UNKNOWN';
 
             if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { uniqueCells: new Set(), totalDefect: 0 });
 
+            // Every row marks the day/cell as checked, but only CTQ defects (with a USP Classification) count
             const dayObj = dailyMap.get(dateStr)!;
             dayObj.uniqueCells.add(cellVal);
-            dayObj.totalDefect += defectQty;
+            if (!isCtqTqcDefect(t)) return;
 
+            const defectQty = t.qtyDefect || 0;
+            dayObj.totalDefect += defectQty;
             overallDefectCount += defectQty;
 
             if (!defectMap.has(defectName)) defectMap.set(defectName, 0);
@@ -1603,6 +1605,8 @@ export class RqcService {
             }
 
             passRateData.push({
+                // isoDate lets the page filter the other charts by the clicked day
+                isoDate: date,
                 date: new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
                 passRate: Math.round((passRate + Number.EPSILON) * 100) / 100,
                 defectRate: Math.round((defRate + Number.EPSILON) * 100) / 100,
@@ -1617,12 +1621,14 @@ export class RqcService {
             const rate = globalChecking > 0 ? (qty / globalChecking) * 100 : 0;
             return {
                 name,
-                absoluteVal: Math.round((rate + Number.EPSILON) * 100) / 100,
+                // Not rounded, so the bars add up exactly to the TQC Defect Rate CTQ
+                absoluteVal: rate,
                 qty
             };
         }).sort((a, b) => b.qty - a.qty);
 
-        const topDefects = allDefects.slice(0, 5); // Limit top 5 for the chart
+        // All CTQ defects, so the bars add up to the TQC Defect Rate CTQ (it used to show the top 5 only)
+        const topDefects = allDefects;
 
         // 4 & 5. AVERAGE GRAPHICS
         // The user specifically requested that the middle box uses the global volume formula: Qty Defect / Qty Check

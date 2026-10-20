@@ -11,7 +11,10 @@ export const TQC_CHECK_PER_HOUR = 120;
 export const TQC_HOURS_PER_DAY = 8;
 export const TQC_CHECK_PER_DAY = TQC_CHECK_PER_HOUR * TQC_HOURS_PER_DAY;
 
-type TqcCheckRow = { qtyChecking?: number | null; time?: string | null };
+/** A TQC row is a CTQ defect only when it has a USP Classification (filled on the TQC Records page or import). */
+export const isCtqTqcDefect = (row: { uspClassification?: string | null }) => !!row.uspClassification?.trim();
+
+type TqcCheckRow ={ qtyChecking?: number | null; time?: string | null };
 
 const editedValue = (row: TqcCheckRow) =>
     row.qtyChecking != null && Number.isFinite(Number(row.qtyChecking)) ? Number(row.qtyChecking) : null;
