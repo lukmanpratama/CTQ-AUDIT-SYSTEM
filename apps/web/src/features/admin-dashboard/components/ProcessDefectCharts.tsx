@@ -20,6 +20,8 @@ interface ProcessItem {
     qtyCheckingAfternoon: number;
     qtyDefectMorning: number;
     qtyDefectAfternoon: number;
+    usp?: string | null;
+    ctq?: string | null;
 }
 
 interface AreaItem {
@@ -29,53 +31,65 @@ interface AreaItem {
 
 const AREA_ORDER = ['CUTTING', 'SEWING', 'ASSEMBLY'];
 
+// One x-axis scale per section (RQC / TQC), just above the largest rate, so small rates still show as
+// readable bars (1,88% on a 0-2,5% axis instead of a 0-10% one) and panels stay comparable.
+const NICE_STEPS = [0.5, 1, 2, 2.5, 5, 10, 15, 20, 25, 50, 100];
+function sectionScale(areas: AreaItem[]): number {
+    const max = Math.max(0, ...areas.flatMap(a => a.processes.map(p => p.defectRate || 0)));
+    if (max <= 0) return 1;
+    const target = max * 1.15;
+    return NICE_STEPS.find(s => s >= target) ?? Math.ceil(target / 10) * 10;
+}
+const axisLabel = (v: number) => `${Number(v.toFixed(2))}%`.replace('.', ',');
 
 
-function AreaPanel({ area, onProcessClick, baseColor }: { area: AreaItem; onProcessClick: (proc: ProcessItem) => void; baseColor: string }) {
-    const maxRate = Math.max(...area.processes.map(p => p.defectRate), 10);
+
+function AreaPanel({ area, onProcessClick, baseColor, scaleMax }: { area: AreaItem; onProcessClick: (proc: ProcessItem) => void; baseColor: string; scaleMax: number }) {
+    const maxRate = scaleMax;
 
     return (
         <div className="flex-1 border border-gray-200 rounded-sm relative pt-4 pb-6 bg-white overflow-hidden flex flex-col min-w-[280px]">
-            <h3 className="text-center font-semibold text-sm tracking-wide mb-2">{area.areaName}</h3>
-            <div className="flex-1 flex flex-col justify-between px-2 overflow-y-auto" style={{ maxHeight: '280px' }}>
+            <h3 className="text-center font-bold text-base tracking-wide mb-2">{area.areaName}</h3>
+            {/* Rows share the panel height (36-72px each), so a few processes fill the panel instead of sitting at the top */}
+            <div className="flex-1 flex flex-col gap-1 px-2 overflow-y-auto min-h-0">
                 {area.processes.length === 0 ? (
-                    <div className="flex-1 flex items-center justify-center text-gray-400 text-xs italic">
+                    <div className="flex-1 flex items-center justify-center text-gray-400 text-sm italic">
                         No process data
                     </div>
                 ) : (
                     area.processes.map((proc, idx) => (
                         <div
                             key={idx}
-                            className="flex items-center h-6 cursor-pointer hover:bg-blue-50/50 rounded transition-colors group mb-1"
+                            className="flex items-center flex-[1_0_auto] min-h-[36px] py-1 cursor-pointer hover:bg-blue-50/50 rounded transition-colors group"
                             onClick={() => onProcessClick(proc)}
                             title={`Click to view details: ${proc.processName}`}
                         >
-                            <div className="w-[45%] text-[9px] font-medium leading-[1] text-right text-gray-700 uppercase break-words pr-2 break-all whitespace-pre-wrap group-hover:text-blue-700 transition-colors">
+                            <div className="w-[40%] text-[11px] font-semibold leading-tight text-right text-gray-700 uppercase break-words pr-2 group-hover:text-blue-700 transition-colors">
                                 {proc.processName}
                             </div>
                             <div className="flex-1 flex items-center h-full border-l border-gray-300">
                                 <div
-                                    className="h-4 rounded-r-sm transition-all group-hover:opacity-80"
+                                    className="h-7 rounded-r-sm transition-all group-hover:opacity-80"
                                     style={{
-                                        width: proc.defectRate > 0 ? `${Math.max((proc.defectRate / maxRate) * 100, 1)}%` : '0px',
+                                        width: proc.defectRate > 0 ? `${Math.max((proc.defectRate / maxRate) * 85, 1)}%` : '0px',
                                         backgroundColor: proc.defectRate > 0 ? baseColor : '#D1D5DB'
                                     }}
                                 />
                                 {proc.defectRate > 0 ? (
-                                    <span className="text-[10px] font-bold text-gray-700 ml-1 leading-none group-hover:text-blue-700">
+                                    <span className="text-sm font-bold text-gray-700 ml-1.5 leading-none whitespace-nowrap group-hover:text-blue-700">
                                         {proc.defectRate.toFixed(2)}%
                                     </span>
                                 ) : (
-                                    <span className="text-[10px] font-bold ml-1 leading-none" style={{ color: baseColor }}>0%</span>
+                                    <span className="text-sm font-bold ml-1.5 leading-none" style={{ color: baseColor }}>0%</span>
                                 )}
                             </div>
                         </div>
                     ))
                 )}
             </div>
-            {/* X-axis */}
-            <div className="absolute bottom-2 left-0 right-0 flex justify-between text-[9px] text-gray-500 font-medium ml-[45%] pl-2 pr-4">
-                <span>0%</span><span>{Math.round(maxRate / 2)}%</span><span>{Math.round(maxRate)}%</span>
+            {/* X-axis (the bar area is 85% wide so the value label always fits beside the longest bar) */}
+            <div className="absolute bottom-2 left-0 right-0 flex justify-between text-[11px] text-gray-500 font-medium ml-[40%] pl-2 pr-[15%]">
+                <span>0%</span><span>{axisLabel(maxRate / 2)}</span><span>{axisLabel(maxRate)}</span>
             </div>
         </div>
     );
@@ -139,6 +153,8 @@ export function ProcessDefectCharts({ modelId, startDate, endDate, cell }: { mod
     const displayAreas = setupAreas.length > 0
         ? setupAreas.map(name => getArea(name))
         : areas; // Fallback if no tree found
+    const rqcScale = sectionScale(displayAreas);
+    const tqcScale = sectionScale(tqcAreas);
 
     if (loading) {
         return (
@@ -172,6 +188,7 @@ export function ProcessDefectCharts({ modelId, startDate, endDate, cell }: { mod
                                     area={area}
                                     onProcessClick={(proc) => setSelectedProcess(proc)}
                                     baseColor="#FFB00F"
+                                    scaleMax={rqcScale}
                                 />
                             ))}
                         </div>
@@ -199,6 +216,7 @@ export function ProcessDefectCharts({ modelId, startDate, endDate, cell }: { mod
                                     area={area}
                                     onProcessClick={(proc) => setSelectedProcess(proc)}
                                     baseColor="#DC2626"
+                                    scaleMax={tqcScale}
                                 />
                             ))}
                         </div>

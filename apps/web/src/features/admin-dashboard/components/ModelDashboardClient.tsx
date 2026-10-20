@@ -219,9 +219,9 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
     return (
         <div
             className="w-full bg-white text-gray-900 font-sans flex flex-col"
-            style={{ height: '100vh', minHeight: '600px', overflow: 'auto' }}
+            style={{ height: 'calc(100vh - 24px)', minHeight: '560px', overflow: 'auto' }}
         >
-            <div className="flex-1 flex flex-col p-4 gap-3" style={{ minWidth: '1000px' }}>
+            <div className="flex-1 flex flex-col p-4 gap-3 min-h-0" style={{ minWidth: '1000px' }}>
                 {/* ===== TOP HEADER: Title + Back ===== */}
                 <div className="flex items-start justify-between shrink-0">
                     <div style={{ width: '22%', maxWidth: '300px' }}></div>
@@ -244,7 +244,7 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                 <div className="flex flex-1 gap-4 min-h-0">
 
                     {/* LEFT COLUMN: Photo, Badges, KPIs, Weekly Chart */}
-                    <div className="flex flex-col gap-3 shrink-0 relative" style={{ width: '22%', maxWidth: '300px' }}>
+                    <div className="flex flex-col gap-3 shrink-0 relative min-h-0 overflow-hidden" style={{ width: '22%', maxWidth: '300px' }}>
 
                         {/* Enlarged Photo */}
                         <div className="flex flex-col items-center shrink-0">
@@ -252,7 +252,8 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                                 <img
                                     src={modelPicture}
                                     alt={modelName}
-                                    className="w-[90%] max-h-[140px] object-contain drop-shadow-md"
+                                    className="w-[90%] object-contain drop-shadow-md"
+                                    style={{ maxHeight: 'min(140px, 13vh)' }}
                                 />
                             </div>
                         </div>
@@ -307,7 +308,7 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                     </div>
 
                     {/* RIGHT COLUMN: Nav bar + Daily Chart + Process Charts */}
-                    <div className="flex flex-col flex-1 gap-3 min-w-0">
+                    <div className="flex flex-col flex-1 gap-3 min-w-0 min-h-0">
                         {/* NAVIGATION / FILTER BAR */}
                         <div className="flex items-stretch gap-2 shrink-0">
                             {/* Date Picker */}
@@ -414,7 +415,13 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                         {/* Daily Pass Rate Chart */}
                         <div className="flex-1 overflow-hidden border border-gray-200 rounded-sm">
                             <DailyPassRateChart
-                                data={dailyTrend}
+                                data={activeFilter?.type === 'week'
+                                    ? dailyTrend.filter((d: any) => {
+                                        const t = new Date(d.date).getTime();
+                                        return t >= new Date(activeFilter.start + 'T00:00:00').getTime()
+                                            && t <= new Date(activeFilter.end + 'T23:59:59').getTime();
+                                    })
+                                    : dailyTrend}
                                 activeFilter={activeFilter}
                                 onDateClick={(clickedDate) => {
                                     if (activeFilter && activeFilter.label === clickedDate) {

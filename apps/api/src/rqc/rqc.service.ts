@@ -1120,6 +1120,7 @@ export class RqcService {
                 setupProcess: {
                     include: {
                         masterProcess: true,
+                        masterUsp: true,
                         setupArea: {
                             include: { masterArea: true }
                         }
@@ -1151,6 +1152,8 @@ export class RqcService {
                 qtyCheckingAfternoon: number;
                 qtyDefectMorning: number;
                 qtyDefectAfternoon: number;
+                ctq: string | null;
+                usp: string | null;
             }>;
         }>();
 
@@ -1194,6 +1197,9 @@ export class RqcService {
                     qtyCheckingAfternoon: 0,
                     qtyDefectMorning: 0,
                     qtyDefectAfternoon: 0,
+                    ctq: rp.setupProcess?.masterProcess?.ctq || null,
+                    // USP name only: the code is an auto number (USP-1792053029691)
+                    usp: rp.setupProcess?.masterUsp?.uspName || null,
                 });
             }
             const procEntry = areaEntry.processMap.get(processName)!;
@@ -1239,6 +1245,8 @@ export class RqcService {
                 qtyCheckingAfternoon: proc.qtyCheckingAfternoon,
                 qtyDefectMorning: proc.qtyDefectMorning,
                 qtyDefectAfternoon: proc.qtyDefectAfternoon,
+                ctq: proc.ctq,
+                usp: proc.usp,
             })).sort((a, b) => b.defectRate - a.defectRate)
         }));
 
@@ -1268,8 +1276,12 @@ export class RqcService {
 
                 tqcRecords = await this.prisma.tqcReport.findMany({
                     where: tqcConditions,
-                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, qtyChecking: true, defectName: true, moduleType: true }
+                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, qtyChecking: true, defectName: true, moduleType: true, ctqType: true, uspClassification: true }
                 });
+
+                // CTQ Type per defect name from Setup Defect TQC (a CTQ Type set on the row wins)
+                const normDefect = (n: string) => (n || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const ctqByDefect = new Map((await this.prisma.setupDefectTqc.findMany()).map(m => [normDefect(m.defectName), m.ctqType]));
 
                 const tqcMap = new Map<string, {
                     areaName: string;
@@ -1298,10 +1310,15 @@ export class RqcService {
                             totalDefect: 0,
                             totalChecking: 0,
                             defectMap: new Map(),
-                            uniqueCheckingMap: new Map<string, number>()
+                            uniqueCheckingMap: new Map<string, number>(),
+                            uspSet: new Set<string>(),
+                            ctqSet: new Set<string>()
                         });
                     }
                     const procEntry = modEntry.processMap.get(defectName)!;
+                    if (tqc.uspClassification?.trim()) procEntry.uspSet.add(tqc.uspClassification.trim());
+                    const rowCtq = tqc.ctqType?.trim() || ctqByDefect.get(normDefect(defectName));
+                    if (rowCtq) procEntry.ctqSet.add(rowCtq);
 
                     if (!procEntry.uniqueCheckingMap.has(uniqueKey)) {
                         // The user specified checking volume per hour is purely static `120` in their process model. 
@@ -1340,7 +1357,9 @@ export class RqcService {
                                 totalDefect: proc.totalDefect,
                                 totalChecking: totalModChecking,
                                 defects: Array.from(proc.defectMap.values()),
-                                qtyCheckingMorning: 0, qtyCheckingAfternoon: 0, qtyDefectMorning: 0, qtyDefectAfternoon: 0
+                                qtyCheckingMorning: 0, qtyCheckingAfternoon: 0, qtyDefectMorning: 0, qtyDefectAfternoon: 0,
+                                usp: [...proc.uspSet].join(', ') || null,
+                                ctq: [...proc.ctqSet].join(', ') || null
                             };
                         }).sort((a: any, b: any) => b.defectRate - a.defectRate)
                     });
