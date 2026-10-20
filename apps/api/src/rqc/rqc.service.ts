@@ -838,7 +838,7 @@ export class RqcService {
         return this.serializeBigInt(mapped);
     }
 
-    async getTrends(filters?: { modelId?: string, areaId?: string, areaName?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string, checkingTime?: string }) {
+    async getTrends(filters?: { modelId?: string, areaId?: string, areaName?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string, checkingTime?: string, processName?: string }) {
         let headerConditions: any = {};
         let applyingHeaderConditions = false;
 
@@ -894,6 +894,9 @@ export class RqcService {
             if (!processConditions.rqcArea) processConditions.rqcArea = {};
             // TQC INHOUSE Edge case protection is handled by frontend cell isolation; Inline primarily targets valid master areas
             processConditions.rqcArea.setupArea = { masterArea: { area: filters.areaName } };
+        }
+        if (filters?.processName) { // RQC Inline: trend of the process clicked on Percentage Defect Treatment
+            processConditions.setupProcess = { masterProcess: { process: filters.processName } };
         }
 
         const processes = await this.prisma.rqcProcess.findMany({

@@ -47,8 +47,9 @@ export class RqcController {
         @Query('factoryId') factoryId?: string,
         @Query('cell') cell?: string,
         @Query('checkingTime') checkingTime?: string,
+        @Query('processName') processName?: string,
     ) {
-        return this.rqcService.getTrends({ modelId, areaId, areaName, startDate, endDate, factoryId, cell, checkingTime });
+        return this.rqcService.getTrends({ modelId, areaId, areaName, startDate, endDate, factoryId, cell, checkingTime, processName });
     }
 
     @Get('dashboard/cap-data')

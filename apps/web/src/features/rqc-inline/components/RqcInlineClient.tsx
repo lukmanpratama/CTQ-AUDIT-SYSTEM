@@ -5,6 +5,25 @@ import { useRouter } from 'next/navigation';
 import { PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList, Tooltip } from 'recharts';
 import { apiClient } from '../../../lib/api-client';
 
+// YYYY-MM-DD from the local calendar date. toISOString() uses UTC, which in WIB (UTC+7)
+// turned a clicked "7 Oct 2026" into 2026-10-06 and filtered the wrong day.
+// Defect rates show 2 decimals, cut off instead of rounded: 6 / 320 = 1,875% -> 1,87% (not 1,88%).
+// The tiny epsilon keeps float noise (0,29 * 100 = 28,999...) from dropping a digit.
+const formatRate = (v: number) => {
+    const truncated = Math.floor(Number(v || 0) * 100 + 1e-9) / 100;
+    return `${truncated.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+};
+
+// INHOUSE treatment cells (NOSEW 9, PRINTING 1, ...) are grouped under the TREATMENT tab
+const TREATMENT_KEYWORDS = ['NOSEW', 'EMBOSS', 'EMBROIDERY', 'PRINTING'];
+const treatmentKeyword = (cell: string) => TREATMENT_KEYWORDS.find(kw => (cell || '').toUpperCase().includes(kw)) || null;
+
+// Short chart animations so switching cell/area/filters feels smooth instead of redrawing from zero
+const CHART_ANIMATION_MS = 350;
+
+const toLocalIsoDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     const router = useRouter();
     const modelId = searchParams?.modelId;
@@ -34,8 +53,6 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         // Usually handled, but strictly checking `h.cell` per requirement
                     }
                 });
-
-                const TREATMENT_KEYWORDS = ['NOSEW', 'EMBOSS', 'EMBROIDERY', 'PRINTING']; // Standard INHOUSE parts
 
                 const tCells: string[] = [];
                 const rCells: string[] = [];
@@ -76,6 +93,8 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     // ---- Interactive State ----
     const [activeDateFilter, setActiveDateFilter] = useState<string | null>(null);
     const [activeAreaFilter, setActiveAreaFilter] = useState<string | null>(null);
+    // Process clicked on Percentage Defect Treatment: the other bars dim and the rest of the page follows it
+    const [activeProcess, setActiveProcess] = useState<string | null>(null);
 
     const [globalStartDate, setGlobalStartDate] = useState<string>('');
     const [globalEndDate, setGlobalEndDate] = useState<string>('');
@@ -85,6 +104,8 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     const [kpiData, setKpiData] = useState<any>(null);
     const [trendsData, setTrendsData] = useState<any[]>([]);
     const [processDefectData, setProcessDefectData] = useState<any>(null);
+    // Cell the processDefectData belongs to; the previous cell's data stays visible (dimmed) while the new one loads
+    const [processDefectCell, setProcessDefectCell] = useState<string>('');
     const [loadingData, setLoadingData] = useState(false);
 
     // ---- Immediate Action Modal State ----
@@ -100,12 +121,34 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
         // Reset sub-filters on cell change
         setActiveDateFilter(null);
         setActiveAreaFilter(null);
+        setActiveProcess(null);
     }, [currentCell]);
+
+    // Areas this cell is about: treatment cells -> TREATMENT, a cell named like an area (INCOMING BOTTOM) -> that area.
+    // Stray audits recorded under other areas for these cells are left out.
+    const rawAreas: any[] = processDefectData?.areas || [];
+    const cellUpper = (currentCell || '').toUpperCase();
+    const cellTreatment = treatmentKeyword(currentCell);
+    const allAreas: any[] = cellTreatment
+        ? rawAreas.filter((a: any) => a.areaName === 'TREATMENT')
+        : rawAreas.some((a: any) => (a.areaName || '').toUpperCase() === cellUpper)
+            ? rawAreas.filter((a: any) => (a.areaName || '').toUpperCase() === cellUpper)
+            : rawAreas;
+    const availableAreas: string[] = allAreas.map((a: any) => a.areaName);
+    // The selected area, or the first one (shown as selected) when nothing was clicked yet
+    const effectiveArea: string | null = activeAreaFilter && availableAreas.includes(activeAreaFilter)
+        ? activeAreaFilter
+        : (availableAreas[0] ?? null);
+    const dataReady = processDefectCell === currentCell;
+
+    // A process belongs to one area, so switching area clears it
+    useEffect(() => {
+        setActiveProcess(null);
+    }, [effectiveArea]);
 
     // 1. Fetch Process Defects (Independent of Area Filter so navigation persists)
     useEffect(() => {
         if (!modelId || !currentCell) return;
-        if (activeTab === 'TREATMENT') return; // Handled elsewhere or not needed
 
         const fetchProcessDefects = async () => {
             setLoadingData(true);
@@ -114,7 +157,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                 if (activeDateFilter) {
                     const parsedDate = new Date(activeDateFilter);
                     if (!isNaN(parsedDate.getTime())) {
-                        const isoDate = parsedDate.toISOString().split('T')[0];
+                        const isoDate = toLocalIsoDate(parsedDate);
                         dateParam = `&startDate=${isoDate}&endDate=${isoDate}`;
                     }
                 } else {
@@ -127,8 +170,9 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                     timeParam = `&checkingTime=${checkingTimeFilter}`;
                 }
 
-                const resProcess = await apiClient.get<any>(`/rqc/process-defects?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}`);
+                const resProcess = await apiClient.get<any>(`/rqc/process-defects?modelId=${modelId}&cell=${encodeURIComponent(currentCell)}${dateParam}${timeParam}`);
                 setProcessDefectData(resProcess);
+                setProcessDefectCell(currentCell);
             } catch (err) {
                 console.error("Failed to fetch process defects:", err);
             } finally {
@@ -146,7 +190,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             setLoadingImmediateAction(true);
             try {
                 let params = `?modelId=${modelId}&cell=${currentCell}`;
-                if (activeAreaFilter) params += `&areaName=${activeAreaFilter}`;
+                if (effectiveArea) params += `&areaName=${encodeURIComponent(effectiveArea)}`;
                 if (immediateActionStartDate) params += `&startDate=${immediateActionStartDate}`;
                 if (immediateActionEndDate) params += `&endDate=${immediateActionEndDate}`;
 
@@ -159,12 +203,11 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             }
         };
         fetchImmediateActions();
-    }, [isImmediateActionModalOpen, modelId, currentCell, activeAreaFilter, immediateActionStartDate, immediateActionEndDate]);
+    }, [isImmediateActionModalOpen, modelId, currentCell, effectiveArea, immediateActionStartDate, immediateActionEndDate]);
 
     // 2a. Pass rate trend: global date range only. A clicked date dims the other days (like Home) instead of removing them
     useEffect(() => {
-        if (!modelId || !currentCell) return;
-        if (activeTab === 'TREATMENT') return;
+        if (!modelId || !currentCell || !dataReady) return;
 
         const fetchTrends = async () => {
             try {
@@ -175,20 +218,20 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                 if (checkingTimeFilter && checkingTimeFilter !== 'CHECKING TIME') {
                     timeParam = `&checkingTime=${checkingTimeFilter}`;
                 }
-                const areaParam = activeAreaFilter ? `&areaName=${encodeURIComponent(activeAreaFilter)}` : '';
-                const resTrends = await apiClient.get<any>(`/rqc/trends?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`);
+                const areaParam = effectiveArea ? `&areaName=${encodeURIComponent(effectiveArea)}` : '';
+                const processParam = activeProcess ? `&processName=${encodeURIComponent(activeProcess)}` : '';
+                const resTrends = await apiClient.get<any>(`/rqc/trends?modelId=${modelId}&cell=${encodeURIComponent(currentCell)}${dateParam}${timeParam}${areaParam}${processParam}`);
                 setTrendsData(resTrends?.dailyTrend || []);
             } catch (err) {
                 console.error("Failed to fetch trends:", err);
             }
         };
         fetchTrends();
-    }, [modelId, currentCell, globalStartDate, globalEndDate, checkingTimeFilter, activeAreaFilter]);
+    }, [modelId, currentCell, dataReady, globalStartDate, globalEndDate, checkingTimeFilter, effectiveArea, activeProcess]);
 
     // 2b. Fetch KPIs (follow the clicked date and the Area Filter)
     useEffect(() => {
-        if (!modelId || !currentCell) return;
-        if (activeTab === 'TREATMENT') return;
+        if (!modelId || !currentCell || !dataReady) return;
 
         const fetchKpis = async () => {
             try {
@@ -196,7 +239,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                 if (activeDateFilter) {
                     const parsedDate = new Date(activeDateFilter);
                     if (!isNaN(parsedDate.getTime())) {
-                        const isoDate = parsedDate.toISOString().split('T')[0];
+                        const isoDate = toLocalIsoDate(parsedDate);
                         dateParam = `&startDate=${isoDate}&endDate=${isoDate}`;
                     }
                 } else {
@@ -209,19 +252,16 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                     timeParam = `&checkingTime=${checkingTimeFilter}`;
                 }
 
-                let areaParam = '';
-                if (activeAreaFilter) {
-                    areaParam = `&areaName=${encodeURIComponent(activeAreaFilter)}`;
-                }
+                const areaParam = effectiveArea ? `&areaName=${encodeURIComponent(effectiveArea)}` : '';
 
-                const resKpis = await apiClient.get<any>(`/rqc/kpis?modelId=${modelId}&cell=${currentCell}${dateParam}${timeParam}${areaParam}`);
+                const resKpis = await apiClient.get<any>(`/rqc/kpis?modelId=${modelId}&cell=${encodeURIComponent(currentCell)}${dateParam}${timeParam}${areaParam}`);
                 setKpiData(resKpis);
             } catch (err) {
                 console.error("Failed to fetch KPIs:", err);
             }
         };
         fetchKpis();
-    }, [modelId, currentCell, activeDateFilter, globalStartDate, globalEndDate, checkingTimeFilter, activeAreaFilter]);
+    }, [modelId, currentCell, dataReady, activeDateFilter, globalStartDate, globalEndDate, checkingTimeFilter, effectiveArea]);
 
     // Handle line chart click
     // Clicking anywhere on a day's column (point, label or empty space) selects that day, like Home
@@ -250,12 +290,9 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             };
         });
 
-    // Defect breakdown
-    const allAreas = processDefectData?.areas || [];
-    const availableAreas = allAreas.map((a: any) => a.areaName);
-
-    const areas = activeAreaFilter
-        ? allAreas.filter((a: any) => a.areaName === activeAreaFilter)
+    // Defect breakdown: only the selected area
+    const areas = effectiveArea
+        ? allAreas.filter((a: any) => a.areaName === effectiveArea)
         : allAreas;
 
     let detailDefectMap = new Map<string, number>();
@@ -266,24 +303,28 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     let totRqcDefectAfternoon = 0;
 
     let globalAreaChecking = 0;
-    let globalAreaDefect = 0;
 
     // First Pass: Calculate total area checking to act as the exact mathematical denominator for Percentage Defect Treatment
     areas.forEach((area: any) => {
         area.processes.forEach((proc: any) => {
-            const mChk = proc.qtyCheckingMorning || 0;
-            const aChk = proc.qtyCheckingAfternoon || 0;
-            globalAreaChecking += (mChk + aChk);
+            globalAreaChecking += (proc.qtyCheckingMorning || 0) + (proc.qtyCheckingAfternoon || 0);
+        });
+    });
 
-            const mDef = proc.qtyDefectMorning || 0;
-            const aDef = proc.qtyDefectAfternoon || 0;
-            globalAreaDefect += (mDef + aDef);
+    // Processes the rest of the page counts: all of them, or only the one clicked on Percentage Defect Treatment
+    const isFocused = (proc: any) => !activeProcess || proc.processName === activeProcess;
+    let focusChecking = 0;
+    let focusDefect = 0;
+    areas.forEach((area: any) => {
+        area.processes.filter(isFocused).forEach((proc: any) => {
+            focusChecking += (proc.qtyCheckingMorning || 0) + (proc.qtyCheckingAfternoon || 0);
+            focusDefect += (proc.qtyDefectMorning || 0) + (proc.qtyDefectAfternoon || 0);
         });
     });
 
     // Enforce 100% Pass Rate if 0 checks/0 defects, otherwise mathematically absolute ratio
-    const manualRqcPassRate = globalAreaChecking > 0
-        ? ((globalAreaChecking - globalAreaDefect) / globalAreaChecking) * 100
+    const manualRqcPassRate = focusChecking > 0
+        ? ((focusChecking - focusDefect) / focusChecking) * 100
         : 100;
 
     // Consistency audit doughnut assignment
@@ -304,7 +345,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             // Recalculate based on user requirement: 1 defect / 400 total checking = 0.25%
             let customDefectRate = 0;
             if (globalAreaChecking > 0 && processTotalDefect > 0) {
-                customDefectRate = Number(((processTotalDefect / globalAreaChecking) * 100).toFixed(2));
+                customDefectRate = (processTotalDefect / globalAreaChecking) * 100;
             }
 
             if (customDefectRate > 0) {
@@ -314,6 +355,10 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                     absoluteVal: customDefectRate
                 });
             }
+
+            // Every process stays on Percentage Defect Treatment (dimmed when another one is clicked);
+            // the other charts only count the clicked process
+            if (!isFocused(proc)) return;
 
             // Collect exact defect quantities
             proc.defects.forEach((d: any) => {
@@ -344,17 +389,15 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     const morningData = [{ name: 'MORNING', checking: totRqcCheckingMorning, defect: totRqcDefectMorning }];
     const afternoonData = [{ name: 'AFTERNOON', checking: totRqcCheckingAfternoon, defect: totRqcDefectAfternoon }];
 
-    // The big center treatment defect rate box 
-    // Pulls from the mathematically identical average of the subset (PERCENTAGE DEFECT processing)
-    let sumPct = 0;
-    let countPct = 0;
-    if (pctTreatmentData.length > 0 && pctTreatmentData[0].name !== 'NO DEFECT') {
-        pctTreatmentData.forEach(p => {
-            sumPct += p.absoluteVal;
-            countPct++;
-        });
-    }
-    const overallDefectRate = countPct > 0 ? (sumPct / countPct) : 0;
+    // The big center defect rate box: total Qty Defect / total Qty Check (e.g. 2 / 80 = 2,5%).
+    // It used to average the per-process percentages, which gave 1,25% for that same data.
+    const overallDefectRate = focusChecking > 0 ? (focusDefect / focusChecking) * 100 : 0;
+
+    const handleProcessClick = (entry: any) => {
+        const name = entry?.name ?? entry?.payload?.name;
+        if (!name || name === 'NO DEFECT') return;
+        setActiveProcess(prev => (prev === name ? null : name)); // same process again = clear
+    };
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
@@ -454,7 +497,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             {/* Sub Navigation Bar for Treatment Cells */}
             {activeTab === 'TREATMENT' && treatmentCells.length > 0 && (
                 <div className="flex gap-2 items-center bg-gray-50 border border-gray-200 p-2 rounded-md shadow-sm">
-                    <span className="text-sm font-bold text-gray-500 mr-2 uppercase tracking-wide">Select Treatment:</span>
+                    <span className="text-sm font-bold text-gray-500 mr-2 uppercase tracking-wide">Select Area:</span>
                     {treatmentCells.map(cell => (
                         <button
                             key={cell}
@@ -472,7 +515,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                 <div className="flex gap-2 items-center bg-gray-50 border border-gray-200 p-2 rounded-md shadow-sm">
                     <span className="text-sm font-bold text-gray-500 mr-2 uppercase tracking-wide">Select Area:</span>
                     {availableAreas.map((areaName: string) => {
-                        const isSelected = activeAreaFilter === areaName || (!activeAreaFilter && availableAreas[0] === areaName);
+                        const isSelected = effectiveArea === areaName;
                         return (
                             <button
                                 key={areaName}
@@ -486,6 +529,8 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                 </div>
             )}
 
+            {/* Charts stay on screen while new data loads (dimmed), so switching menus doesn't flash */}
+            <div className={`flex flex-col gap-4 transition-opacity duration-300 ${loadingData || !dataReady ? 'opacity-60' : 'opacity-100'}`}>
             {/* Consistency Audit & Line Chart Row */}
             <div className="flex gap-4 h-[250px]">
                 {/* Consistency Audit Donut */}
@@ -495,6 +540,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
+                                    animationDuration={CHART_ANIMATION_MS}
                                     data={consistencyData}
                                     cx="50%"
                                     cy="50%"
@@ -567,6 +613,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                 label={{ value: 'PASS RATE', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#999', fontWeight: 'bold' } }}
                             />
                             <Line
+                                animationDuration={CHART_ANIMATION_MS}
                                 type="monotone"
                                 dataKey="passRate"
                                 stroke="#2482E4"
@@ -625,8 +672,8 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             <div className="flex border border-gray-200 rounded shadow-sm bg-white p-4 items-center justify-between">
                 <div className="flex-1 flex justify-center">
                     <div className="bg-[#F0F2F5] px-10 py-3 rounded-md border border-gray-200 flex items-center gap-6">
-                        <span className="text-[#06C258] font-bold text-lg uppercase tracking-wide">{currentCell} {activeAreaFilter ? ` - ${activeAreaFilter}` : ''} DEFECT RATE {activeDateFilter ? `(${activeDateFilter})` : ''}</span>
-                        <span className="text-[#FF9800] font-normal text-2xl tracking-wider">{overallDefectRate.toFixed(2).replace('.', ',')}%</span>
+                        <span className="text-[#06C258] font-bold text-lg uppercase tracking-wide">{currentCell} {effectiveArea ? ` - ${effectiveArea}` : ''}{activeProcess ? ` - ${activeProcess}` : ''} DEFECT RATE {activeDateFilter ? `(${activeDateFilter})` : ''}</span>
+                        <span className="text-[#FF9800] font-normal text-2xl tracking-wider">{formatRate(overallDefectRate)}</span>
                     </div>
                 </div>
                 <button
@@ -641,7 +688,16 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             <div className="flex gap-4 h-[350px]">
                 {/* 1. Percentage Defect Treatment */}
                 <div className="flex-[2] border border-gray-200 rounded shadow-sm bg-white p-4 flex flex-col relative h-[330px]">
-                    <h3 className="text-center font-bold text-gray-800 text-sm uppercase mb-4">PERCENTAGE DEFECT TREATMENT</h3>
+                    <h3 className="text-center font-bold text-gray-800 text-sm uppercase mb-4">PERCENTAGE DEFECT {cellTreatment || effectiveArea || 'TREATMENT'}</h3>
+                    {activeProcess && (
+                        <button
+                            onClick={() => setActiveProcess(null)}
+                            className="absolute left-3 top-3 z-20 bg-red-100 text-red-600 border border-red-200 text-[10px] px-2 py-0.5 rounded shadow hover:bg-red-200 max-w-[45%] truncate"
+                            title={`Clear Filter: ${activeProcess}`}
+                        >
+                            Clear Filter: {activeProcess} ✕
+                        </button>
+                    )}
                     <div className="absolute right-[5px] top-[40px] bg-[#06C258]/20 border-b border-[#06C258] text-[#06C258] text-[9px] font-bold px-2 py-0.5 z-10 whitespace-nowrap">
                         WEEKLY DEFECT LIMIT &gt; 5%
                     </div>
@@ -652,13 +708,33 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={pctTreatmentData} layout="vertical" margin={{ left: 10, right: 30 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} formatter={(v: any) => [formatRate(v), 'Defect Rate']} />
                                 <XAxis type="number" domain={[0, 20]} ticks={[0, 5, 10, 15, 20]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 9 }} axisLine={true} tickLine={true} />
                                 <YAxis type="category" dataKey="name" tick={{ fontSize: 8, fill: '#666', fontWeight: 600 }} axisLine={{ stroke: '#ccc' }} tickLine={false} width={140} />
                                 <ReferenceLine x={5} stroke="#06C258" strokeDasharray="5 5" />
                                 <ReferenceLine x={20} stroke="#00BCD4" strokeDasharray="5 5" />
-                                <Bar dataKey="absoluteVal" fill="#D32F2F" barSize={20}>
-                                    <LabelList dataKey="absoluteVal" position="right" formatter={(v: any) => v > 0 ? `${Number(v).toFixed(2).replace('.', ',')}%` : ''} fill="#D32F2F" fontSize={11} fontWeight="bold" />
+                                <Bar animationDuration={CHART_ANIMATION_MS} dataKey="absoluteVal" fill="#D32F2F" barSize={20} onClick={handleProcessClick} style={{ cursor: 'pointer' }}>
+                                    {pctTreatmentData.map((entry: any) => (
+                                        <Cell
+                                            key={`pct-${entry.name}`}
+                                            fill="#D32F2F"
+                                            fillOpacity={activeProcess && entry.name !== activeProcess ? 0.2 : 1}
+                                        />
+                                    ))}
+                                    <LabelList
+                                        dataKey="absoluteVal"
+                                        content={(props: any) => {
+                                            const { x, y, width, height, value, index } = props;
+                                            if (!(value > 0) || isNaN(x) || isNaN(y)) return null;
+                                            const entry = pctTreatmentData[index];
+                                            const faded = !!activeProcess && entry?.name !== activeProcess;
+                                            return (
+                                                <text x={x + width + 5} y={y + height / 2} dy={4} fill="#D32F2F" fillOpacity={faded ? 0.2 : 1} fontSize={11} fontWeight="bold">
+                                                    {formatRate(value)}
+                                                </text>
+                                            );
+                                        }}
+                                    />
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
@@ -675,7 +751,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                 <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
                                 <XAxis type="number" domain={[0, 8]} ticks={[0, 2, 4, 6, 8]} axisLine={true} tickLine={true} tick={{ fontSize: 10 }} />
                                 <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: '#666', fontWeight: 500 }} axisLine={true} tickLine={false} width={100} />
-                                <Bar dataKey="value" fill="#D32F2F" barSize={20}>
+                                <Bar animationDuration={CHART_ANIMATION_MS} dataKey="value" fill="#D32F2F" barSize={20}>
                                     <LabelList dataKey="value" position="right" fill="#666" fontSize={10} fontWeight="bold" />
                                 </Bar>
                             </BarChart>
@@ -693,10 +769,10 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                 <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
                                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#666' }} axisLine={{ stroke: '#ccc' }} tickLine={false} />
                                 <YAxis hide />
-                                <Bar dataKey="checking" fill="#4285F4">
+                                <Bar animationDuration={CHART_ANIMATION_MS} dataKey="checking" fill="#4285F4">
                                     <LabelList dataKey="checking" position="top" fill="#FFF" fontSize={10} fontWeight="bold" dy={20} formatter={(v: any) => v > 0 ? v : ''} />
                                 </Bar>
-                                <Bar dataKey="defect" fill="#F44336">
+                                <Bar animationDuration={CHART_ANIMATION_MS} dataKey="defect" fill="#F44336">
                                     <LabelList dataKey="defect" position="top" fill="#F44336" fontSize={11} fontWeight="bold" dy={-5} formatter={(v: any) => v > 0 ? v : ''} />
                                 </Bar>
                             </BarChart>
@@ -714,16 +790,18 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                 <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: '11px', borderRadius: '4px', border: '1px solid #ddd' }} />
                                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#666' }} axisLine={{ stroke: '#ccc' }} tickLine={false} />
                                 <YAxis hide />
-                                <Bar dataKey="checking" fill="#4285F4">
+                                <Bar animationDuration={CHART_ANIMATION_MS} dataKey="checking" fill="#4285F4">
                                     <LabelList dataKey="checking" position="top" fill="#FFF" fontSize={10} fontWeight="bold" dy={20} formatter={(v: any) => v > 0 ? v : ''} />
                                 </Bar>
-                                <Bar dataKey="defect" fill="#F44336">
+                                <Bar animationDuration={CHART_ANIMATION_MS} dataKey="defect" fill="#F44336">
                                     <LabelList dataKey="defect" position="top" fill="#F44336" fontSize={11} fontWeight="bold" dy={-5} formatter={(v: any) => v > 0 ? v : ''} />
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
+
+            </div>
 
             </div>
 
@@ -735,7 +813,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                         <div className="bg-gradient-to-r from-[#06C258] to-green-500 px-6 py-4 flex justify-between items-center text-white shrink-0">
                             <div>
                                 <h2 className="text-xl font-black tracking-widest uppercase">IMMEDIATE ACTION</h2>
-                                <p className="text-sm text-green-100 font-medium">CELL: {currentCell} | AREA: {activeAreaFilter || 'ALL'}</p>
+                                <p className="text-sm text-green-100 font-medium">CELL: {currentCell} | AREA: {effectiveArea || 'ALL'}</p>
                             </div>
                             <button onClick={() => setIsImmediateActionModalOpen(false)} className="bg-black/20 hover:bg-black/30 p-2 rounded-full transition-colors">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
