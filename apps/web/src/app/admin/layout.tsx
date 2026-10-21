@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { clearSession } from '../../lib/session';
 
 const NAV = [
     { name: 'Dashboard Monitoring', path: '/admin/dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1' },
@@ -34,8 +35,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }, [router]);
 
     const handleLogout = () => {
-        localStorage.clear();
-        router.push('/login');
+        clearSession();
+        router.replace('/login');
     };
 
     if (!isAuthorized) {
@@ -43,7 +44,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
 
     return (
-        <div className="flex h-screen bg-gray-100 overflow-hidden">
+        // fixed inset-0: the admin shell fills the window and scrolls only inside <main>.
+        // As an in-flow h-screen box under the root layout's bottom padding, the whole page
+        // scrolled too, which showed two scrollbars.
+        <div className="fixed inset-0 flex bg-gray-100 overflow-hidden">
             <aside className="w-56 bg-white border-r border-gray-200 flex flex-col">
                 <div className="h-14 flex items-center px-5 border-b border-gray-200">
                     <span className="text-sm font-semibold text-gray-900 tracking-tight">CTQ Audit System</span>
@@ -91,11 +95,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </div>
             </aside>
 
-            <main className="flex-1 flex flex-col h-screen overflow-y-auto bg-gray-50">
-                <div className="flex-1 p-6 w-full mx-auto">
+            <main className="flex-1 min-w-0 flex flex-col bg-gray-50">
+                {/* Only the page content scrolls; the footer below stays fixed at the bottom */}
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 w-full">
                     {children}
                 </div>
-                <footer className="py-4 text-center text-xs font-semibold text-gray-400 mt-auto border-t border-gray-200 bg-white">
+                <footer className="flex-shrink-0 py-3 text-center text-xs font-semibold text-gray-400 border-t border-gray-200 bg-white">
                     DEVELOP BY DIGITAL QUALITY TEAM @2026
                 </footer>
             </main>

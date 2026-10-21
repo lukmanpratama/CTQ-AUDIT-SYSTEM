@@ -153,7 +153,8 @@ export default function SetupCtqPage() {
 
     return (
         <div className="space-y-5">
-            <div>
+            {/* Page title stays at the top while the page scrolls */}
+            <div className="admin-sticky-head">
                 <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
                 <p className="text-sm text-gray-500 mt-0.5">Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.</p>
             </div>

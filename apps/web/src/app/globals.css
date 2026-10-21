@@ -16,6 +16,23 @@
 }
 
 @layer components {
+  /* Table whose column headers stay visible while its rows scroll (put on the scrolling wrapper).
+     The header cells carry their own background and bottom line: a sticky <th> doesn't take
+     the <tr>'s background or a collapsed border with it. */
+  .sticky-thead thead th {
+    @apply sticky top-0 z-10 bg-gray-50;
+    box-shadow: inset 0 -1px 0 #e5e7eb;
+  }
+
+  /* Admin page header (title, actions, filters) that stays at the top while the page scrolls.
+     For blocks placed directly in the admin content area: the negative margins cancel its
+     p-6, so the bar spans the full width and keeps the same spacing once stuck.
+     -top-6: sticky offsets count from inside that padding, so top-0 left a 24px gap above.
+     Only from md up: on a phone the stacked filters would cover most of the screen. */
+  .admin-sticky-head {
+    @apply md:sticky md:-top-6 z-20 -mx-6 -mt-6 px-6 pt-6 pb-4 bg-gray-50 border-b border-gray-200;
+  }
+
   /* Status badges */
   .badge-cap {
     @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-purple-100 text-purple-800;

@@ -78,7 +78,8 @@ export default function MasterDataPage() {
 
     return (
         <div className="space-y-5">
-            <div>
+            {/* Page title stays at the top while the page scrolls */}
+            <div className="admin-sticky-head">
                 <h1 className="text-lg font-semibold text-gray-900">Master Data</h1>
                 <p className="text-sm text-gray-500 mt-0.5">Manage Areas, Processes, and Defect definitions.</p>
             </div>

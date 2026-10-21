@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 /**
  * The audit wizard (Header -> Inspection -> Summary) is used by inspectors under /audit/...
@@ -10,7 +10,8 @@ import { usePathname } from 'next/navigation';
  */
 export function useAuditNav() {
     const pathname = usePathname() || '';
-    const source = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('source') : null;
+    // useSearchParams, not window.location: the server render must see the same value (hydration)
+    const source = useSearchParams()?.get('source') ?? null;
     const isAdmin = pathname.startsWith('/admin/') || source === 'admin';
 
     const urls = {

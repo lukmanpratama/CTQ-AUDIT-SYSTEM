@@ -153,51 +153,54 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-24 relative'}>
-            {/* Top Navigation Bar */}
-            <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-20">
-                <button
-                    onClick={() => {
-                        if (isAdmin) router.push(urls.adminReport);
-                        else if (viewOnly) {
-                            if (header?.setupModelId) {
-                                router.push(`/audit/${header.setupModelId}/history`);
-                            } else {
-                                router.push('/dashboard');
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-28 relative'}>
+            {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
+            <div className="sticky top-0 z-20 shadow-sm mb-4">
+                {/* Top Navigation Bar */}
+                <nav className="bg-white px-4 py-4 flex items-center justify-between">
+                    <button
+                        onClick={() => {
+                            if (isAdmin) router.push(urls.adminReport);
+                            else if (viewOnly) {
+                                if (header?.setupModelId) {
+                                    router.push(`/audit/${header.setupModelId}/history`);
+                                } else {
+                                    router.push('/dashboard');
+                                }
                             }
-                        }
-                        else router.push(urls.session(headerId));
-                    }}
-                    className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors"
-                >
-                    <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                    {isAdmin ? 'Inspection Report' : viewOnly ? 'Inspection History' : 'New Report'}
-                </button>
-                <div className="flex items-center text-gray-400 text-sm font-semibold">
-                    {viewOnly ? '✅ Completed' : '💾 Draft'}
-                </div>
-            </nav>
+                            else router.push(urls.session(headerId));
+                        }}
+                        className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors"
+                    >
+                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                        {isAdmin ? 'Inspection Report' : viewOnly ? 'Inspection History' : 'New Report'}
+                    </button>
+                    <div className="flex items-center text-gray-400 text-sm font-semibold">
+                        {viewOnly ? '✅ Completed' : '💾 Draft'}
+                    </div>
+                </nav>
 
-            {/* Stepper UI Progress - Summary is Active */}
-            <div className="bg-white px-2 py-4 shadow-sm mb-4 flex justify-center items-center text-sm font-bold border-b border-gray-100 sticky top-[56px] z-20">
-                <div className="flex items-center text-primary-600">
-                    <svg className="w-4 h-4 mr-1 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L8 12.586l-3.293-3.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8z" clipRule="evenodd" />
-                    </svg>
-                    Header
-                </div>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-primary-600">
-                    <svg className="w-4 h-4 mr-1 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L8 12.586l-3.293-3.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8z" clipRule="evenodd" />
-                    </svg>
-                    Inspection
-                </div>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-900">
-                    <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Summary
+                {/* Stepper UI Progress - Summary is Active */}
+                <div className="bg-white px-2 py-4 border-t border-gray-100 flex justify-center items-center text-sm font-bold border-b border-gray-100">
+                    <div className="flex items-center text-primary-600">
+                        <svg className="w-4 h-4 mr-1 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L8 12.586l-3.293-3.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8z" clipRule="evenodd" />
+                        </svg>
+                        Header
+                    </div>
+                    <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                    <div className="flex items-center text-primary-600">
+                        <svg className="w-4 h-4 mr-1 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L8 12.586l-3.293-3.293a1 1 0 00-1.414 1.414l4 4a1 1 0 001.414 0l8-8z" clipRule="evenodd" />
+                        </svg>
+                        Inspection
+                    </div>
+                    <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                    <div className="flex items-center text-gray-900">
+                        <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Summary
+                    </div>
                 </div>
             </div>
 
@@ -390,7 +393,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
             </div>
 
             {/* Bottom Navigation */}
-            <div className={`${isAdmin ? 'sticky' : 'fixed left-0'} bottom-0 w-full bg-white border-t p-4 z-10`}>
+            <div className={`${isAdmin ? 'sticky p-4' : 'fixed left-0 px-4 pt-4 pb-8'} bottom-0 w-full bg-white border-t z-10`}>
                 <div className="max-w-2xl mx-auto w-full flex justify-between gap-4">
                     {viewOnly ? (
                         <button

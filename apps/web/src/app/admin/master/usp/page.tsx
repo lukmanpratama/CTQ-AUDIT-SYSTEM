@@ -205,7 +205,8 @@ export default function MasterUspPage() {
             </div>
 
             <div className="bg-white border border-gray-200 rounded-lg flex-1 overflow-hidden flex flex-col">
-                <div className="overflow-x-auto flex-1">
+                {/* Rows scroll inside the card so the title, filters and column headers stay in view */}
+                <div className="sticky-thead overflow-auto flex-1 max-h-[calc(100vh-17rem)]">
                     <table className="w-full text-left border-collapse min-w-[800px]">
                         <thead>
                             <tr className="bg-gray-50 text-[11px] font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200">
