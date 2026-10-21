@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../../../lib/api-client';
 import { ProcessDefectModal } from './ProcessDefectModal';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 
 interface DefectItem {
     defectName: string;
@@ -105,6 +106,8 @@ export function ProcessDefectCharts({ modelId, startDate, endDate, cell }: { mod
     const [selectedProcess, setSelectedProcess] = useState<ProcessItem | null>(null);
     const [summaryModal, setSummaryModal] = useState<{ type: 'RQC' | 'TQC', stats: any } | null>(null);
 
+    // Reload when someone adds / changes data
+    const { refreshKey } = useDataRefresh();
     useEffect(() => {
         if (!modelId) {
             setLoading(false);
@@ -143,7 +146,7 @@ export function ProcessDefectCharts({ modelId, startDate, endDate, cell }: { mod
             }
         };
         fetchData();
-    }, [modelId, startDate, endDate, cell]);
+    }, [modelId, startDate, endDate, cell, refreshKey]);
 
     // Organize areas into setup area order
     const getArea = (name: string): AreaItem => {

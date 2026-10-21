@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import { apiClient } from '../../../lib/api-client';
 import { tqcRowMatchesModel } from '../../../lib/model-label';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 
 const CustomBarLabel = (props: any) => {
     const { x, y, width, value } = props;
@@ -87,14 +88,17 @@ function CtqDashboardInner() {
         setMounted(true);
     }, []);
 
+    // Reload when someone adds / changes data, keeping the current view on screen
+    const { refreshKey, isBackgroundRefresh } = useDataRefresh();
     useEffect(() => {
+        const background = isBackgroundRefresh();
         const fetchDashboardData = async () => {
             if (!modelId) {
                 setLoading(false);
                 return;
             }
 
-            setLoading(true);
+            if (!background) setLoading(true);
             try {
                 if (activeTab === 'TQC') {
                     // --- TQC LOGIC ---
@@ -243,7 +247,7 @@ function CtqDashboardInner() {
         };
 
         fetchDashboardData();
-    }, [modelId, startDate, endDate, activeTab, selectedFactoryCell]);
+    }, [modelId, startDate, endDate, activeTab, selectedFactoryCell, refreshKey]);
 
     const applyDateFilter = () => {
         setStartDate(tempStartDate);

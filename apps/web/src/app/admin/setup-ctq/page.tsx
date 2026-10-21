@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { compressImage } from '../../../lib/compress-image';
 
 export default function SetupCtqPage() {
     const router = useRouter();
@@ -92,9 +93,11 @@ export default function SetupCtqPage() {
         fetchModels();
     };
 
-    const handleUploadPicture = (modelId: string, e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const handleUploadPicture = async (modelId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+        const original = e.target.files?.[0];
+        if (!original) return;
+        // Stored in the database and shown as a small card image: 1000 px is plenty
+        const file = await compressImage(original, { maxDimension: 1000, quality: 0.8 });
 
         const reader = new FileReader();
         reader.onloadend = async () => {

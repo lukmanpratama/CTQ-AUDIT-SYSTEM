@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../lib/api-client';
 import { PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList, Tooltip } from 'recharts';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 
 // Per-defect rates are tiny (e.g. 7 / 10.560 = 0,0663%), so they are shown with up to 4 decimals
 // instead of being rounded to 2; that way the bars add up to the TQC Defect Rate CTQ.
@@ -53,11 +54,16 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
         fetchTabs();
     }, [modelId]);
 
+    // Reload when someone adds / changes data, keeping the current view on screen
+    // (one hook per effect: each remembers which change it already handled)
+    const dataRefresh = useDataRefresh();
+    const dayRefresh = useDataRefresh();
     useEffect(() => {
         if (!modelId || !activeTab) return;
 
+        const background = dataRefresh.isBackgroundRefresh();
         const fetchData = async () => {
-            setLoadingData(true);
+            if (!background) setLoadingData(true);
             try {
                 let url = `/rqc/tqc-eol-summary?modelId=${modelId}&cell=${activeTab}`;
                 if (startDate) url += `&startDate=${startDate}`;
@@ -74,7 +80,7 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
 
         fetchData();
         setActiveDay(null);
-    }, [modelId, activeTab, startDate, endDate]);
+    }, [modelId, activeTab, startDate, endDate, dataRefresh.refreshKey]);
 
     useEffect(() => {
         if (!modelId || !activeTab || !activeDay) {
@@ -82,8 +88,9 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
             return;
         }
         let cancelled = false;
+        const background = dayRefresh.isBackgroundRefresh();
         const fetchDay = async () => {
-            setLoadingData(true);
+            if (!background) setLoadingData(true);
             try {
                 const res = await apiClient.get<any>(`/rqc/tqc-eol-summary?modelId=${modelId}&cell=${activeTab}&startDate=${activeDay.isoDate}&endDate=${activeDay.isoDate}`);
                 if (!cancelled) setDayData(res);
@@ -95,7 +102,7 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
         };
         fetchDay();
         return () => { cancelled = true; };
-    }, [modelId, activeTab, activeDay]);
+    }, [modelId, activeTab, activeDay, dayRefresh.refreshKey]);
 
     if (!modelId) {
         return <div className="p-10 text-center font-bold text-red-500">Access Denied: Model ID Required</div>;

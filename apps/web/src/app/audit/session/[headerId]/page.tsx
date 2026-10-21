@@ -5,6 +5,7 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
 import { useAuditNav } from '../../../../features/rqc/audit-nav';
+import { compressImage } from '../../../../lib/compress-image';
 
 const processImageUrl = (url: string) => {
     if (!url) return '';
@@ -184,7 +185,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
     const uploadToMinio = async (file: File): Promise<string | undefined> => {
         const formData = new FormData();
-        formData.append('file', file);
+        // Camera photos are several MB; shrink them first so saving doesn't wait on a slow upload
+        formData.append('file', await compressImage(file));
         try {
             const res = await fetch('/api/files/upload', {
                 method: 'POST',
@@ -267,12 +269,11 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         let photoDefectUrl: string | undefined;
         let photoAfterUrl: string | undefined;
         try {
-            if (defectPhotoFile) {
-                photoDefectUrl = await uploadToMinio(defectPhotoFile);
-            }
-            if (improvementPhotoFile) {
-                photoAfterUrl = await uploadToMinio(improvementPhotoFile);
-            }
+            // Both photos at the same time instead of one after the other
+            [photoDefectUrl, photoAfterUrl] = await Promise.all([
+                defectPhotoFile ? uploadToMinio(defectPhotoFile) : undefined,
+                improvementPhotoFile ? uploadToMinio(improvementPhotoFile) : undefined,
+            ]);
         } catch (err) {
             console.error('Failed to upload photos to MinIO', err);
         }

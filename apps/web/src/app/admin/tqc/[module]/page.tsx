@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
+import { useDataRefresh } from '../../../../lib/use-data-refresh';
 
 const parseCustomDateString = (dateStr: any): string | null => {
     if (!dateStr) return null;
@@ -124,8 +125,9 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [setupDefectNames, setSetupDefectNames] = useState<string[]>([]);
 
-    const fetchData = async () => {
-        setLoading(true);
+    // silent: a background reload after someone else's change keeps the table on screen
+    const fetchData = async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         try {
             const res = await fetch(`/api/tqc/${moduleType}`);
             const json = await res.json();
@@ -140,6 +142,12 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
     useEffect(() => {
         fetchData();
     }, [moduleType]);
+
+    // Reload when someone adds / changes data
+    const { refreshKey, isBackgroundRefresh } = useDataRefresh();
+    useEffect(() => {
+        if (isBackgroundRefresh()) fetchData({ silent: true });
+    }, [refreshKey]);
 
     // Suggestions for the Defect Name input
     useEffect(() => {
