@@ -61,7 +61,7 @@ export function DashboardKpiSidebar({
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     return (
-        <div className="flex flex-col gap-3 h-full">
+        <div className="flex flex-col gap-3 flex-1 min-h-0">
             {/* Top Score Boxes */}
             <div className="flex flex-col gap-2 shrink-0">
                 {ctqData.map((ctq: any, index: number) => (
@@ -98,7 +98,7 @@ export function DashboardKpiSidebar({
                     className="w-full flex-1 min-h-0 flex items-center justify-center cursor-pointer hover:opacity-90"
                     onClick={() => setIsModalOpen(true)}
                 >
-                    <div className="relative" style={{ width: '100%', maxWidth: '200px', aspectRatio: '1/1' }}>
+                    <div className="relative" style={{ height: '100%', maxHeight: '200px', maxWidth: '100%', aspectRatio: '1/1', containerType: 'size' }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
@@ -119,7 +119,7 @@ export function DashboardKpiSidebar({
                             </PieChart>
                         </ResponsiveContainer>
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <span className="text-[#02C054] text-4xl font-extrabold pb-4">
+                            <span className="text-[#02C054] font-extrabold" style={{ fontSize: '14cqw' }}>
                                 {displayedPassRate.toFixed(2)}%
                             </span>
                         </div>

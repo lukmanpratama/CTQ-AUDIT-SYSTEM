@@ -18,6 +18,10 @@ interface ProcessData {
     qtyCheckingAfternoon: number;
     qtyDefectMorning: number;
     qtyDefectAfternoon: number;
+    /** USP of the process (RQC: setup USP, TQC: USP Classification) */
+    usp?: string | null;
+    /** CTQ classification (RQC: master process CTQ, TQC: CTQ Type) */
+    ctq?: string | null;
 }
 
 interface ProcessDefectModalProps {
@@ -56,6 +60,16 @@ export function ProcessDefectModal({ process, onClose }: ProcessDefectModalProps
                             <span className="mx-2">|</span>
                             Total Defect: <span className="font-semibold text-red-600">{process.totalDefect}</span>
                         </p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-xs">
+                                <span className="font-bold text-amber-700">USP:</span>
+                                <span className={process.usp ? 'font-semibold text-gray-800' : 'italic text-gray-400'}>{process.usp || 'Not set'}</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-xs">
+                                <span className="font-bold text-blue-700">CTQ:</span>
+                                <span className={process.ctq ? 'font-semibold text-gray-800' : 'italic text-gray-400'}>{process.ctq || 'Not set'}</span>
+                            </span>
+                        </div>
                     </div>
                     <button
                         onClick={onClose}

@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
-import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
+import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, isCtqTqcDefect, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
 
 @Injectable()
 export class RqcService {
@@ -838,7 +838,7 @@ export class RqcService {
         return this.serializeBigInt(mapped);
     }
 
-    async getTrends(filters?: { modelId?: string, areaId?: string, areaName?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string, checkingTime?: string }) {
+    async getTrends(filters?: { modelId?: string, areaId?: string, areaName?: string, startDate?: string, endDate?: string, factoryId?: string, cell?: string, checkingTime?: string, processName?: string }) {
         let headerConditions: any = {};
         let applyingHeaderConditions = false;
 
@@ -894,6 +894,9 @@ export class RqcService {
             if (!processConditions.rqcArea) processConditions.rqcArea = {};
             // TQC INHOUSE Edge case protection is handled by frontend cell isolation; Inline primarily targets valid master areas
             processConditions.rqcArea.setupArea = { masterArea: { area: filters.areaName } };
+        }
+        if (filters?.processName) { // RQC Inline: trend of the process clicked on Percentage Defect Treatment
+            processConditions.setupProcess = { masterProcess: { process: filters.processName } };
         }
 
         const processes = await this.prisma.rqcProcess.findMany({
@@ -1117,6 +1120,7 @@ export class RqcService {
                 setupProcess: {
                     include: {
                         masterProcess: true,
+                        masterUsp: true,
                         setupArea: {
                             include: { masterArea: true }
                         }
@@ -1148,6 +1152,8 @@ export class RqcService {
                 qtyCheckingAfternoon: number;
                 qtyDefectMorning: number;
                 qtyDefectAfternoon: number;
+                ctq: string | null;
+                usp: string | null;
             }>;
         }>();
 
@@ -1191,6 +1197,9 @@ export class RqcService {
                     qtyCheckingAfternoon: 0,
                     qtyDefectMorning: 0,
                     qtyDefectAfternoon: 0,
+                    ctq: rp.setupProcess?.masterProcess?.ctq || null,
+                    // USP name only: the code is an auto number (USP-1792053029691)
+                    usp: rp.setupProcess?.masterUsp?.uspName || null,
                 });
             }
             const procEntry = areaEntry.processMap.get(processName)!;
@@ -1236,6 +1245,8 @@ export class RqcService {
                 qtyCheckingAfternoon: proc.qtyCheckingAfternoon,
                 qtyDefectMorning: proc.qtyDefectMorning,
                 qtyDefectAfternoon: proc.qtyDefectAfternoon,
+                ctq: proc.ctq,
+                usp: proc.usp,
             })).sort((a, b) => b.defectRate - a.defectRate)
         }));
 
@@ -1265,8 +1276,12 @@ export class RqcService {
 
                 tqcRecords = await this.prisma.tqcReport.findMany({
                     where: tqcConditions,
-                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, qtyChecking: true, defectName: true, moduleType: true }
+                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, qtyChecking: true, defectName: true, moduleType: true, ctqType: true, uspClassification: true }
                 });
+
+                // CTQ Type per defect name from Setup Defect TQC (a CTQ Type set on the row wins)
+                const normDefect = (n: string) => (n || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const ctqByDefect = new Map((await this.prisma.setupDefectTqc.findMany()).map(m => [normDefect(m.defectName), m.ctqType]));
 
                 const tqcMap = new Map<string, {
                     areaName: string;
@@ -1295,10 +1310,15 @@ export class RqcService {
                             totalDefect: 0,
                             totalChecking: 0,
                             defectMap: new Map(),
-                            uniqueCheckingMap: new Map<string, number>()
+                            uniqueCheckingMap: new Map<string, number>(),
+                            uspSet: new Set<string>(),
+                            ctqSet: new Set<string>()
                         });
                     }
                     const procEntry = modEntry.processMap.get(defectName)!;
+                    if (tqc.uspClassification?.trim()) procEntry.uspSet.add(tqc.uspClassification.trim());
+                    const rowCtq = tqc.ctqType?.trim() || ctqByDefect.get(normDefect(defectName));
+                    if (rowCtq) procEntry.ctqSet.add(rowCtq);
 
                     if (!procEntry.uniqueCheckingMap.has(uniqueKey)) {
                         // The user specified checking volume per hour is purely static `120` in their process model. 
@@ -1337,7 +1357,9 @@ export class RqcService {
                                 totalDefect: proc.totalDefect,
                                 totalChecking: totalModChecking,
                                 defects: Array.from(proc.defectMap.values()),
-                                qtyCheckingMorning: 0, qtyCheckingAfternoon: 0, qtyDefectMorning: 0, qtyDefectAfternoon: 0
+                                qtyCheckingMorning: 0, qtyCheckingAfternoon: 0, qtyDefectMorning: 0, qtyDefectAfternoon: 0,
+                                usp: [...proc.uspSet].join(', ') || null,
+                                ctq: [...proc.ctqSet].join(', ') || null
                             };
                         }).sort((a: any, b: any) => b.defectRate - a.defectRate)
                     });
@@ -1558,15 +1580,17 @@ export class RqcService {
         tqcRecords.forEach((t: any) => {
             const dateStr = t.date ? t.date.toISOString().split('T')[0] : 'Unknown';
             const cellVal = (t.cell || t.building || 'no-cell').trim().toUpperCase();
-            const defectQty = t.qtyDefect || 0;
             const defectName = t.defectName || 'UNKNOWN';
 
             if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { uniqueCells: new Set(), totalDefect: 0 });
 
+            // Every row marks the day/cell as checked, but only CTQ defects (with a USP Classification) count
             const dayObj = dailyMap.get(dateStr)!;
             dayObj.uniqueCells.add(cellVal);
-            dayObj.totalDefect += defectQty;
+            if (!isCtqTqcDefect(t)) return;
 
+            const defectQty = t.qtyDefect || 0;
+            dayObj.totalDefect += defectQty;
             overallDefectCount += defectQty;
 
             if (!defectMap.has(defectName)) defectMap.set(defectName, 0);
@@ -1603,6 +1627,8 @@ export class RqcService {
             }
 
             passRateData.push({
+                // isoDate lets the page filter the other charts by the clicked day
+                isoDate: date,
                 date: new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
                 passRate: Math.round((passRate + Number.EPSILON) * 100) / 100,
                 defectRate: Math.round((defRate + Number.EPSILON) * 100) / 100,
@@ -1617,12 +1643,14 @@ export class RqcService {
             const rate = globalChecking > 0 ? (qty / globalChecking) * 100 : 0;
             return {
                 name,
-                absoluteVal: Math.round((rate + Number.EPSILON) * 100) / 100,
+                // Not rounded, so the bars add up exactly to the TQC Defect Rate CTQ
+                absoluteVal: rate,
                 qty
             };
         }).sort((a, b) => b.qty - a.qty);
 
-        const topDefects = allDefects.slice(0, 5); // Limit top 5 for the chart
+        // All CTQ defects, so the bars add up to the TQC Defect Rate CTQ (it used to show the top 5 only)
+        const topDefects = allDefects;
 
         // 4 & 5. AVERAGE GRAPHICS
         // The user specifically requested that the middle box uses the global volume formula: Qty Defect / Qty Check

@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../lib/api-client';
 import { PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList, Tooltip } from 'recharts';
 
+// Per-defect rates are tiny (e.g. 7 / 10.560 = 0,0663%), so they are shown with up to 4 decimals
+// instead of being rounded to 2; that way the bars add up to the TQC Defect Rate CTQ.
+const formatDefectRate = (v: any) =>
+    `${Number(v || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`;
+
 export function TqcEolClient({ searchParams }: { searchParams: any }) {
     const router = useRouter();
     const modelId = searchParams?.modelId;
@@ -18,6 +23,11 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
 
     const [tqcData, setTqcData] = useState<any>(null);
     const [loadingData, setLoadingData] = useState(false);
+
+    // Cross filter: clicking a day dims the other days on the Pass Rate chart (like Summary)
+    // and filters the donut, defect rate, Defect CTQ chart and totals to that day.
+    const [activeDay, setActiveDay] = useState<{ isoDate: string; label: string } | null>(null);
+    const [dayData, setDayData] = useState<any>(null);
 
     useEffect(() => {
         if (!modelId) return;
@@ -63,11 +73,45 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
         };
 
         fetchData();
+        setActiveDay(null);
     }, [modelId, activeTab, startDate, endDate]);
+
+    useEffect(() => {
+        if (!modelId || !activeTab || !activeDay) {
+            setDayData(null);
+            return;
+        }
+        let cancelled = false;
+        const fetchDay = async () => {
+            setLoadingData(true);
+            try {
+                const res = await apiClient.get<any>(`/rqc/tqc-eol-summary?modelId=${modelId}&cell=${activeTab}&startDate=${activeDay.isoDate}&endDate=${activeDay.isoDate}`);
+                if (!cancelled) setDayData(res);
+            } catch (error) {
+                console.error("Failed to fetch TQC data for the selected day:", error);
+            } finally {
+                if (!cancelled) setLoadingData(false);
+            }
+        };
+        fetchDay();
+        return () => { cancelled = true; };
+    }, [modelId, activeTab, activeDay]);
 
     if (!modelId) {
         return <div className="p-10 text-center font-bold text-red-500">Access Denied: Model ID Required</div>;
     }
+
+    const passRateData: any[] = tqcData?.passRateData || [];
+    // Everything except the Pass Rate line follows the clicked day
+    const viewData = activeDay && dayData ? dayData : tqcData;
+    const isFaded = (label: string) => !!activeDay && label !== activeDay.label;
+
+    const handleLineChartClick = (e: any) => {
+        const label = e?.activeLabel ?? e?.activePayload?.[0]?.payload?.date;
+        const point = passRateData.find(d => d.date === label);
+        if (!point?.isoDate) return;
+        setActiveDay(prev => (prev?.isoDate === point.isoDate ? null : { isoDate: point.isoDate, label: point.date }));
+    };
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
@@ -154,8 +198,8 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
                             <PieChart>
                                 <Pie
                                     data={[
-                                        { name: 'Pass', value: tqcData?.averagePassRate || 100 },
-                                        { name: 'Fail', value: 100 - (tqcData?.averagePassRate || 100) }
+                                        { name: 'Pass', value: viewData?.averagePassRate ?? 100 },
+                                        { name: 'Fail', value: 100 - (viewData?.averagePassRate ?? 100) }
                                     ]}
                                     cx="50%"
                                     cy="50%"
@@ -173,7 +217,7 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
                         </ResponsiveContainer>
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <span className="text-[#06C258] text-3xl font-medium tracking-tight">
-                                {(tqcData?.averagePassRate || 100).toFixed(2).replace('.', ',')}%
+                                {(viewData?.averagePassRate ?? 100).toFixed(2).replace('.', ',')}%
                             </span>
                         </div>
                     </div>
@@ -185,17 +229,37 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
                         <div className="w-6 h-[2px] bg-[#2482E4]"></div>
                         PASS RATE
                     </div>
+                    {activeDay && (
+                        <button
+                            onClick={() => setActiveDay(null)}
+                            className="absolute top-3 right-4 z-10 bg-red-100 text-red-600 border border-red-200 text-xs px-2 py-1 rounded shadow hover:bg-red-200"
+                        >
+                            Clear Filter: {activeDay.label} ✕
+                        </button>
+                    )}
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={tqcData?.passRateData || []} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
+                        <LineChart data={passRateData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }} onClick={handleLineChartClick} style={{ cursor: 'pointer' }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EEEEEE" />
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#ccc', strokeWidth: 1, strokeDasharray: '5 5' }} />
                             <XAxis
                                 dataKey="date"
-                                angle={-35}
-                                tick={{ fontSize: 9, fill: '#666' }}
-                                textAnchor="end"
-                                dx={-5}
-                                dy={10}
+                                tick={(props: any) => {
+                                    const { x, y, payload } = props;
+                                    const selected = activeDay?.label === payload.value;
+                                    return (
+                                        <text
+                                            x={x} y={y} dx={-5} dy={10}
+                                            textAnchor="end"
+                                            transform={`rotate(-35, ${x}, ${y})`}
+                                            fontSize={9}
+                                            fill={selected ? '#FF9800' : '#666'}
+                                            fillOpacity={isFaded(payload.value) ? 0.3 : 1}
+                                            fontWeight={selected ? 'bold' : 'normal'}
+                                        >
+                                            {payload.value}
+                                        </text>
+                                    );
+                                }}
                                 axisLine={true}
                                 tickLine={true}
                                 interval={0}
@@ -214,15 +278,49 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
                                 dataKey="passRate"
                                 stroke="#2482E4"
                                 strokeWidth={2}
-                                dot={false}
+                                strokeOpacity={activeDay ? 0.35 : 1}
+                                dot={(props: any) => {
+                                    const { cx, cy, payload } = props;
+                                    if (isNaN(cx) || isNaN(cy)) return <g key={`dot-${payload?.date}`} />;
+                                    const selected = activeDay?.label === payload.date;
+                                    return (
+                                        <g key={`dot-${payload.date}`} style={{ cursor: 'pointer' }}>
+                                            {/* Larger invisible hit area so the point is easy to click */}
+                                            <circle cx={cx} cy={cy} r={12} fill="transparent" />
+                                            <circle
+                                                cx={cx}
+                                                cy={cy}
+                                                r={selected ? 6 : 4}
+                                                fill={selected ? '#FF9800' : '#2482E4'}
+                                                fillOpacity={isFaded(payload.date) ? 0.2 : 1}
+                                                stroke={selected ? '#fff' : 'none'}
+                                                strokeWidth={selected ? 2 : 0}
+                                            />
+                                        </g>
+                                    );
+                                }}
+                                activeDot={{ r: 6, fill: '#FF9800', stroke: '#fff', strokeWidth: 2 }}
                             >
                                 <LabelList
                                     dataKey="passRate"
-                                    position="top"
-                                    offset={10}
-                                    fontSize={9}
-                                    fill="#2482E4"
-                                    formatter={(v: any) => `${Number(v).toFixed(2).replace('.', ',')}%`}
+                                    content={(props: any) => {
+                                        const { x, y, value, index } = props;
+                                        if (isNaN(x) || isNaN(y) || value == null) return null;
+                                        const item = passRateData[index];
+                                        const selected = !!item && activeDay?.label === item.date;
+                                        return (
+                                            <text
+                                                x={x} y={y - 10}
+                                                textAnchor="middle"
+                                                fontSize={9}
+                                                fill="#2482E4"
+                                                fillOpacity={item && isFaded(item.date) ? 0.2 : 1}
+                                                fontWeight={selected ? 'bold' : 'normal'}
+                                            >
+                                                {`${Number(value).toFixed(2).replace('.', ',')}%`}
+                                            </text>
+                                        );
+                                    }}
                                 />
                             </Line>
                         </LineChart>
@@ -233,10 +331,10 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
             {/* Defect Rate Bar (Middle) */}
             <div className="flex border border-gray-200 rounded shadow-sm bg-white p-4 items-center justify-center h-[70px]">
                 <div className="text-[#4CAF50] font-bold text-xl uppercase tracking-wide mr-4">
-                    TQC DEFECT RATE CTQ
+                    TQC DEFECT RATE CTQ{activeDay ? ` (${activeDay.label})` : ''}
                 </div>
                 <div className="text-[#E53935] font-normal text-3xl tracking-wider">
-                    {(tqcData?.averageDefectRate || 0).toFixed(2).replace('.', ',')}%
+                    {(viewData?.averageDefectRate || 0).toFixed(2).replace('.', ',')}%
                 </div>
             </div>
 
@@ -252,14 +350,39 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
 
                     <div className="flex-1 w-full relative">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={tqcData?.topDefects || []} margin={{ left: 10, right: 10, top: 20, bottom: 20 }}>
+                            <BarChart data={viewData?.topDefects || []} margin={{ left: 10, right: 10, top: 20, bottom: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <Tooltip cursor={{ fill: '#f5f5f5' }} contentStyle={{ fontSize: '11px', borderRadius: '4px' }} formatter={(val: any) => [`${val}%`, 'Defect Rate']} />
-                                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#666', fontWeight: 600 }} axisLine={{ stroke: '#ccc' }} tickLine={false} />
+                                <Tooltip cursor={{ fill: '#f5f5f5' }} contentStyle={{ fontSize: '11px', borderRadius: '4px' }} formatter={(val: any, _name: any, item: any) => [`${formatDefectRate(val)} (${item?.payload?.qty ?? 0} pcs)`, 'Defect Rate']} />
+                                {/* Every defect name is shown (interval 0), wrapped to a few lines so they don't overlap */}
+                                <XAxis
+                                    dataKey="name"
+                                    interval={0}
+                                    height={48}
+                                    axisLine={{ stroke: '#ccc' }}
+                                    tickLine={false}
+                                    tick={(props: any) => {
+                                        const { x, y, payload } = props;
+                                        const words = String(payload.value || '').split(/\s+/);
+                                        const lines: string[] = [];
+                                        for (const w of words) {
+                                            const last = lines[lines.length - 1];
+                                            if (last && (last + ' ' + w).length <= 22) lines[lines.length - 1] = last + ' ' + w;
+                                            else lines.push(w);
+                                        }
+                                        const shown = lines.slice(0, 3);
+                                        if (lines.length > 3) shown[2] = shown[2].replace(/.{0,1}$/, '…');
+                                        return (
+                                            <text x={x} y={y + 10} textAnchor="middle" fontSize={10} fill="#666" fontWeight={600}>
+                                                <title>{payload.value}</title>
+                                                {shown.map((l, i) => <tspan key={i} x={x} dy={i === 0 ? 0 : 11}>{l}</tspan>)}
+                                            </text>
+                                        );
+                                    }}
+                                />
                                 <YAxis type="number" domain={[0, 20]} ticks={[0, 5, 10, 15, 20]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 9 }} axisLine={true} tickLine={false} />
                                 <ReferenceLine y={20} stroke="#00BCD4" strokeDasharray="5 5" strokeWidth={2} />
-                                <Bar dataKey="absoluteVal" fill="#D32F2F" barSize={120}>
-                                    <LabelList dataKey="absoluteVal" position="top" formatter={(v: any) => `${Number(v).toFixed(2).replace('.', ',')}%`} fill="#D32F2F" fontSize={12} fontWeight="bold" dy={-10} />
+                                <Bar dataKey="absoluteVal" fill="#D32F2F" maxBarSize={120}>
+                                    <LabelList dataKey="absoluteVal" position="top" formatter={(v: any) => formatDefectRate(v)} fill="#D32F2F" fontSize={12} fontWeight="bold" dy={-10} />
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
@@ -271,13 +394,13 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
                     <div className="flex-1 border border-gray-200 rounded shadow-sm bg-white p-6 flex flex-col">
                         <h3 className="text-[#2482E4] text-lg font-bold uppercase tracking-tight">QTY CHECK</h3>
                         <div className="flex-1 flex items-center justify-start">
-                            <span className="text-[#2482E4] text-5xl font-light">{(tqcData?.qtyChecking || 0).toLocaleString('id-ID')}</span>
+                            <span className="text-[#2482E4] text-5xl font-light">{(viewData?.qtyChecking || 0).toLocaleString('id-ID')}</span>
                         </div>
                     </div>
                     <div className="flex-1 border border-gray-200 rounded shadow-sm bg-white p-6 flex flex-col">
                         <h3 className="text-[#E53935] text-lg font-bold uppercase tracking-tight">DEFECT</h3>
                         <div className="flex-1 flex items-center justify-start">
-                            <span className="text-[#E53935] text-5xl font-light">{(tqcData?.qtyDefect || 0).toLocaleString('id-ID')}</span>
+                            <span className="text-[#E53935] text-5xl font-light">{(viewData?.qtyDefect || 0).toLocaleString('id-ID')}</span>
                         </div>
                     </div>
                 </div>
