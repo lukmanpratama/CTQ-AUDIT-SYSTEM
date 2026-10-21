@@ -189,7 +189,8 @@ function CtqDashboardInner() {
                     if (endDate) url += `&endDate=${endDate}`;
                     if (selectedFactoryCell) url += `&cell=${encodeURIComponent(selectedFactoryCell)}`;
 
-                    const headersUrl = `/rqc/headers?modelId=${modelId}`;
+                    // Only the cells are used here; the full header list is heavy
+                    const headersUrl = `/rqc/header-cells?modelId=${modelId}`;
 
                     const [rqcRes, headersRes] = await Promise.all([
                         apiClient.get<any>(url),

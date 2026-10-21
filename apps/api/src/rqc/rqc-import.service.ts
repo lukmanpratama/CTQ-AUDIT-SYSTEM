@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RqcImportRow } from './rqc.dto';
-import { modelLabel, normalizeArticle } from '../common/model-match';
+import { MODEL_MATCH_SELECT, modelLabel, normalizeArticle } from '../common/model-match';
 
 const MAX_ROWS = 5000;
 const MAX_ERRORS = 200;
@@ -40,8 +40,9 @@ export class RqcImportService {
 
         // ---- Reference data ----------------------------------------------------
         const models = await this.prisma.setupModel.findMany({
-            include: {
-                articles: { select: { article: true } },
+            // select, not include: skips the base64 picture / audit file columns
+            select: {
+                ...MODEL_MATCH_SELECT,
                 setupAreas: {
                     include: {
                         masterArea: true,

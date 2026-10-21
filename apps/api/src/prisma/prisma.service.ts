@@ -10,10 +10,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   constructor() {
     super({
+      // No 'query' events: nothing subscribes to them, so emitting one per query was pure overhead
       log:
         process.env.NODE_ENV === 'development'
           ? [
-              { emit: 'event', level: 'query' },
               { emit: 'stdout', level: 'error' },
               { emit: 'stdout', level: 'warn' },
             ]
@@ -22,8 +22,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleInit() {
-    await this.$connect();
-    this.logger.log('✅ Prisma connected to PostgreSQL');
+    // Postgres runs in Docker and is often still starting (or restarting) when the API boots.
+    // Retry instead of crashing, so the API comes up by itself once the database is ready.
+    const maxAttempts = 30;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.$connect();
+        this.logger.log('✅ Prisma connected to PostgreSQL');
+        return;
+      } catch (error) {
+        if (attempt >= maxAttempts) throw error;
+        const message = error instanceof Error ? error.message.split('\n').pop() : String(error);
+        this.logger.warn(`PostgreSQL not reachable (attempt ${attempt}/${maxAttempts}): ${message}. Retrying in 5s...`);
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+      }
+    }
   }
 
   async onModuleDestroy() {

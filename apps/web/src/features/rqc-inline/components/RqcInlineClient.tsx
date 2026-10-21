@@ -24,7 +24,8 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
         const fetchCells = async () => {
             setLoadingTabs(true);
             try {
-                const headers = await apiClient.get<any[]>(`/rqc/headers?modelId=${modelId}`);
+                // Only the cells are used here; the full header list is heavy
+                const headers = await apiClient.get<any[]>(`/rqc/header-cells?modelId=${modelId}`);
 
                 const uniqueCells = new Set<string>();
                 (headers || []).forEach(h => {
@@ -717,8 +718,8 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                                     <td className="px-4 py-3 font-bold text-red-600 break-words">{row.defectName}</td>
                                                     <td className="px-4 py-3 text-center">
                                                         {row.photoDefect ? (
-                                                            <a href={row.photoDefect.startsWith('http') ? row.photoDefect : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoDefect}`} target="_blank" rel="noreferrer" className="inline-block relative group">
-                                                                <img src={row.photoDefect.startsWith('http') ? row.photoDefect : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoDefect}`} alt="Defect" className="w-16 h-16 object-cover rounded shadow-sm border border-gray-300 group-hover:brightness-90 transition-all" />
+                                                            <a href={row.photoDefect.startsWith('http') ? row.photoDefect : `/api/files/${row.photoDefect}`} target="_blank" rel="noreferrer" className="inline-block relative group">
+                                                                <img src={row.photoDefect.startsWith('http') ? row.photoDefect : `/api/files/${row.photoDefect}`} alt="Defect" className="w-16 h-16 object-cover rounded shadow-sm border border-gray-300 group-hover:brightness-90 transition-all" />
                                                             </a>
                                                         ) : <span className="text-gray-300 text-xs">-</span>}
                                                     </td>
@@ -728,8 +729,8 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                                     <td className="px-4 py-3 text-gray-700 text-xs hidden sm:table-cell break-words">{row.actionPlan}</td>
                                                     <td className="px-4 py-3 text-center hidden md:table-cell">
                                                         {row.photoAfterActionPlan ? (
-                                                            <a href={row.photoAfterActionPlan.startsWith('http') ? row.photoAfterActionPlan : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoAfterActionPlan}`} target="_blank" rel="noreferrer" className="inline-block relative group">
-                                                                <img src={row.photoAfterActionPlan.startsWith('http') ? row.photoAfterActionPlan : `${process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001'}/api/files/${row.photoAfterActionPlan}`} alt="Action Plan" className="w-16 h-16 object-cover rounded shadow-sm border border-gray-300 group-hover:brightness-90 transition-all" />
+                                                            <a href={row.photoAfterActionPlan.startsWith('http') ? row.photoAfterActionPlan : `/api/files/${row.photoAfterActionPlan}`} target="_blank" rel="noreferrer" className="inline-block relative group">
+                                                                <img src={row.photoAfterActionPlan.startsWith('http') ? row.photoAfterActionPlan : `/api/files/${row.photoAfterActionPlan}`} alt="Action Plan" className="w-16 h-16 object-cover rounded shadow-sm border border-gray-300 group-hover:brightness-90 transition-all" />
                                                             </a>
                                                         ) : <span className="text-gray-300 text-xs">-</span>}
                                                     </td>

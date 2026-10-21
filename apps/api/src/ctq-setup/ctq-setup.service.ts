@@ -1,6 +1,23 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { modelLabel, parseArticles } from '../common/model-match';
+
+// Model columns for lists: picture / internalAuditFile are replaced by file URLs (see withFileUrls)
+const MODEL_LIST_SELECT = {
+    setupModelId: true,
+    modelName: true,
+    modelNo: true,
+    isActive: true,
+    articles: { select: { article: true }, orderBy: { article: 'asc' } },
+} satisfies Prisma.SetupModelSelect;
+
+const FILE_EXTENSIONS: Record<string, string> = {
+    'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
+    'application/pdf': '.pdf',
+    'application/vnd.ms-powerpoint': '.ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+};
 
 @Injectable()
 export class CtqSetupService {
@@ -11,9 +28,9 @@ export class CtqSetupService {
         const models = await this.prisma.setupModel.findMany({
             where: { isActive: true },
             orderBy: [{ modelName: 'asc' }, { modelNo: 'asc' }],
-            include: { articles: { select: { article: true }, orderBy: { article: 'asc' } } },
+            select: MODEL_LIST_SELECT,
         });
-        return this.serializeBigInt(models);
+        return this.serializeBigInt(await this.withFileUrls(models));
     }
 
     async findSetupByModel(modelId: string) {
@@ -21,11 +38,12 @@ export class CtqSetupService {
 
         const model = await this.prisma.setupModel.findUnique({
             where: { setupModelId: id },
-            include: { articles: { select: { article: true }, orderBy: { article: 'asc' } } },
+            select: MODEL_LIST_SELECT,
         });
         if (!model) {
             throw new NotFoundException(`Model with ID ${modelId} not found`);
         }
+        const [modelWithUrls] = await this.withFileUrls([model]);
 
         const tree = await this.prisma.setupArea.findMany({
             where: { setupModelId: id },
@@ -45,9 +63,51 @@ export class CtqSetupService {
         });
 
         return this.serializeBigInt({
-            model,
+            model: modelWithUrls,
             areas: tree,
         });
+    }
+
+    /**
+     * `picture` / `internalAuditFile` are stored as base64 data URLs of up to several MB each.
+     * Lists send a URL to the file instead, so the blob is downloaded once (and cached) only
+     * where it is actually shown. The `v` param changes when the stored file changes.
+     */
+    private async withFileUrls<T extends { setupModelId: bigint }>(models: T[]) {
+        if (models.length === 0) return [];
+        const sizes = await this.prisma.$queryRaw<{ id: bigint; picture: number | null; audit: number | null }[]>`
+            SELECT setup_model_id AS id, pg_column_size(picture) AS picture, pg_column_size(internal_audit_file) AS audit
+            FROM setup_model WHERE setup_model_id = ANY(${models.map(m => m.setupModelId)}::bigint[])`;
+        const byId = new Map(sizes.map(s => [String(s.id), s]));
+        return models.map(m => {
+            const s = byId.get(String(m.setupModelId));
+            const base = `/api/ctq-setup/models/${m.setupModelId}`;
+            return {
+                ...m,
+                picture: s?.picture ? `${base}/picture?v=${s.picture}` : null,
+                internalAuditFile: s?.audit ? `${base}/audit-file?v=${s.audit}` : null,
+            };
+        });
+    }
+
+    /** A stored model file (picture or internal audit file) decoded from its base64 data URL. */
+    async getModelFile(modelId: string, kind: 'picture' | 'internalAuditFile') {
+        const model = await this.prisma.setupModel.findUnique({
+            where: { setupModelId: BigInt(modelId) },
+            // Only the requested blob
+            select: { modelName: true, modelNo: true, picture: kind === 'picture', internalAuditFile: kind === 'internalAuditFile' },
+        });
+        const stored = model?.[kind];
+        if (!model || !stored) throw new NotFoundException(`Model ${modelId} has no ${kind === 'picture' ? 'picture' : 'internal audit file'}`);
+
+        // Older rows may hold a plain URL instead of a data URL
+        const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(stored);
+        if (!match) return { redirect: stored };
+        const mime = match[1] || 'application/octet-stream';
+        const body = match[2] ? Buffer.from(match[3], 'base64') : Buffer.from(decodeURIComponent(match[3]));
+        const ext = FILE_EXTENSIONS[mime] || '';
+        const fileName = `${kind === 'picture' ? 'Model' : 'Audit'}_${model.modelName}${model.modelNo ? `_${model.modelNo}` : ''}${ext}`;
+        return { mime, body, fileName };
     }
 
     async validatePo(modelId: string, po: string) {
@@ -123,13 +183,13 @@ export class CtqSetupService {
                     await tx.setupModelArticle.createMany({ data: articles.map(article => ({ setupModelId: id, article })) });
                 }
             }
-            return tx.setupModel.update({ where: { setupModelId: id }, data: update, include: { articles: true } });
+            return tx.setupModel.update({ where: { setupModelId: id }, data: update, select: MODEL_LIST_SELECT });
         });
         return this.serializeBigInt(model);
     }
 
     private async assertModelNoFree(modelNo: string, exceptModelId?: bigint) {
-        const existing = await this.prisma.setupModel.findUnique({ where: { modelNo } });
+        const existing = await this.prisma.setupModel.findUnique({ where: { modelNo }, select: { setupModelId: true, modelName: true } });
         if (existing && existing.setupModelId !== exceptModelId) {
             throw new ConflictException(`Model No ${modelNo} is already used by ${existing.modelName}.`);
         }
@@ -151,8 +211,9 @@ export class CtqSetupService {
         const model = await this.prisma.setupModel.update({
             where: { setupModelId: BigInt(modelId) },
             data: { picture: pictureBase64 },
+            select: MODEL_LIST_SELECT,
         });
-        return this.serializeBigInt(model);
+        return this.serializeBigInt((await this.withFileUrls([model]))[0]);
     }
 
     async updateModelAuditFile(modelId: string, auditFileBase64: string) {
@@ -160,8 +221,9 @@ export class CtqSetupService {
         const model = await this.prisma.setupModel.update({
             where: { setupModelId: BigInt(modelId) },
             data: payload,
+            select: MODEL_LIST_SELECT,
         });
-        return this.serializeBigInt(model);
+        return this.serializeBigInt((await this.withFileUrls([model]))[0]);
     }
 
     async linkAreaToModel(modelId: string, areaId: string) {

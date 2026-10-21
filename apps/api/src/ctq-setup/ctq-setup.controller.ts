@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { CreateModelDto, LinkAreaDto, LinkProcessDto, LinkDefectDto, UploadPictureDto, UpdateModelDto, UploadAuditFileDto, UpdateSetupProcessDto } from './dto/ctq-setup.dto';
 import { CtqSetupService } from './ctq-setup.service';
 
@@ -14,6 +15,28 @@ export class CtqSetupController {
     @Get('models/:modelId/tree')
     async getModelTree(@Param('modelId') modelId: string) {
         return this.ctqSetupService.findSetupByModel(modelId);
+    }
+
+    // Model picture / internal audit file as real files, so lists only carry their URLs
+    @Get('models/:modelId/picture')
+    async getPicture(@Param('modelId') modelId: string, @Res() res: Response) {
+        return this.sendModelFile(res, await this.ctqSetupService.getModelFile(modelId, 'picture'));
+    }
+
+    @Get('models/:modelId/audit-file')
+    async getAuditFile(@Param('modelId') modelId: string, @Res() res: Response) {
+        return this.sendModelFile(res, await this.ctqSetupService.getModelFile(modelId, 'internalAuditFile'));
+    }
+
+    private sendModelFile(res: Response, file: { redirect?: string; mime?: string; body?: Buffer; fileName?: string }) {
+        if (file.redirect) return res.redirect(file.redirect);
+        // The URL carries ?v=<stored size>, so a changed file gets a new URL; a day of caching is safe
+        res.set({
+            'Content-Type': file.mime!,
+            'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(file.fileName!)}`,
+            'Cache-Control': 'private, max-age=86400',
+        });
+        return res.send(file.body);
     }
 
     @Get('models/:modelId/validate-po')
