@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
+import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
 
 @Injectable()
 export class RqcService {
@@ -548,21 +549,18 @@ export class RqcService {
 
                 const tqcRecords = await this.prisma.tqcReport.findMany({
                     where: tqcConditions,
-                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true }
+                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, qtyChecking: true }
                 });
 
-                const uniqueCheckingMap = new Map<string, number>();
-                for (const tqc of tqcRecords) {
-                    tqcQtyDefect += (tqc.qtyDefect || 0);
-
+                // 120 per hour slot, unless the slot's Qty Checking was edited on the TQC Records page
+                const uniqueCheckingMap = tqcSlotChecking(tqcRecords, tqc => {
                     const timeKey = tqc.time || 'no-time';
                     const cellKey = tqc.cell || tqc.building || 'no-cell';
                     const dateKey = tqc.date ? tqc.date.getTime().toString() : 'no-date';
-                    const uniqueKey = `${dateKey}_${cellKey}_${timeKey}`;
-
-                    if (!uniqueCheckingMap.has(uniqueKey)) {
-                        uniqueCheckingMap.set(uniqueKey, 120);
-                    }
+                    return `${dateKey}_${cellKey}_${timeKey}`;
+                });
+                for (const tqc of tqcRecords) {
+                    tqcQtyDefect += (tqc.qtyDefect || 0);
                 }
 
                 for (const qty of uniqueCheckingMap.values()) {
@@ -952,6 +950,9 @@ export class RqcService {
                 });
 
                 const uniqueCheckingMap = new Map<string, number>();
+                // 960 per day and cell, adjusted by edited hour slots
+                const dayCellChecking = tqcDayCellChecking(tqcRecords.filter(t => t.date), tqc =>
+                    `${tqc.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}_${tqc.cell || tqc.building || 'no-cell'}`);
 
                 for (const tqc of tqcRecords) {
                     const dateObj = tqc.date;
@@ -973,7 +974,7 @@ export class RqcService {
                     const uniqueDayCellKey = `${dateStr}_${cellKey}`;
 
                     if (!uniqueCheckingMap.has(uniqueDayCellKey)) {
-                        const qtyDiff = 120 * 8; // Standard 8 hours capacity
+                        const qtyDiff = dayCellChecking.get(uniqueDayCellKey) ?? TQC_CHECK_PER_DAY; // 8 hours x 120 unless edited
 
                         uniqueCheckingMap.set(uniqueDayCellKey, qtyDiff);
 
@@ -988,7 +989,7 @@ export class RqcService {
                     }
                     dStats.tqcProcessMap.get(defectName)!.defect += (tqc.qtyDefect || 0);
                     // The checking size for this "process" is linked to the total cell checking on that day
-                    dStats.tqcProcessMap.get(defectName)!.checking = uniqueCheckingMap.get(uniqueDayCellKey) || (120 * 8);
+                    dStats.tqcProcessMap.get(defectName)!.checking = uniqueCheckingMap.get(uniqueDayCellKey) ?? TQC_CHECK_PER_DAY;
                 }
             }
         }
@@ -1264,7 +1265,7 @@ export class RqcService {
 
                 tqcRecords = await this.prisma.tqcReport.findMany({
                     where: tqcConditions,
-                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, defectName: true, moduleType: true }
+                    select: { date: true, time: true, cell: true, building: true, qty: true, qtyDefect: true, qtyChecking: true, defectName: true, moduleType: true }
                 });
 
                 const tqcMap = new Map<string, {
@@ -1302,7 +1303,8 @@ export class RqcService {
                     if (!procEntry.uniqueCheckingMap.has(uniqueKey)) {
                         // The user specified checking volume per hour is purely static `120` in their process model. 
                         // We strictly bypass the sometimes polluted `tqc.qty` DB column that incorrectly absorbed QTY PRODUCTION (e.g. 3600).
-                        procEntry.uniqueCheckingMap.set(uniqueKey, 120);
+                        // 120 per hour unless edited (tqc.qty stays bypassed: it absorbed QTY PRODUCTION)
+                        procEntry.uniqueCheckingMap.set(uniqueKey, tqc.qtyChecking ?? TQC_CHECK_PER_HOUR);
                     }
 
                     const qtyD = tqc.qtyDefect || 0;
@@ -1316,15 +1318,8 @@ export class RqcService {
 
                 // Pre-calculate Global TQC Total Checking for this model/filter.
                 // Standard limit rule: 1 unique cell active in a day = 960 (120 checks * 8 hours).
-                const globalTqcUniqueChecks = new Map<string, number>();
-                if (tqcRecords && tqcRecords.length > 0) {
-                    for (const tqc of tqcRecords) {
-                        const cellKey = tqc.cell || tqc.building || 'no-cell';
-                        const dateKey = tqc.date ? tqc.date.toISOString().split('T')[0] : 'no-date';
-                        const uniqueDayCellKey = `${dateKey}_${cellKey}`;
-                        globalTqcUniqueChecks.set(uniqueDayCellKey, 960);
-                    }
-                }
+                const globalTqcUniqueChecks = tqcDayCellChecking(tqcRecords || [], tqc =>
+                    `${tqc.date ? tqc.date.toISOString().split('T')[0] : 'no-date'}_${tqc.cell || tqc.building || 'no-cell'}`);
                 let globalTqcTotalChecking = 0;
                 for (const qty of globalTqcUniqueChecks.values()) globalTqcTotalChecking += qty;
 
@@ -1389,13 +1384,8 @@ export class RqcService {
         // Must re-evaluate global checking if modelId wasn't provided or we didn't hit the block above
         let finalTqcTotalChecking = 0;
         if (tqcRecords && tqcRecords.length > 0) {
-            const finalTqcUniqueChecks = new Map<string, number>();
-            for (const tqc of tqcRecords) {
-                const cellKey = tqc.cell || tqc.building || 'no-cell';
-                const dateKey = tqc.date ? tqc.date.toISOString().split('T')[0] : 'no-date';
-                const uniqueDayCellKey = `${dateKey}_${cellKey}`;
-                finalTqcUniqueChecks.set(uniqueDayCellKey, 960);
-            }
+            const finalTqcUniqueChecks = tqcDayCellChecking(tqcRecords, tqc =>
+                `${tqc.date ? tqc.date.toISOString().split('T')[0] : 'no-date'}_${tqc.cell || tqc.building || 'no-cell'}`);
             for (const qty of finalTqcUniqueChecks.values()) finalTqcTotalChecking += qty;
         }
 
@@ -1590,9 +1580,11 @@ export class RqcService {
 
         let validDays = 0;
 
-        // 7. QTY CHECKING rule: 960 per day per cell
+        // 7. QTY CHECKING rule: 960 per day per cell, adjusted by edited hour slots
+        const dayCellChecking = tqcDayCellChecking(tqcRecords, (t: any) =>
+            `${t.date ? t.date.toISOString().split('T')[0] : 'Unknown'}_${(t.cell || t.building || 'no-cell').trim().toUpperCase()}`);
         Array.from(dailyMap.entries()).sort(([a], [b]) => a.localeCompare(b)).forEach(([date, stats]) => {
-            const dailyChecking = stats.uniqueCells.size * 960;
+            const dailyChecking = [...stats.uniqueCells].reduce((sum, c) => sum + (dayCellChecking.get(`${date}_${c}`) ?? TQC_CHECK_PER_DAY), 0);
             globalChecking += dailyChecking;
 
             // 3. PASS RATE PER TANGGAL (QTY CHECKING - QTY DEFECT) / QTY CHECKING
@@ -1966,15 +1958,17 @@ export class RqcService {
         const tqcDefectAggregates = new Map<string, { qtyDefect: number, uspName: string | null }>();
         const tqcUspAggregates = new Map<string, { qtyDefect: number }>();
 
-        // Pre-calculate Global TQC Total Checking (960 per unique day and cell)
+        // Pre-calculate Global TQC Total Checking (960 per unique day and cell, adjusted by edited hour slots)
         const globalTqcUniqueChecks = new Map<string, number>();
+        const tqcDayChecks = tqcDayCellChecking(tqcRecords, (t: any) =>
+            `${t.date ? (typeof t.date === 'string' ? new Date(t.date).toISOString().split('T')[0] : t.date.toISOString().split('T')[0]) : 'no-date'}_${t.cell || t.building || 'no-cell'}`);
 
         tqcRecords.forEach((t: any) => {
             const cellKey = t.cell || t.building || 'no-cell';
             const dateKey = t.date ? (typeof t.date === 'string' ? new Date(t.date).toISOString().split('T')[0] : t.date.toISOString().split('T')[0]) : 'no-date';
             const uniqueDayCellKey = `${dateKey}_${cellKey}`;
 
-            globalTqcUniqueChecks.set(uniqueDayCellKey, 960);
+            globalTqcUniqueChecks.set(uniqueDayCellKey, tqcDayChecks.get(uniqueDayCellKey) ?? TQC_CHECK_PER_DAY);
 
             const uspName = t.uspClassification ? t.uspClassification.toUpperCase() : null;
             if (uspName) uspsSet.add(uspName); // Register any TQC USP just in case

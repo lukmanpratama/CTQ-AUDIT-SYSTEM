@@ -1,5 +1,8 @@
 import { Injectable, HttpException, HttpStatus, OnModuleInit, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CTQ_TYPES } from '../tqc-setup-defect/tqc-setup-defect.dto';
+import { TQC_CHECK_PER_HOUR } from '../common/tqc-checking';
+import { UpdateTqcRecordDto } from './tqc.dto';
 
 @Injectable()
 export class TqcService implements OnModuleInit {
@@ -13,7 +16,14 @@ export class TqcService implements OnModuleInit {
             await this.prisma.$executeRawUnsafe(
                 `ALTER TABLE tqc_report ADD COLUMN IF NOT EXISTS usp_classification VARCHAR(100)`
             );
-            this.logger.log('DB migration: usp_classification column ensured on tqc_report');
+            // Row edits on the TQC Records page: checking qty of the hour slot and a per-row CTQ Type
+            await this.prisma.$executeRawUnsafe(
+                `ALTER TABLE tqc_report ADD COLUMN IF NOT EXISTS qty_checking DOUBLE PRECISION`
+            );
+            await this.prisma.$executeRawUnsafe(
+                `ALTER TABLE tqc_report ADD COLUMN IF NOT EXISTS ctq_type VARCHAR(100)`
+            );
+            this.logger.log('DB migration: usp_classification, qty_checking and ctq_type columns ensured on tqc_report');
         } catch (e: any) {
             this.logger.warn('DB migration check skipped: ' + e.message);
         }
@@ -199,11 +209,14 @@ export class TqcService implements OnModuleInit {
                 qty: r.qty,
                 qtyDefect: getProp('qty_defect', 'qtyDefect', 'qtydefect'),
                 qtyProduction: getProp('qty_production', 'qtyProduction', 'qtyproduction'),
+                // NULL = not edited; the page and dashboards then use the standard 120
+                qtyChecking: getProp('qty_checking', 'qtyChecking', 'qtychecking'),
                 destination: r.destination,
                 category: r.category,
                 type: r.type,
                 defectName: getProp('defect_name', 'defectName', 'defectname'),
                 uspClassification: getProp('usp_classification', 'uspClassification', 'uspclassification'),
+                ctqTypeOverride: getProp('ctq_type', 'ctqType', 'ctqtype'),
                 moduleType: getProp('module_type', 'moduleType', 'moduletype'),
                 createdAt: getProp('created_at', 'createdAt', 'createdat')
             };
@@ -217,10 +230,11 @@ export class TqcService implements OnModuleInit {
             mappingDict.set(normalizeName(m.defectName), m.ctqType);
         }
 
-        return records.map(r => ({
-            ...r,
-            ctqType: r.defectName ? (mappingDict.get(normalizeName(r.defectName)) || null) : null
-        }));
+        return records.map(r => {
+            const ctqTypeSetup = r.defectName ? (mappingDict.get(normalizeName(r.defectName)) || null) : null;
+            // A CTQ Type edited on the row wins over the Setup Defect TQC mapping
+            return { ...r, ctqTypeSetup, ctqType: r.ctqTypeOverride || ctqTypeSetup };
+        });
     }
 
     async updateUspClassification(id: number, uspClassification: string) {
@@ -235,6 +249,80 @@ export class TqcService implements OnModuleInit {
             throw new HttpException('TQC record not found', HttpStatus.NOT_FOUND);
         }
         return { tqcId: id, uspClassification: value };
+    }
+
+    /**
+     * Edits Article, Qty Checking, Qty Defect, CTQ Type and Defect Name of one TQC row.
+     * Only the fields present in `data` change. Qty Checking / CTQ Type accept null to go back
+     * to the default (120 / the Setup Defect TQC mapping).
+     * Qty Checking belongs to the hour slot (date, building, cell, time), so it is written to every
+     * row of that slot; the other fields change on this row only.
+     */
+    async updateRecord(id: number, data: UpdateTqcRecordDto) {
+        const existing = await this.prisma.$queryRawUnsafe<any[]>(
+            `SELECT qty_checking, qty_defect FROM tqc_report WHERE tqc_id = $1`, id
+        );
+        if (existing.length === 0) throw new HttpException('TQC record not found', HttpStatus.NOT_FOUND);
+
+        // Rows (t) sharing the hour slot of this row (s)
+        const slotWhere = `t.module_type = s.module_type AND t.date = s.date
+            AND COALESCE(t.building, '') = COALESCE(s.building, '') AND COALESCE(t.cell, '') = COALESCE(s.cell, '')
+            AND COALESCE(t.time, '') = COALESCE(s.time, '')`;
+
+        const sets: string[] = [];
+        const params: any[] = [];
+        const set = (column: string, value: any) => { params.push(value); sets.push(`${column} = $${params.length}`); };
+
+        if (data.article !== undefined) set('article', data.article.trim().toUpperCase() || null);
+        if (data.defectName !== undefined) {
+            const name = data.defectName.replace(/\s+/g, ' ').trim();
+            if (!name) throw new BadRequestException('Defect Name cannot be empty.');
+            set('defect_name', name);
+        }
+        if (data.ctqType !== undefined) {
+            const ctq = (data.ctqType ?? '').trim();
+            if (ctq && !(CTQ_TYPES as readonly string[]).includes(ctq)) {
+                throw new BadRequestException(`CTQ Type must be one of: ${CTQ_TYPES.join(', ')}.`);
+            }
+            set('ctq_type', ctq || null);
+        }
+        if (data.qtyDefect !== undefined) set('qty_defect', data.qtyDefect);
+
+        // Defects can't exceed what was checked (120 when Qty Checking was never edited)
+        const checking = data.qtyChecking !== undefined ? data.qtyChecking : existing[0].qty_checking;
+        const effectiveChecking = checking ?? TQC_CHECK_PER_HOUR;
+        const defect = data.qtyDefect !== undefined ? data.qtyDefect : existing[0].qty_defect;
+        if (defect != null && defect > effectiveChecking) {
+            throw new BadRequestException(`Qty Defect (${defect}) cannot be larger than Qty Checking (${effectiveChecking}).`);
+        }
+        if (data.qtyChecking !== undefined) {
+            const others = await this.prisma.$queryRawUnsafe<any[]>(
+                `SELECT MAX(t.qty_defect) AS max_defect FROM tqc_report t, tqc_report s
+                 WHERE s.tqc_id = $1 AND t.tqc_id <> s.tqc_id AND ${slotWhere}`,
+                id
+            );
+            const maxDefect = others[0]?.max_defect;
+            if (maxDefect != null && Number(maxDefect) > effectiveChecking) {
+                throw new BadRequestException(`Another defect in this hour has Qty Defect ${maxDefect}, larger than Qty Checking ${effectiveChecking}.`);
+            }
+        }
+
+        let slotRows = 0;
+        await this.prisma.$transaction(async (tx) => {
+            if (sets.length > 0) {
+                await tx.$executeRawUnsafe(
+                    `UPDATE tqc_report SET ${sets.join(', ')} WHERE tqc_id = $${params.length + 1}`, ...params, id
+                );
+            }
+            if (data.qtyChecking !== undefined) {
+                slotRows = await tx.$executeRawUnsafe(
+                    `UPDATE tqc_report t SET qty_checking = $1 FROM tqc_report s
+                     WHERE s.tqc_id = $2 AND ${slotWhere}`,
+                    data.qtyChecking, id
+                );
+            }
+        });
+        return { tqcId: id, updated: sets.length + (data.qtyChecking !== undefined ? 1 : 0), slotRows };
     }
 
     async deleteRecord(id: number) {

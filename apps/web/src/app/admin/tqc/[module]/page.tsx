@@ -96,6 +96,13 @@ const parseCustomTimeCode = (timeCode: string) => {
     return `${hh}.00-${nextHh}.00`;
 };
 
+// Same list as Setup Defect TQC
+const CTQ_TYPES = ['External Compliance', 'Safety', 'Function', 'Durability', 'Appearance', 'Color', 'Fit&Comfort'];
+// TQC checks 120 pairs per hour unless the hour's Qty Checking was edited
+const DEFAULT_QTY_CHECKING = 120;
+
+type EditableField = 'article' | 'qtyChecking' | 'qtyDefect' | 'ctqType' | 'defectName';
+
 export default function TqcModulePage({ params }: { params: Promise<{ module: string }> }) {
     const router = useRouter();
     const resolvedParams = use(params);
@@ -115,6 +122,7 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [setupDefectNames, setSetupDefectNames] = useState<string[]>([]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -132,6 +140,14 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
     useEffect(() => {
         fetchData();
     }, [moduleType]);
+
+    // Suggestions for the Defect Name input
+    useEffect(() => {
+        fetch('/api/tqc-setup-defect')
+            .then(res => (res.ok ? res.json() : []))
+            .then(list => setSetupDefectNames(Array.isArray(list) ? list.map((d: any) => d.defectName).filter(Boolean) : []))
+            .catch(() => setSetupDefectNames([]));
+    }, []);
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -297,6 +313,62 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
         } catch (e) {
             console.error("Error deleting row:", e);
             alert('Error deleting row.');
+        }
+    };
+
+    // Saves one inline field of a row (on blur / Enter, or on change for the CTQ select).
+    // Returns false when nothing was saved so the caller can restore the input.
+    const handleSaveField = async (row: any, field: EditableField, raw: string): Promise<boolean> => {
+        const text = raw.trim();
+        let value: any = text;
+        if (field === 'qtyChecking' || field === 'qtyDefect') {
+            value = text === '' ? null : Number(text);
+            if (value !== null && (isNaN(value) || value < 0)) {
+                alert(`${field === 'qtyChecking' ? 'Qty Checking' : 'Qty Defect'} must be 0 or more.`);
+                return false;
+            }
+            if (field === 'qtyChecking') {
+                // Empty = back to the standard 120; on an unedited hour, 120 or empty changes nothing
+                const unchanged = row.qtyChecking == null
+                    ? (value === null || value === DEFAULT_QTY_CHECKING)
+                    : value === row.qtyChecking;
+                if (unchanged) return true;
+            } else if (value === (row.qtyDefect ?? null)) return true;
+        } else if (field === 'ctqType') {
+            if (text === (row.ctqTypeOverride || '')) return true;
+            value = text || null;
+        } else {
+            if (field === 'article') value = text.toUpperCase();
+            if (field === 'defectName' && !text) {
+                alert('Defect Name cannot be empty.');
+                return false;
+            }
+            if (value === (row[field] || '')) return true;
+        }
+
+        try {
+            const response = await fetch(`/api/tqc/${row.tqcId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [field]: value })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => null);
+                const msg = err?.message;
+                alert(Array.isArray(msg) ? msg.join(', ') : (msg || 'Failed to save.'));
+                return false;
+            }
+            if (field === 'article' || field === 'qtyDefect') {
+                setData(prev => prev.map(r => r.tqcId === row.tqcId ? { ...r, [field]: value } : r));
+            } else {
+                // Qty Checking changes the whole hour, and CTQ Type depends on the defect name: reload
+                await fetchData();
+            }
+            return true;
+        } catch (e) {
+            console.error(`Error saving ${field}:`, e);
+            alert('Error saving the change.');
+            return false;
         }
     };
 
@@ -637,28 +709,116 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                                             {moduleType === 'ASSEMBLY' && <td className="px-5 py-3 text-gray-600">{row.time}</td>}
                                             <td className="px-5 py-3 text-gray-600">{row.building} <span className="text-gray-400 mx-1">/</span> {row.cell}</td>
                                             <td className="px-5 py-3 text-gray-900 font-medium">{row.model}</td>
-                                            <td className="px-5 py-3 text-gray-600 font-mono text-xs">{row.article || '-'}</td>
+                                            <td className="px-5 py-3">
+                                                <input
+                                                    key={`${row.tqcId}-article-${row.article || ''}`}
+                                                    type="text"
+                                                    defaultValue={row.article || ''}
+                                                    placeholder="Article"
+                                                    maxLength={100}
+                                                    onBlur={async (e) => {
+                                                        const el = e.currentTarget;
+                                                        if (!(await handleSaveField(row, 'article', el.value))) el.value = row.article || '';
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') e.currentTarget.blur();
+                                                        if (e.key === 'Escape') {
+                                                            e.currentTarget.value = row.article || '';
+                                                            e.currentTarget.blur();
+                                                        }
+                                                    }}
+                                                    className="w-24 font-mono uppercase text-gray-700 px-2 py-1 text-xs border border-gray-200 rounded-md bg-white placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                />
+                                            </td>
                                             <td className="px-5 py-3 text-gray-600 flex flex-col text-xs">
                                                 <span>{row.orderNo || '-'}</span>
                                                 {moduleType === 'ASSEMBLY' && <span className="text-gray-400">{row.pwiNo}</span>}
                                             </td>
                                             {moduleType === 'ASSEMBLY' && <td className="px-5 py-3 text-gray-600 text-xs">{row.seq || '-'}</td>}
                                             <td className="px-5 py-3 text-gray-900 font-bold">{row.qtyProduction || row.qty || '-'}</td>
-                                            <td className="px-5 py-3 text-gray-900 font-bold">120</td>
-                                            <td className="px-5 py-3 text-red-600 font-bold">{row.qtyDefect || '-'}</td>
+                                            <td className="px-5 py-3">
+                                                <input
+                                                    key={`${row.tqcId}-chk-${row.qtyChecking ?? ''}`}
+                                                    type="number"
+                                                    min={0}
+                                                    defaultValue={row.qtyChecking ?? DEFAULT_QTY_CHECKING}
+                                                    title={row.qtyChecking != null
+                                                        ? 'Edited. Applies to every defect of this hour and cell. Clear it to go back to 120.'
+                                                        : 'Standard 120 per hour. A new value applies to every defect of this hour and cell.'}
+                                                    onBlur={async (e) => {
+                                                        const el = e.currentTarget;
+                                                        const saved = await handleSaveField(row, 'qtyChecking', el.value);
+                                                        if (!saved || el.value.trim() === '') el.value = String(row.qtyChecking ?? DEFAULT_QTY_CHECKING);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') e.currentTarget.blur();
+                                                        if (e.key === 'Escape') {
+                                                            e.currentTarget.value = String(row.qtyChecking ?? DEFAULT_QTY_CHECKING);
+                                                            e.currentTarget.blur();
+                                                        }
+                                                    }}
+                                                    className={`w-20 font-bold text-gray-900 px-2 py-1 text-xs border border-gray-200 rounded-md bg-white placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${row.qtyChecking != null ? 'border-blue-300 bg-blue-50' : ''}`}
+                                                />
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                <input
+                                                    key={`${row.tqcId}-def-${row.qtyDefect ?? ''}`}
+                                                    type="number"
+                                                    min={0}
+                                                    defaultValue={row.qtyDefect ?? ''}
+                                                    placeholder="0"
+                                                    onBlur={async (e) => {
+                                                        const el = e.currentTarget;
+                                                        if (!(await handleSaveField(row, 'qtyDefect', el.value))) el.value = row.qtyDefect != null ? String(row.qtyDefect) : '';
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') e.currentTarget.blur();
+                                                        if (e.key === 'Escape') {
+                                                            e.currentTarget.value = row.qtyDefect != null ? String(row.qtyDefect) : '';
+                                                            e.currentTarget.blur();
+                                                        }
+                                                    }}
+                                                    className="w-16 font-bold text-red-600 px-2 py-1 text-xs border border-gray-200 rounded-md bg-white placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                />
+                                            </td>
                                             {moduleType === 'ASSEMBLY' && <td className="px-5 py-3 text-gray-600 text-xs">{row.destination || '-'}</td>}
                                             {moduleType !== 'SEWING' && <td className="px-5 py-3 text-gray-600 text-xs">{row.category || '-'}</td>}
                                             {moduleType !== 'SEWING' && <td className="px-5 py-3 text-gray-600 text-xs">{row.type || '-'}</td>}
                                             <td className="px-5 py-3">
-                                                {row.ctqType ? (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                        {row.ctqType}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-gray-400 italic text-xs">Unmapped</span>
-                                                )}
+                                                <select
+                                                    value={row.ctqTypeOverride || ''}
+                                                    onChange={(e) => handleSaveField(row, 'ctqType', e.target.value)}
+                                                    title={row.ctqTypeOverride
+                                                        ? `Set on this row (Setup Defect TQC: ${row.ctqTypeSetup || 'Unmapped'})`
+                                                        : 'Follows Setup Defect TQC for this defect name'}
+                                                    className={`w-40 font-medium px-2 py-1 text-xs border border-gray-200 rounded-md bg-white placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${row.ctqTypeOverride ? 'border-amber-300 bg-amber-50 text-amber-800' : (row.ctqType ? 'text-blue-800' : 'text-gray-400 italic')}`}
+                                                >
+                                                    <option value="">{row.ctqTypeSetup || 'Unmapped'} (setup)</option>
+                                                    {CTQ_TYPES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                </select>
                                             </td>
-                                            <td className="px-5 py-3 text-red-600 font-medium max-w-[200px] truncate" title={row.defectName}>{row.defectName}</td>
+                                            <td className="px-5 py-3">
+                                                <input
+                                                    key={`${row.tqcId}-name-${row.defectName || ''}`}
+                                                    type="text"
+                                                    list="tqc-defect-names"
+                                                    defaultValue={row.defectName || ''}
+                                                    title={row.defectName || ''}
+                                                    maxLength={200}
+                                                    onBlur={async (e) => {
+                                                        const el = e.currentTarget;
+                                                        if (!(await handleSaveField(row, 'defectName', el.value))) el.value = row.defectName || '';
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') e.currentTarget.blur();
+                                                        if (e.key === 'Escape') {
+                                                            e.currentTarget.value = row.defectName || '';
+                                                            e.currentTarget.blur();
+                                                        }
+                                                    }}
+                                                    className="w-56 font-medium text-red-600 px-2 py-1 text-xs border border-gray-200 rounded-md bg-white placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                />
+                                            </td>
                                             <td className="px-5 py-3">
                                                 <input
                                                     key={`${row.tqcId}-${row.uspClassification || ''}`}
@@ -692,6 +852,11 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                             )}
                         </tbody>
                     </table>
+                    <datalist id="tqc-defect-names">
+                        {[...new Set([...setupDefectNames, ...data.map(r => r.defectName).filter(Boolean)])].sort().map(name => (
+                            <option key={name} value={name} />
+                        ))}
+                    </datalist>
                 </div>
 
                 {/* Pagination Controls */}
