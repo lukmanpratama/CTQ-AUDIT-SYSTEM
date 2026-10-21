@@ -184,106 +184,109 @@ export default function AdminInspectionsPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-lg font-semibold text-gray-900">Inspection Report</h1>
-                    <p className="text-sm text-gray-500 mt-0.5">Daftar laporan inspeksi yang dikelompokkan berdasarkan Model sepatu.</p>
+            {/* Title, filters and the bulk-delete bar stay at the top while the reports scroll */}
+            <div className="admin-sticky-head space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                        <h1 className="text-lg font-semibold text-gray-900">Inspection Report</h1>
+                        <p className="text-sm text-gray-500 mt-0.5">Daftar laporan inspeksi yang dikelompokkan berdasarkan Model sepatu.</p>
+                    </div>
+                    <RqcImportButton onImported={loadHeaders} />
                 </div>
-                <RqcImportButton onImported={loadHeaders} />
-            </div>
 
-            {/* Filters */}
-            <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-4 items-end">
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Start Date</label>
-                    <input
-                        type="date"
-                        value={filterStartDate}
-                        onChange={(e) => setFilterStartDate(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                    />
+                {/* Filters */}
+                <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap gap-4 items-end">
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Start Date</label>
+                        <input
+                            type="date"
+                            value={filterStartDate}
+                            onChange={(e) => setFilterStartDate(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">End Date</label>
+                        <input
+                            type="date"
+                            value={filterEndDate}
+                            onChange={(e) => setFilterEndDate(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Model (Search)</label>
+                        <input
+                            type="text"
+                            placeholder="Model name..."
+                            value={filterModel}
+                            onChange={(e) => setFilterModel(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Inspector Name</label>
+                        <input
+                            type="text"
+                            placeholder="Inspector..."
+                            value={filterInspector}
+                            onChange={(e) => setFilterInspector(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                        />
+                    </div>
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Checking Time</label>
+                        <select
+                            value={filterCheckingTime}
+                            onChange={(e) => setFilterCheckingTime(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                        >
+                            <option value="">All Times</option>
+                            <option value="Morning">Morning</option>
+                            <option value="Afternoon">Afternoon</option>
+                        </select>
+                    </div>
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Factory</label>
+                        <select
+                            value={filterFactoryId}
+                            onChange={(e) => setFilterFactoryId(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                        >
+                            <option value="">All Factories</option>
+                            {filterOptions.factories?.map(f => (
+                                <option key={f.factoryId} value={f.factoryId}>{f.factory}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex-1 min-w-[150px]">
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Cell</label>
+                        <select
+                            value={filterCell}
+                            onChange={(e) => setFilterCell(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                        >
+                            <option value="">All Cells</option>
+                            {filterOptions.cells?.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">End Date</label>
-                    <input
-                        type="date"
-                        value={filterEndDate}
-                        onChange={(e) => setFilterEndDate(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                    />
-                </div>
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Model (Search)</label>
-                    <input
-                        type="text"
-                        placeholder="Model name..."
-                        value={filterModel}
-                        onChange={(e) => setFilterModel(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                    />
-                </div>
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Inspector Name</label>
-                    <input
-                        type="text"
-                        placeholder="Inspector..."
-                        value={filterInspector}
-                        onChange={(e) => setFilterInspector(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                    />
-                </div>
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Checking Time</label>
-                    <select
-                        value={filterCheckingTime}
-                        onChange={(e) => setFilterCheckingTime(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
-                    >
-                        <option value="">All Times</option>
-                        <option value="Morning">Morning</option>
-                        <option value="Afternoon">Afternoon</option>
-                    </select>
-                </div>
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Factory</label>
-                    <select
-                        value={filterFactoryId}
-                        onChange={(e) => setFilterFactoryId(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
-                    >
-                        <option value="">All Factories</option>
-                        {filterOptions.factories?.map(f => (
-                            <option key={f.factoryId} value={f.factoryId}>{f.factory}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Cell</label>
-                    <select
-                        value={filterCell}
-                        onChange={(e) => setFilterCell(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
-                    >
-                        <option value="">All Cells</option>
-                        {filterOptions.cells?.map(c => (
-                            <option key={c} value={c}>{c}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
 
-            {selectedIds.length > 0 && (
-                <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex justify-between items-center transition-all">
-                    <span className="text-red-800 text-sm font-semibold">{selectedIds.length} Data report terpilih</span>
-                    <button
-                        onClick={handleBulkDelete}
-                        disabled={isDeletingBulk}
-                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
-                    >
-                        {isDeletingBulk ? 'Menghapus...' : 'Hapus Terpilih'}
-                    </button>
-                </div>
-            )}
+                {selectedIds.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex justify-between items-center transition-all">
+                        <span className="text-red-800 text-sm font-semibold">{selectedIds.length} Data report terpilih</span>
+                        <button
+                            onClick={handleBulkDelete}
+                            disabled={isDeletingBulk}
+                            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                            {isDeletingBulk ? 'Menghapus...' : 'Hapus Terpilih'}
+                        </button>
+                    </div>
+                )}
+            </div>
 
             {loading ? (
                 <div className="py-20 text-center text-gray-400 font-medium animate-pulse">Loading inspection results...</div>

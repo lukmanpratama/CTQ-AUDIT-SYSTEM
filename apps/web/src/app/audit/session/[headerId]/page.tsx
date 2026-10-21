@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
 import { useAuditNav } from '../../../../features/rqc/audit-nav';
@@ -20,7 +20,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
     const resolvedParams = use(props.params);
     const headerId = resolvedParams.headerId;
 
-    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    // Read through Next.js so the server render sees ?view=true too (window-only reads broke hydration)
+    const searchParams = useSearchParams();
     const viewOnly = searchParams?.get('view') === 'true';
     const { isAdmin, urls } = useAuditNav();
 
@@ -385,52 +386,55 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
     // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-24 relative'}>
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-28 relative'}>
 
-            {/* Top Navigation Bar from Design */}
-            <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-20">
-                {isAdmin ? (
-                    <button onClick={() => router.push(urls.adminReport)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
-                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                        Inspection Report
-                    </button>
-                ) : viewOnly ? (
-                    <button onClick={() => router.push(`/audit/session/${headerId}/summary?view=true`)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
-                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                        Inspection Summary
-                    </button>
-                ) : (
-                    <button onClick={() => {
-                        if (headerData?.setupModelId) {
-                            router.push(`/audit/${headerData.setupModelId}/history`);
-                        } else {
-                            router.push('/dashboard');
-                        }
-                    }} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
-                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                        Inspection History
-                    </button>
-                )}
-            </nav>
+            {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
+            <div className="sticky top-0 z-20 shadow-sm mb-6">
+                {/* Top Navigation Bar from Design */}
+                <nav className="bg-white px-4 py-4 flex items-center justify-between">
+                    {isAdmin ? (
+                        <button onClick={() => router.push(urls.adminReport)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
+                            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                            Inspection Report
+                        </button>
+                    ) : viewOnly ? (
+                        <button onClick={() => router.push(`/audit/session/${headerId}/summary?view=true`)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
+                            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                            Inspection Summary
+                        </button>
+                    ) : (
+                        <button onClick={() => {
+                            if (headerData?.setupModelId) {
+                                router.push(`/audit/${headerData.setupModelId}/history`);
+                            } else {
+                                router.push('/dashboard');
+                            }
+                        }} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
+                            <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                            Inspection History
+                        </button>
+                    )}
+                </nav>
 
-            {/* Stepper UI Progress - Inspection is Active */}
-            <div className="bg-white px-2 py-5 shadow-sm mb-6 flex justify-center items-center text-sm font-medium sticky top-[56px] z-20">
-                <button
-                    type="button"
-                    disabled={viewOnly || !headerEditUrl}
-                    onClick={() => headerEditUrl && router.push(headerEditUrl)}
-                    className="flex items-center text-primary-600 enabled:hover:underline disabled:cursor-default"
-                    title={viewOnly ? undefined : 'Edit Header'}
-                >
-                    <svg className="w-4 h-4 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg> Header
-                </button>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-900 font-bold">
-                    <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Inspection
-                </div>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-400">
-                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Summary
+                {/* Stepper UI Progress - Inspection is Active */}
+                <div className="bg-white px-2 py-5 border-t border-gray-100 flex justify-center items-center text-sm font-medium">
+                    <button
+                        type="button"
+                        disabled={viewOnly || !headerEditUrl}
+                        onClick={() => headerEditUrl && router.push(headerEditUrl)}
+                        className="flex items-center text-primary-600 enabled:hover:underline disabled:cursor-default"
+                        title={viewOnly ? undefined : 'Edit Header'}
+                    >
+                        <svg className="w-4 h-4 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg> Header
+                    </button>
+                    <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                    <div className="flex items-center text-gray-900 font-bold">
+                        <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Inspection
+                    </div>
+                    <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                    <div className="flex items-center text-gray-400">
+                        <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Summary
+                    </div>
                 </div>
             </div>
 
@@ -651,7 +655,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             </div>
 
             {/* Bottom Navigation */}
-            <div className={`${isAdmin ? 'sticky' : 'fixed left-0'} bottom-0 w-full bg-white border-t p-4 z-10`}>
+            <div className={`${isAdmin ? 'sticky p-4' : 'fixed left-0 px-4 pt-4 pb-8'} bottom-0 w-full bg-white border-t z-10`}>
                 <div className="max-w-2xl mx-auto w-full flex flex-col gap-3">
                     {!viewOnly && attemptedNext && !canProceed && (
                         <div className="text-center text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-200 mb-[-4px]">

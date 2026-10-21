@@ -10,34 +10,37 @@ import { useAuditNav } from '../../../../features/rqc/audit-nav';
 const INCOMING_CELL = 'INCOMING BOTTOM';
 
 // Shared top bar + stepper so the loading state keeps the same layout as the form
-function HeaderPageChrome({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
+function HeaderPageChrome({ onBack, backLabel, children }: { onBack: () => void; backLabel: string; children: React.ReactNode }) {
     // Inside the admin layout the page fills the content area (cancelling its p-6) so the sidebar stays visible
     const { isAdmin } = useAuditNav();
     return (
         <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col pb-10' : 'min-h-screen bg-gray-50 flex flex-col pb-20'}>
-            <nav className="bg-white px-4 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
-                <button onClick={onBack} className="flex items-center text-gray-600 font-medium">
-                    <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                    {isAdmin ? 'Inspection' : 'New Report'}
-                </button>
-                <div className="text-gray-500 font-medium flex items-center gap-1">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                    Save
-                </div>
-            </nav>
+            {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
+            <div className="sticky top-0 z-20 shadow-sm mb-6">
+                <nav className="bg-white px-4 py-4 flex items-center justify-between">
+                    <button onClick={onBack} className="flex items-center text-gray-600 font-medium">
+                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                        {backLabel}
+                    </button>
+                    <div className="text-gray-500 font-medium flex items-center gap-1">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                        Save
+                    </div>
+                </nav>
 
-            {/* Stepper UI Progress */}
-            <div className="bg-white px-4 py-5 shadow-sm mb-6 flex justify-center items-center text-sm font-medium">
-                <div className="flex items-center text-gray-900 font-bold">
-                    <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Header
-                </div>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-400">
-                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Inspection
-                </div>
-                <div className="w-8 h-px bg-gray-300 mx-2"></div>
-                <div className="flex items-center text-gray-400">
-                    <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Summary
+                {/* Stepper UI Progress */}
+                <div className="bg-white px-4 py-5 border-t border-gray-100 flex justify-center items-center text-sm font-medium">
+                    <div className="flex items-center text-gray-900 font-bold">
+                        <span className="w-4 h-4 rounded-full bg-gray-900 flex-shrink-0 mr-2"></span> Header
+                    </div>
+                    <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                    <div className="flex items-center text-gray-400">
+                        <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Inspection
+                    </div>
+                    <div className="w-8 h-px bg-gray-300 mx-2"></div>
+                    <div className="flex items-center text-gray-400">
+                        <span className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0 mr-2"></span> Summary
+                    </div>
                 </div>
             </div>
 
@@ -70,7 +73,7 @@ function HeaderFormSkeleton() {
 
 export default function HeaderAuditPage({ params }: { params: Promise<{ modelId: string }> }) {
     return (
-        <Suspense fallback={<HeaderPageChrome onBack={() => { }}><HeaderFormSkeleton /></HeaderPageChrome>}>
+        <Suspense fallback={<HeaderPageChrome onBack={() => { }} backLabel=""><HeaderFormSkeleton /></HeaderPageChrome>}>
             <HeaderAuditInner params={params} />
         </Suspense>
     );
@@ -86,7 +89,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     const editHeaderId = searchParams.get('headerId');
     const isEditMode = !!editHeaderId;
     // Admin edits stay inside the admin layout (/admin/inspections/[id]/edit/...)
-    const { urls } = useAuditNav();
+    const { urls, isAdmin } = useAuditNav();
     const sessionUrl = (id: string) => urls.session(id);
 
     const [modelName, setModelName] = useState('');
@@ -195,10 +198,13 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
         if (editHeaderId) router.prefetch(sessionUrl(editHeaderId));
     }, [editHeaderId]);
 
+    // Editing returns to the Inspection step; a new report goes back to this model's Inspection History
     const handleCancel = () => {
         if (editHeaderId) router.push(sessionUrl(editHeaderId));
-        else router.push('/dashboard');
+        else if (isAdmin) router.push('/dashboard');
+        else router.push(`/audit/${modelId}/history`);
     };
+    const backLabel = editHeaderId || isAdmin ? 'Inspection' : 'Inspection History';
 
 
     // Helper: is BOTTOM factory selected
@@ -312,7 +318,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
 
     if (loading) {
         return (
-            <HeaderPageChrome onBack={handleCancel}>
+            <HeaderPageChrome onBack={handleCancel} backLabel={backLabel}>
                 <HeaderFormSkeleton />
             </HeaderPageChrome>
         );
@@ -380,7 +386,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     };
 
     return (
-        <HeaderPageChrome onBack={handleCancel}>
+        <HeaderPageChrome onBack={handleCancel} backLabel={backLabel}>
                 <div className="bg-white rounded-xl shadow border border-gray-100 overflow-hidden">
                     <div className="border-b border-gray-100 px-8 py-5 bg-white">
                         <h1 className="text-xl font-bold text-gray-900 tracking-tight">{isEditMode ? 'Edit Header Audit' : 'Header Audit'}</h1>

@@ -66,12 +66,15 @@ export function DashboardClient() {
 
     return (
         <div className="flex-1 bg-[#F9FAFB] min-h-screen">
-            <div className="w-full h-full p-3 md:p-4">
-                <DashboardHeader
-                    filters={filters}
-                    filtersOptions={filtersOptions}
-                    onFilterChange={handleFilterChange}
-                />
+            <div className="w-full h-full">
+                {/* Title + filters stay at the top while the dashboard scrolls */}
+                <div className="admin-sticky-head mb-4">
+                    <DashboardHeader
+                        filters={filters}
+                        filtersOptions={filtersOptions}
+                        onFilterChange={handleFilterChange}
+                    />
+                </div>
 
                 {loading ? (
                     <div className="py-20 text-center text-gray-500">Loading dashboard data...</div>

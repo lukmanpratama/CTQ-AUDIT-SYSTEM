@@ -185,16 +185,15 @@ export default function SetupTreePage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-4">
-                <button onClick={() => router.push('/admin/setup-ctq')} className="text-gray-500 hover:text-gray-900 px-3 py-1.5 border border-gray-300 rounded-lg font-medium text-sm transition-colors">&larr; Back</button>
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-gray-900">CTQ Tree Builder</h1>
-                    <div className="text-sm font-medium text-gray-500">Configuring hierarchies for Model: <span className="text-blue-600 font-bold">{modelLabel(tree.model)}</span></div>
+            {/* Title and the Add Area bar stay at the top while the tree scrolls */}
+            <div className="admin-sticky-head space-y-4">
+                <div className="flex items-center gap-4">
+                    <button onClick={() => router.push('/admin/setup-ctq')} className="text-gray-500 hover:text-gray-900 px-3 py-1.5 border border-gray-300 rounded-lg font-medium text-sm transition-colors">&larr; Back</button>
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight text-gray-900">CTQ Tree Builder</h1>
+                        <div className="text-sm font-medium text-gray-500">Configuring hierarchies for Model: <span className="text-blue-600 font-bold">{modelLabel(tree.model)}</span></div>
+                    </div>
                 </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-6">
-
                 {/* Link Area */}
                 <form onSubmit={linkArea} className="flex gap-4 p-4 border border-blue-200 bg-blue-50/50 rounded-xl items-center">
                     <span className="font-bold text-blue-800 text-sm w-32">ADD NEW AREA</span>
@@ -218,6 +217,9 @@ export default function SetupTreePage() {
                         )}
                     </div>
                 </form>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-6">
 
                 {/* Tree View */}
                 <div className="space-y-6">

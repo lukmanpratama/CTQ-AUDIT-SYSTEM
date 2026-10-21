@@ -60,14 +60,17 @@ export default function DashboardViewPage() {
     const selectedModelName = modelLabel(models.find(m => m.setupModelId === selectedModel)) || 'Select a Model';
 
     return (
-        <main className="min-h-screen flex items-center justify-center bg-[#F9FAFB] relative overflow-hidden">
-            {/* Background Decorations */}
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-100 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-100 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+        <main className="min-h-screen flex items-center justify-center bg-[#F9FAFB] relative">
+            {/* Background Decorations: clipped in their own layer, so the model dropdown is never cut off */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-100 rounded-full blur-3xl opacity-50"></div>
+                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-100 rounded-full blur-3xl opacity-50"></div>
+            </div>
 
             <div className="w-full max-w-lg relative z-20 px-4">
-                <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-                    <div className="bg-gradient-to-br from-blue-50 to-white px-8 py-6 text-center border-b border-gray-100">
+                {/* No overflow-hidden here: it cut the model list off at the card's bottom edge */}
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-100">
+                    <div className="bg-gradient-to-br from-blue-50 to-white rounded-t-2xl px-8 py-6 text-center border-b border-gray-100">
                         <div className="mx-auto w-32 h-20 flex items-center justify-center mb-6">
                             <img src="/parkland-logo.jfif" alt="Parkland Logo" className="max-w-full max-h-full object-contain mix-blend-multiply" />
                         </div>

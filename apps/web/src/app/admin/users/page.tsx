@@ -72,7 +72,8 @@ export default function UsersPage() {
 
     return (
         <div className="space-y-5">
-            <div>
+            {/* Page title stays at the top while the page scrolls */}
+            <div className="admin-sticky-head">
                 <h1 className="text-lg font-semibold text-gray-900">Users</h1>
                 <p className="text-sm text-gray-500 mt-0.5">Manage inspector and administrator accounts.</p>
             </div>

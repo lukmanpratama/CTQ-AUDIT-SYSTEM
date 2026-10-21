@@ -1,11 +1,15 @@
 // apps/web/src/app/layout.tsx
 import type { Metadata } from 'next';
 import './globals.css';
+import { AppFooter } from '../components/AppFooter';
 
 export const metadata: Metadata = {
   title: 'CTQ Audit RQC',
   description: 'Critical To Quality Audit System — Roving Quality Control for Footwear Manufacturing',
   keywords: ['CTQ', 'audit', 'quality control', 'RQC', 'footwear', 'manufacturing'],
+  // iOS (Safari and every iPhone browser) turns number-like text such as PO numbers into
+  // tel:/date links before React hydrates, which broke hydration on iPhones.
+  formatDetection: { telephone: false, date: false, email: false, address: false },
 };
 
 export default function RootLayout({
@@ -20,11 +24,7 @@ export default function RootLayout({
           <main className="flex-1 pb-6 w-full relative">
             {children}
           </main>
-          <footer className="fixed bottom-0 left-0 w-full z-[9999] bg-white/90 backdrop-blur-md border-t border-gray-200 text-center py-1 flex items-center justify-center">
-            <span className="text-[10px] font-extrabold tracking-widest text-[#B0BEC5] uppercase">
-              DEVELOP BY QUALITY DIGITAL TEAM @2026
-            </span>
-          </footer>
+          <AppFooter />
         </div>
       </body>
     </html>

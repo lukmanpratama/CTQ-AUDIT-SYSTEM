@@ -4,7 +4,7 @@ import { modelLabel } from '../../../lib/model-label';
 
 export function DashboardHeader({ filters, filtersOptions, onFilterChange }: any) {
     return (
-        <div className="flex flex-col gap-6 mb-2">
+        <div className="flex flex-col gap-4">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Dashboard Monitoring</h1>

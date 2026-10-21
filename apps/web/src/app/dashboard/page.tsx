@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ModelCard } from '../../features/rqc/components/ModelCard';
+import { clearSession } from '../../lib/session';
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -67,7 +68,7 @@ export default function DashboardPage() {
                         Inspector: {namaUser ? <><span className="font-semibold text-gray-900">{namaUser}</span> ({nik})</> : nik}
                     </span>
                     <button
-                        onClick={() => { localStorage.removeItem('nik'); localStorage.removeItem('namaUser'); router.push('/login'); }}
+                        onClick={() => { clearSession(); router.replace('/login'); }}
                         className="text-sm text-red-600 font-semibold hover:underline"
                     >
                         Logout
