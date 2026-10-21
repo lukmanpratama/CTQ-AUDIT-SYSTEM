@@ -9,6 +9,18 @@ import { Prisma } from '@prisma/client';
 
 type ModelWithArticles = { modelName: string; articles?: { article: string }[] };
 
+/**
+ * Setup model columns needed to match POs / TQC rows. Leaves out `picture` and
+ * `internalAuditFile`: base64 blobs of several MB that every query used to drag along.
+ */
+export const MODEL_MATCH_SELECT = {
+    setupModelId: true,
+    modelName: true,
+    modelNo: true,
+    isActive: true,
+    articles: { select: { article: true } },
+} satisfies Prisma.SetupModelSelect;
+
 export const normalizeArticle = (s: unknown) => String(s ?? '').replace(/ /g, ' ').trim().toUpperCase();
 
 /** Accepts "LA0398, LA0399", one per line, or an array; returns unique upper-case articles. */

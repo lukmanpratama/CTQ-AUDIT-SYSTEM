@@ -1,9 +1,10 @@
 // apps/web/src/lib/api-client.ts
 // Centralized API client for all HTTP calls to NestJS backend
 
+// Browser: same-origin /api (proxied by Next.js). Server-side: straight to the API over loopback.
 const API_BASE = typeof window !== 'undefined'
   ? ''
-  : (process.env.NEXT_PUBLIC_API_URL || 'http://192.168.43.210:3001');
+  : (process.env.API_INTERNAL_URL || 'http://127.0.0.1:3001');
 
 class ApiError extends Error {
   constructor(

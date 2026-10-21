@@ -1,8 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MODEL_MATCH_SELECT } from '../common/model-match';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
 import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, isCtqTqcDefect, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
+
+// TQC defects count on the CTQ dashboards only when the row has a USP Classification
+const hasUspClassification = (tqc: { uspClassification?: string | null }) => !!tqc.uspClassification?.trim();
+
+type HeaderListFilters = { model?: string; modelId?: string; startDate?: string; endDate?: string; checkingTime?: string; inspector?: string; factoryId?: string; cell?: string };
 
 @Injectable()
 export class RqcService {
@@ -330,7 +336,113 @@ export class RqcService {
         return this.serializeBigInt(header);
     }
 
-    async getAllHeaders(filters: { model?: string; modelId?: string; startDate?: string; endDate?: string; checkingTime?: string; inspector?: string; factoryId?: string; cell?: string }) {
+    async getAllHeaders(filters: HeaderListFilters) {
+        const headers = await this.prisma.rqcHeader.findMany({
+            where: this.buildHeaderWhere(filters),
+            orderBy: { createdAt: 'desc' },
+            include: {
+                // Only the name: setupModel.picture is a large base64 image and was repeated
+                // for every header (117 headers ≈ 47 MB), making the browser fetch fail.
+                setupModel: { select: { setupModelId: true, modelName: true, modelNo: true } },
+                factory: true,
+                inspector: {
+                    select: {
+                        namaUser: true
+                    }
+                },
+                rqcAreas: {
+                    include: {
+                        rqcProcesses: {
+                            include: {
+                                rqcInspections: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        return this.serializeBigInt(headers);
+    }
+
+    /**
+     * Inspection Report list: headers grouped per model, one page of rows per model.
+     * Each row carries its checks/defects totals (summed in SQL) instead of the whole
+     * area → process → inspection tree. Without `groupModelId` every model comes back with
+     * its first page; with it, only that model at `page`.
+     */
+    async getHeadersByModel(filters: HeaderListFilters & { groupModelId?: string; page?: string; pageSize?: string }) {
+        const where = this.buildHeaderWhere(filters);
+        const pageSize = Math.min(Math.max(Number(filters.pageSize) || 10, 1), 100);
+        const onlyModelId = filters.groupModelId ? BigInt(filters.groupModelId) : undefined;
+
+        const counts = await this.prisma.rqcHeader.groupBy({
+            by: ['setupModelId'],
+            where: onlyModelId !== undefined ? { AND: [where, { setupModelId: onlyModelId }] } : where,
+            _count: { _all: true },
+        });
+        const models = await this.prisma.setupModel.findMany({
+            where: { setupModelId: { in: counts.map(c => c.setupModelId) } },
+            select: { setupModelId: true, modelName: true, modelNo: true },
+        });
+        const modelById = new Map(models.map(m => [m.setupModelId, m]));
+
+        const groups = await Promise.all(counts.map(async c => {
+            const total = c._count._all;
+            const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+            const page = onlyModelId !== undefined ? Math.min(Math.max(Number(filters.page) || 1, 1), totalPages) : 1;
+            const rows = await this.prisma.rqcHeader.findMany({
+                where: { AND: [where, { setupModelId: c.setupModelId }] },
+                orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+                select: {
+                    rqcHeaderId: true, date: true, checkingTime: true, po: true, model: true, cell: true, nik: true,
+                    factory: { select: { factory: true } },
+                    inspector: { select: { namaUser: true } },
+                },
+            });
+            const model = modelById.get(c.setupModelId);
+            return {
+                setupModelId: c.setupModelId,
+                label: model ? modelLabel(model) : rows[0]?.model || '-',
+                total, page, totalPages, rows,
+            };
+        }));
+
+        // Checks / defects per header for the rows on these pages only
+        const ids = groups.flatMap(g => g.rows.map(r => r.rqcHeaderId));
+        const totals = ids.length === 0 ? [] : await this.prisma.$queryRaw<{ id: string; checks: number; defects: number }[]>`
+            SELECT a.rqc_header_id::text AS id,
+                   COALESCE(SUM(p.qty_checking), 0)::int AS checks,
+                   COALESCE(SUM((SELECT SUM(i.qty_defect) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id)), 0)::int AS defects
+            FROM rqc_area a
+            JOIN rqc_process p ON p.rqc_area_id = a.rqc_area_id
+            WHERE a.rqc_header_id = ANY(${ids}::uuid[])
+            GROUP BY a.rqc_header_id`;
+        const totalsById = new Map(totals.map(t => [t.id, t]));
+
+        groups.sort((a, b) => a.label.localeCompare(b.label));
+        return this.serializeBigInt({
+            pageSize,
+            groups: groups.map(g => ({
+                ...g,
+                rows: g.rows.map(r => ({ ...r, checks: totalsById.get(r.rqcHeaderId)?.checks ?? 0, defects: totalsById.get(r.rqcHeaderId)?.defects ?? 0 })),
+            })),
+        });
+    }
+
+    /** Dashboards used to download every header (with its whole inspection tree) only to list its cells. */
+    async getHeaderCells(modelId?: string) {
+        return this.prisma.rqcHeader.findMany({
+            where: { ...(modelId ? { setupModelId: BigInt(modelId) } : {}), cell: { not: null } },
+            distinct: ['cell'],
+            select: { cell: true },
+            orderBy: { cell: 'asc' },
+        });
+    }
+
+    private buildHeaderWhere(filters: HeaderListFilters) {
         const whereClause: any = {};
 
         if (filters.model) {
@@ -368,32 +480,7 @@ export class RqcService {
             }
         }
 
-        const headers = await this.prisma.rqcHeader.findMany({
-            where: whereClause,
-            orderBy: { createdAt: 'desc' },
-            include: {
-                // Only the name: setupModel.picture is a large base64 image and was repeated
-                // for every header (117 headers ≈ 47 MB), making the browser fetch fail.
-                setupModel: { select: { setupModelId: true, modelName: true, modelNo: true } },
-                factory: true,
-                inspector: {
-                    select: {
-                        namaUser: true
-                    }
-                },
-                rqcAreas: {
-                    include: {
-                        rqcProcesses: {
-                            include: {
-                                rqcInspections: true
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        return this.serializeBigInt(headers);
+        return whereClause;
     }
 
     async getDashboardFilterOptions() {
@@ -529,7 +616,7 @@ export class RqcService {
         if (filters?.modelId) {
             const masterModel = await this.prisma.setupModel.findUnique({
                 where: { setupModelId: BigInt(filters.modelId) },
-                include: { articles: { select: { article: true } } }
+                select: MODEL_MATCH_SELECT
             });
             if (masterModel && masterModel.modelName) {
                 const tqcConditions: any = {
@@ -926,7 +1013,7 @@ export class RqcService {
         if (filters?.modelId) {
             const masterModel = await this.prisma.setupModel.findUnique({
                 where: { setupModelId: BigInt(filters.modelId) },
-                include: { articles: { select: { article: true } } }
+                select: MODEL_MATCH_SELECT
             });
             if (masterModel && masterModel.modelName) {
                 const tqcConditions: any = {
@@ -969,8 +1056,12 @@ export class RqcService {
                     const dStats = dailyMap.get(dateStr)!;
                     const wStats = weeklyMap.get(weekStr)!;
 
-                    dStats.defect += (tqc.qtyDefect || 0);
-                    wStats.defect += (tqc.qtyDefect || 0);
+                    // Only defects with a USP Classification count as CTQ defects; every row still marks the day/cell as checked
+                    const isUspDefect = hasUspClassification(tqc);
+                    if (isUspDefect) {
+                        dStats.defect += (tqc.qtyDefect || 0);
+                        wStats.defect += (tqc.qtyDefect || 0);
+                    }
 
                     const cellKey = tqc.cell || tqc.building || 'no-cell';
                     // Key purely by date and cell (ignoring specific hours like 07.00/08.00)
@@ -985,6 +1076,7 @@ export class RqcService {
                         wStats.checking += qtyDiff;
                     }
 
+                    if (!isUspDefect) continue;
                     const defectName = tqc.defectName || 'UNKNOWN';
                     // TQC process level map
                     if (!dStats.tqcProcessMap.has(defectName)) {
@@ -1255,7 +1347,7 @@ export class RqcService {
         if (filters?.modelId) {
             const masterModel = await this.prisma.setupModel.findUnique({
                 where: { setupModelId: BigInt(filters.modelId) },
-                include: { articles: { select: { article: true } } }
+                select: MODEL_MATCH_SELECT
             });
             if (masterModel && masterModel.modelName) {
                 const tqcConditions: any = {
@@ -1289,6 +1381,8 @@ export class RqcService {
                 }>();
 
                 for (const tqc of tqcRecords) {
+                    // The chart lists only defects with a USP Classification (checking below still uses every row)
+                    if (!hasUspClassification(tqc)) continue;
                     const moduleName = tqc.moduleType || 'UNKNOWN TQC';
                     const defectName = tqc.defectName || 'UNKNOWN DEFECT';
 
@@ -1393,7 +1487,7 @@ export class RqcService {
 
         if (tqcRecords && tqcRecords.length > 0) {
             for (const tqc of tqcRecords) {
-                tqcTotalDefect += (tqc.qtyDefect || 0);
+                if (hasUspClassification(tqc)) tqcTotalDefect += (tqc.qtyDefect || 0);
             }
             for (const tArea of tqcAreas) {
                 for (const proc of tArea.processes) {
@@ -1505,7 +1599,7 @@ export class RqcService {
         if (filters?.modelId) {
             const setupModel = await this.prisma.setupModel.findUnique({
                 where: { setupModelId: BigInt(filters.modelId) },
-                include: { articles: { select: { article: true } } }
+                select: MODEL_MATCH_SELECT
             });
             if (setupModel?.modelName) {
                 tqcWhere = { ...tqcWhere, ...tqcWhereForModel(setupModel) };
@@ -1899,7 +1993,7 @@ export class RqcService {
         if (cell) rqcWhere.cell = cell;
 
         // Fetch the model strictly for linking string names
-        const model = await this.prisma.setupModel.findUnique({ where: { setupModelId: modelId }, include: { articles: { select: { article: true } } } });
+        const model = await this.prisma.setupModel.findUnique({ where: { setupModelId: modelId }, select: MODEL_MATCH_SELECT });
         if (!model) return { usps: [], rqcData: {}, tqcData: {}, rqcTopProcesses: [], tqcTopDefects: [] };
 
         const tqcWhere: any = { ...tqcWhereForModel(model, 'equals') };

@@ -48,7 +48,8 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
                 if (cell) url += `&cell=${encodeURIComponent(cell)}`;
 
                 // 3. Fetch cells from headers
-                const headersUrl = `/rqc/headers?modelId=${modelId}`;
+                // Only the cells are used here; the full header list is heavy
+                const headersUrl = `/rqc/header-cells?modelId=${modelId}`;
                 const [res, headersRes] = await Promise.all([
                     apiClient.get(url) as any,
                     apiClient.get(headersUrl) as any

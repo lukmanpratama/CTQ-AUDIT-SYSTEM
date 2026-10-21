@@ -107,7 +107,8 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
                     trendsUrl += `&cell=${encodeURIComponent(globalCell)}`;
                 }
 
-                const headersUrl = `/rqc/headers?modelId=${modelId}`;
+                // Only the cells are used here; the full header list is heavy
+                const headersUrl = `/rqc/header-cells?modelId=${modelId}`;
 
                 const [resKpis, resTrends, headersRes] = await Promise.all([
                     apiClient.get(kpiUrl) as any,

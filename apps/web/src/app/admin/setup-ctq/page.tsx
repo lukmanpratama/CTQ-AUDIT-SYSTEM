@@ -18,6 +18,11 @@ export default function SetupCtqPage() {
     const [editError, setEditError] = useState('');
 
     const handleViewFile = (base64Str: string) => {
+        // The model list now sends a file URL (served by the API) instead of the base64 data
+        if (!base64Str.startsWith('data:')) {
+            window.open(base64Str, '_blank');
+            return;
+        }
         try {
             const arr = base64Str.split(',');
             const mime = arr[0].match(/:(.*?);/)?.[1] || '';

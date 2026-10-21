@@ -115,6 +115,13 @@ services:
       - ./packages:/app/packages
       - /app/node_modules
       - /app/apps/api/node_modules
+    healthcheck:
+      # Healthy only when the API answers AND reaches Postgres
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3001/api/health/db | grep -q "\"database\":\"connected\""']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_healthy
@@ -136,6 +143,8 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: http://localhost:3001
+      # The /api proxy runs inside this container, where localhost is not the API
+      API_INTERNAL_URL: http://api:3001
     ports:
       - '3000:3000'
     volumes:
@@ -144,7 +153,8 @@ services:
       - /app/node_modules
       - /app/apps/web/node_modules
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   postgres_data:

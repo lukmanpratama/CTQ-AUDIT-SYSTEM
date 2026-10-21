@@ -123,6 +123,12 @@ export class RqcController {
         return this.rqcService.getRecentInspections({ modelId, areaId, startDate, endDate, checkingTime, factoryId, cell });
     }
 
+    /** Distinct cells of a model's headers, as [{ cell }]: what the dashboards' Cell dropdowns need. */
+    @Get('header-cells')
+    async getHeaderCells(@Query('modelId') modelId?: string) {
+        return this.rqcService.getHeaderCells(modelId);
+    }
+
     @Get('filters')
     async getFilters() {
         return this.rqcService.getDashboardFilterOptions();
@@ -152,6 +158,24 @@ export class RqcController {
         @Query('cell') cell?: string
     ) {
         return this.rqcService.getAllHeaders({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell });
+    }
+
+    /** Inspection Report page: headers grouped per model, paginated per model, with checks/defects totals. */
+    @Get('headers/by-model')
+    async getHeadersByModel(
+        @Query('model') model?: string,
+        @Query('modelId') modelId?: string,
+        @Query('startDate') startDate?: string,
+        @Query('endDate') endDate?: string,
+        @Query('checkingTime') checkingTime?: string,
+        @Query('inspector') inspector?: string,
+        @Query('factoryId') factoryId?: string,
+        @Query('cell') cell?: string,
+        @Query('groupModelId') groupModelId?: string,
+        @Query('page') page?: string,
+        @Query('pageSize') pageSize?: string,
+    ) {
+        return this.rqcService.getHeadersByModel({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell, groupModelId, page, pageSize });
     }
 
     @Put('headers/:headerId')
