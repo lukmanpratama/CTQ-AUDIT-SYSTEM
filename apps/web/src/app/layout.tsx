@@ -1,8 +1,15 @@
 // apps/web/src/app/layout.tsx
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AppFooter } from '../components/AppFooter';
 
+// Browser bar colour on phones, matching the navy of the app icon
+export const viewport: Viewport = {
+  themeColor: '#0e2947',
+};
+
+// Icons come from app/icon.png (browser tab) and app/apple-icon.png (iPhone home screen);
+// app/manifest.ts names the app and gives Android its icons.
 export const metadata: Metadata = {
   title: 'CTQ Audit RQC',
   description: 'Critical To Quality Audit System — Roving Quality Control for Footwear Manufacturing',
@@ -10,6 +17,8 @@ export const metadata: Metadata = {
   // iOS (Safari and every iPhone browser) turns number-like text such as PO numbers into
   // tel:/date links before React hydrates, which broke hydration on iPhones.
   formatDetection: { telephone: false, date: false, email: false, address: false },
+  // "Add to Home Screen" on iPhone: opens full screen under the name "CTQ Audit"
+  appleWebApp: { capable: true, title: 'CTQ Audit', statusBarStyle: 'default' },
 };
 
 export default function RootLayout({
