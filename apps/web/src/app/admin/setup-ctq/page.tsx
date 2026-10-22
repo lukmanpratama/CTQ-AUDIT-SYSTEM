@@ -156,18 +156,14 @@ export default function SetupCtqPage() {
 
     return (
         <div className="space-y-5">
-            {/* Page title stays at the top while the page scrolls */}
-            <div className="admin-sticky-head">
-                <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
-                <p className="text-sm text-gray-500 mt-0.5">Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.</p>
-            </div>
-
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100">
-                    <h2 className="text-sm font-medium text-gray-800">Models</h2>
+            {/* Title and the Add Model form stay at the top while the model list scrolls */}
+            <div className="admin-sticky-head space-y-3">
+                <div>
+                    <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.</p>
                 </div>
-                <div className="p-4">
-                    <form onSubmit={handleCreateModel} className="mb-4">
+                <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+                    <form onSubmit={handleCreateModel}>
                         <div className="flex flex-col md:flex-row gap-2">
                             <input
                                 value={newModel}
@@ -200,9 +196,16 @@ export default function SetupCtqPage() {
                         {createError && <p className="mt-1.5 text-xs text-red-600">{createError}</p>}
                     </form>
                     {loadError && (
-                        <div className="mb-4 px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
+                        <div className="px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
                     )}
+                </div>
+            </div>
 
+            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100">
+                    <h2 className="text-sm font-medium text-gray-800">Models</h2>
+                </div>
+                <div className="p-4">
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b border-gray-100">

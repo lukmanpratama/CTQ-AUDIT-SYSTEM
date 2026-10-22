@@ -2032,7 +2032,8 @@ export class RqcService {
 
         const rqcUspAggregates = new Map<string, { qtyCheck: number, qtyDefect: number }>();
         const rqcProcessAggregates = new Map<string, { qtyCheck: number, qtyDefect: number, uspName: string | null, isSellingPoint: boolean }>();
-        const rqcDefectNameAggregates = new Map<string, { qtyDefect: number, uspName: string | null, isSellingPoint: boolean }>();
+        // byProcess: qty per process, so clicking a process bar can show just that process's defects
+        const rqcDefectNameAggregates = new Map<string, { qtyDefect: number, uspName: string | null, isSellingPoint: boolean, byProcess: Record<string, number> }>();
 
         rqcHeaders.forEach(header => {
             header.rqcAreas.forEach(area => {
@@ -2049,10 +2050,12 @@ export class RqcService {
                         qtyDefect += ins.qtyDefect;
                         const defectName = ins.masterDefect?.defect || 'UNKNOWN DEFECT';
                         if (!rqcDefectNameAggregates.has(defectName)) {
-                            rqcDefectNameAggregates.set(defectName, { qtyDefect: 0, uspName, isSellingPoint: false });
+                            rqcDefectNameAggregates.set(defectName, { qtyDefect: 0, uspName, isSellingPoint: false, byProcess: {} });
                         }
-                        rqcDefectNameAggregates.get(defectName)!.qtyDefect += ins.qtyDefect;
-                        rqcDefectNameAggregates.get(defectName)!.isSellingPoint ||= isSellingPoint;
+                        const defectAgg = rqcDefectNameAggregates.get(defectName)!;
+                        defectAgg.qtyDefect += ins.qtyDefect;
+                        defectAgg.isSellingPoint ||= isSellingPoint;
+                        defectAgg.byProcess[procName] = (defectAgg.byProcess[procName] || 0) + ins.qtyDefect;
                     });
 
                     // Add to process aggregation for chart
@@ -2155,9 +2158,10 @@ export class RqcService {
                 };
             }).sort((a, b) => b.rate - a.rate);
 
-            const rqcAvgPassRate = processCount > 0 ? Math.round((rqcUspsSumPassRate / processCount) * 100) / 100 : 0;
+            // Unrounded: the page rounds rates to 2 decimals (exact half down, e.g. 2,055 -> 2,05)
+            const rqcAvgPassRate = processCount > 0 ? rqcUspsSumPassRate / processCount : 0;
             // Align Defect Rate to calculate based on Average Process Defect Rate instead of strict division
-            const rqcAvgDefRate = processCount > 0 ? Math.round((rqcUspsSumDefRate / processCount) * 100) / 100 : 0;
+            const rqcAvgDefRate = processCount > 0 ? rqcUspsSumDefRate / processCount : 0;
 
             rqcData[u] = {
                 passRate: processCount > 0 ? rqcAvgPassRate : 100, // Show 100 if no checks yet
@@ -2171,7 +2175,8 @@ export class RqcService {
             rqcTopDefectsByUsp[u] = defectsForUspRqc.map(([name, v]) => ({
                 name,
                 qty: v.qtyDefect,
-                isUsp: v.isSellingPoint
+                isUsp: v.isSellingPoint,
+                byProcess: v.byProcess
             })).sort((a, b) => b.qty - a.qty);
 
             // TQC Data Math 
@@ -2184,8 +2189,9 @@ export class RqcService {
                 tqcUspsSumDefect = tqcAgg.qtyDefect;
             }
 
-            const tqcAvgDefRate = tqcUspsSumCheck > 0 ? Math.round(((tqcUspsSumDefect / tqcUspsSumCheck) * 100) * 100) / 100 : 0;
-            const tqcAvgPassRate = tqcUspsSumCheck > 0 ? Math.round((100 - tqcAvgDefRate) * 100) / 100 : 100; // TQC calculates usually global
+            // Unrounded, like RQC above: the page does the rounding
+            const tqcAvgDefRate = tqcUspsSumCheck > 0 ? (tqcUspsSumDefect / tqcUspsSumCheck) * 100 : 0;
+            const tqcAvgPassRate = tqcUspsSumCheck > 0 ? 100 - tqcAvgDefRate : 100; // TQC calculates usually global
 
             tqcData[u] = {
                 passRate: tqcAvgPassRate,

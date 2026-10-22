@@ -2,10 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+// Rates: 2 decimals, above half up, exact half down (2,058 -> 2,06; 2,055 -> 2,05)
+import { formatRate } from '../../../lib/format-rate';
 import { apiClient } from '../../../lib/api-client';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, LabelList } from 'recharts';
 import { modelLabel } from '../../../lib/model-label';
 import { useDataRefresh } from '../../../lib/use-data-refresh';
+
+// Bar colours follow the section headers: RQC yellow, TQC red
+const RQC_COLOR = '#FFB00F';
+const TQC_COLOR = '#D9262C';
 
 export function DefectCtqClient({ searchParams }: { searchParams: any }) {
     const router = useRouter();
@@ -30,6 +36,10 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
     const [rqcQtyDefect, setRqcQtyDefect] = useState<any[]>([]);
     const [tqcDefectRate, setTqcDefectRate] = useState<any[]>([]);
     const [tqcQtyDefect, setTqcQtyDefect] = useState<any[]>([]);
+
+    // Cross-filter: a clicked process (RQC) / defect (TQC) narrows the Qty Defect chart next to it
+    const [selectedProcess, setSelectedProcess] = useState<string | null>(null);
+    const [selectedTqcDefect, setSelectedTqcDefect] = useState<string | null>(null);
 
     // Raw payload from API (to re-calc when active USP changes)
     const [summaryPayload, setSummaryPayload] = useState<any>(null);
@@ -89,6 +99,8 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
 
     // Update KPI Boxes & Charts when active USP or Payload changes
     useEffect(() => {
+        setSelectedProcess(null);
+        setSelectedTqcDefect(null);
         if (!summaryPayload || !activeUsp) {
             setRqcData({ passRate: 100, defectRate: 0, qtyCheck: 0, qtyDefect: 0 });
             setTqcData({ passRate: 100, defectRate: 0, qtyCheck: 0, qtyDefect: 0 });
@@ -139,7 +151,42 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
     }, [summaryPayload, activeUsp]);
 
     // Format numbers
-    const formatPct = (val: number) => typeof val === 'number' ? `${val.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%` : '0%';
+    const formatPct = (val: number) => formatRate(typeof val === 'number' ? val : 0);
+
+    // Qty Defect charts after the cross-filter: RQC shows the clicked process's own quantities
+    const rqcQtyShown = selectedProcess
+        ? rqcQtyDefect
+            .filter((d: any) => d.byProcess?.[selectedProcess])
+            .map((d: any) => ({ ...d, qty: d.byProcess[selectedProcess] }))
+            .sort((a: any, b: any) => b.qty - a.qty)
+        : rqcQtyDefect;
+    const tqcQtyShown = selectedTqcDefect ? tqcQtyDefect.filter((d: any) => d.name === selectedTqcDefect) : tqcQtyDefect;
+
+    // KPI cards follow the cross-filter too: the clicked bar carries its own rate, defects and checked qty
+    // (RQC: that process; TQC: that defect against all TQC checking)
+    const kpiFor = (bar: any) => ({ passRate: 100 - (bar.rate || 0), defectRate: bar.rate || 0, qtyCheck: bar.qtyCheck || 0, qtyDefect: bar.qty || 0 });
+    const selectedRqcBar = selectedProcess ? rqcDefectRateByProcess.find((p: any) => p.name === selectedProcess) : null;
+    const selectedTqcBar = selectedTqcDefect ? tqcDefectRate.find((d: any) => d.name === selectedTqcDefect) : null;
+    const rqcKpi = selectedRqcBar ? kpiFor(selectedRqcBar) : rqcData;
+    const tqcKpi = selectedTqcBar ? kpiFor(selectedTqcBar) : tqcData;
+
+    // Clicking the selected bar again clears the filter
+    const toggle = (setter: React.Dispatch<React.SetStateAction<string | null>>) => (bar: any) => {
+        const name = bar?.name ?? bar?.payload?.name;
+        if (name) setter(prev => (prev === name ? null : name));
+    };
+
+    // Title with the active cross-filter and a button to clear it
+    const ChartTitle = ({ title, filter, onClear }: { title: string; filter: string | null; onClear: () => void }) => (
+        <div className="flex items-center justify-between gap-2 mb-2 min-h-[20px]">
+            <h3 className="font-bold uppercase text-xs">{title}</h3>
+            {filter && (
+                <button onClick={onClear} className="max-w-[60%] truncate text-[10px] px-2 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-700 hover:bg-gray-200" title="Clear filter">
+                    {filter} ✕
+                </button>
+            )}
+        </div>
+    );
     const formatQty = (val: number) => typeof val === 'number' ? val.toLocaleString('id-ID') : '0';
 
     const CustomTooltipPct = ({ active, payload }: any) => {
@@ -147,7 +194,7 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
             return (
                 <div className="bg-white border text-gray-800 p-2 shadow rounded text-xs">
                     <p className="font-bold mb-1">{payload[0].payload.name}</p>
-                    <p>{`${payload[0].value}%`}</p>
+                    <p>{formatRate(payload[0].value)}</p>
                 </div>
             );
         }
@@ -218,46 +265,54 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
                 <div className="flex gap-4">
                     {/* RQC */}
                     <div className="flex-1 flex flex-col gap-2">
-                        <div className="bg-[#FFB00F] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider">RQC</div>
+                        <div className="bg-[#FFB00F] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider truncate px-3">
+                            RQC
+                            {/* The cards below show only the bar clicked in the charts */}
+                            {selectedProcess && <span className="text-sm font-semibold normal-case tracking-normal"> · {selectedProcess}</span>}
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Pass Rate</span>
-                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(rqcData.passRate)}</span>
+                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(rqcKpi.passRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Defect Rate</span>
-                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(rqcData.defectRate)}</span>
+                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(rqcKpi.defectRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Check</span>
-                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(rqcData.qtyCheck)}</span>
+                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(rqcKpi.qtyCheck)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Defect</span>
-                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(rqcData.qtyDefect)}</span>
+                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(rqcKpi.qtyDefect)}</span>
                             </div>
                         </div>
                     </div>
 
                     {/* TQC */}
                     <div className="flex-1 flex flex-col gap-2">
-                        <div className="bg-[#D9262C] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider">TQC</div>
+                        <div className="bg-[#D9262C] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider truncate px-3">
+                            TQC
+                            {/* The cards below show only the bar clicked in the charts */}
+                            {selectedTqcDefect && <span className="text-sm font-semibold normal-case tracking-normal"> · {selectedTqcDefect}</span>}
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Pass Rate</span>
-                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(tqcData.passRate)}</span>
+                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(tqcKpi.passRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Defect Rate</span>
-                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(tqcData.defectRate)}</span>
+                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(tqcKpi.defectRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Checking</span>
-                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(tqcData.qtyCheck)}</span>
+                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(tqcKpi.qtyCheck)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Defect</span>
-                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(tqcData.qtyDefect)}</span>
+                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(tqcKpi.qtyDefect)}</span>
                             </div>
                         </div>
                     </div>
@@ -267,17 +322,17 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
                 <div className="grid grid-cols-4 gap-2 flex-1 min-h-[350px]">
                     {/* RQC Defect Rate By Process */}
                     <div className="bg-white border rounded shadow-sm p-3 flex flex-col text-gray-800">
-                        <h3 className="font-bold uppercase text-xs mb-2">RQC DEFECT RATE BY PROCESS</h3>
+                        <ChartTitle title="RQC DEFECT RATE BY PROCESS" filter={selectedProcess} onClear={() => setSelectedProcess(null)} />
                         <div className="flex-1 min-h-[150px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={rqcDefectRateByProcess} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                                <BarChart data={rqcDefectRateByProcess} layout="vertical" margin={{ top: 0, right: 44, left: 0, bottom: 0 }}>
                                     <XAxis type="number" hide />
                                     <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                                     <Tooltip content={<CustomTooltipPct />} />
-                                    <Bar dataKey="rate" isAnimationActive={false}>
-                                        <LabelList dataKey="rate" position="right" fontSize={10} fill="#374151" formatter={(val: number) => typeof val === 'number' ? Math.round(val) + '%' : '0%'} />
+                                    <Bar dataKey="rate" isAnimationActive={false} cursor="pointer" onClick={toggle(setSelectedProcess)}>
+                                        <LabelList dataKey="rate" position="right" fontSize={10} fill="#374151" formatter={(val: number) => formatPct(val)} />
                                         {rqcDefectRateByProcess.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.isUsp ? "#ec4899" : "#f59e0b"} />
+                                            <Cell key={`cell-${index}`} fill={RQC_COLOR} fillOpacity={selectedProcess && entry.name !== selectedProcess ? 0.3 : 1} />
                                         ))}
                                     </Bar>
                                 </BarChart>
@@ -287,17 +342,17 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
 
                     {/* RQC QTY DEFECT */}
                     <div className="bg-white border rounded shadow-sm p-3 flex flex-col text-gray-800">
-                        <h3 className="font-bold uppercase text-xs mb-2">QTY DEFECT (RQC)</h3>
+                        <ChartTitle title="QTY DEFECT (RQC)" filter={selectedProcess} onClear={() => setSelectedProcess(null)} />
                         <div className="flex-1 min-h-[150px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={rqcQtyDefect} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                                <BarChart data={rqcQtyShown} layout="vertical" margin={{ top: 0, right: 44, left: 0, bottom: 0 }}>
                                     <XAxis type="number" hide />
                                     <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                                     <Tooltip content={<CustomTooltipQty />} />
                                     <Bar dataKey="qty" isAnimationActive={false}>
                                         <LabelList dataKey="qty" position="right" fontSize={10} fill="#374151" />
-                                        {rqcQtyDefect.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.isUsp ? "#ec4899" : "#f59e0b"} />
+                                        {rqcQtyShown.map((entry: any, index: number) => (
+                                            <Cell key={`cell-${index}`} fill={RQC_COLOR} />
                                         ))}
                                     </Bar>
                                 </BarChart>
@@ -307,17 +362,17 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
 
                     {/* TQC DEFECT RATE */}
                     <div className="bg-white border rounded shadow-sm p-3 flex flex-col text-gray-800">
-                        <h3 className="font-bold uppercase text-xs mb-2">TQC DEFECT RATE</h3>
+                        <ChartTitle title="TQC DEFECT RATE" filter={selectedTqcDefect} onClear={() => setSelectedTqcDefect(null)} />
                         <div className="flex-1 min-h-[150px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={tqcDefectRate} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                                <BarChart data={tqcDefectRate} layout="vertical" margin={{ top: 0, right: 44, left: 0, bottom: 0 }}>
                                     <XAxis type="number" hide />
                                     <YAxis dataKey="name" type="category" width={130} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                                     <Tooltip content={<CustomTooltipPct />} />
-                                    <Bar dataKey="rate" isAnimationActive={false}>
-                                        <LabelList dataKey="rate" position="right" fontSize={10} fill="#374151" formatter={(val: number) => typeof val === 'number' ? Math.round(val) + '%' : '0%'} />
+                                    <Bar dataKey="rate" isAnimationActive={false} cursor="pointer" onClick={toggle(setSelectedTqcDefect)}>
+                                        <LabelList dataKey="rate" position="right" fontSize={10} fill="#374151" formatter={(val: number) => formatPct(val)} />
                                         {tqcDefectRate.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.isUsp ? "#ec4899" : "#b91c1c"} />
+                                            <Cell key={`cell-${index}`} fill={TQC_COLOR} fillOpacity={selectedTqcDefect && entry.name !== selectedTqcDefect ? 0.3 : 1} />
                                         ))}
                                     </Bar>
                                 </BarChart>
@@ -327,17 +382,17 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
 
                     {/* TQC QTY DEFECT */}
                     <div className="bg-white border rounded shadow-sm p-3 flex flex-col text-gray-800">
-                        <h3 className="font-bold uppercase text-xs mb-2">TQC QTY DEFECT</h3>
+                        <ChartTitle title="TQC QTY DEFECT" filter={selectedTqcDefect} onClear={() => setSelectedTqcDefect(null)} />
                         <div className="flex-1 min-h-[150px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={tqcQtyDefect} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                                <BarChart data={tqcQtyShown} layout="vertical" margin={{ top: 0, right: 44, left: 0, bottom: 0 }}>
                                     <XAxis type="number" hide />
                                     <YAxis dataKey="name" type="category" width={130} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                                     <Tooltip content={<CustomTooltipQty />} />
                                     <Bar dataKey="qty" isAnimationActive={false}>
                                         <LabelList dataKey="qty" position="right" fontSize={10} fill="#374151" />
-                                        {tqcQtyDefect.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.isUsp ? "#ec4899" : "#b91c1c"} />
+                                        {tqcQtyShown.map((entry: any, index: number) => (
+                                            <Cell key={`cell-${index}`} fill={TQC_COLOR} />
                                         ))}
                                     </Bar>
                                 </BarChart>
