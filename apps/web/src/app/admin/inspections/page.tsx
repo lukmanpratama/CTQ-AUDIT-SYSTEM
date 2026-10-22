@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { RqcImportButton } from '../../../features/rqc/components/RqcImportButton';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 
 const PAGE_SIZE = 10;
 
@@ -115,6 +116,34 @@ export default function AdminInspectionsPage() {
     useEffect(() => {
         loadHeaders();
     }, [debouncedModel, debouncedInspector, filterCheckingTime, filterStartDate, filterEndDate, filterFactoryId, filterCell]);
+
+    // Someone added / changed data: reload quietly (no loading screen), keeping each
+    // model's table on the page it shows and picking up new models / new totals
+    const { refreshKey, isBackgroundRefresh } = useDataRefresh();
+    const groupsRef = useRef(groups);
+    groupsRef.current = groups;
+    useEffect(() => {
+        if (!isBackgroundRefresh()) return;
+        const requestId = ++latestRequest.current;
+        (async () => {
+            try {
+                const fresh = await fetchGroups(filterParams());
+                const pageOf = new Map(groupsRef.current.map(g => [g.setupModelId, g.page]));
+                const merged = await Promise.all(fresh.map(async g => {
+                    const page = pageOf.get(g.setupModelId) || 1;
+                    if (page <= 1) return g;
+                    const params = filterParams();
+                    params.set('groupModelId', g.setupModelId);
+                    params.set('page', String(page));
+                    const [onPage] = await fetchGroups(params);
+                    return onPage || g;
+                }));
+                if (requestId === latestRequest.current) setGroups(merged);
+            } catch (err) {
+                console.error('Background refresh failed', err);
+            }
+        })();
+    }, [refreshKey]);
 
     const handleDelete = async (headerId: string, group: ModelGroup) => {
         if (!confirm('Apakah anda yakin ingin menghapus report ini? Data inspeksi di dalamnya akan ikut terhapus permanen.')) {

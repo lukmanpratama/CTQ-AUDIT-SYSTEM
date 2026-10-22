@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList, Tooltip } from 'recharts';
 import { apiClient } from '../../../lib/api-client';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 
 // YYYY-MM-DD from the local calendar date. toISOString() uses UTC, which in WIB (UTC+7)
 // turned a clicked "7 Oct 2026" into 2026-10-06 and filtered the wrong day.
@@ -148,11 +149,14 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
     }, [effectiveArea]);
 
     // 1. Fetch Process Defects (Independent of Area Filter so navigation persists)
+    // Reload when someone adds / changes data, keeping the current view on screen
+    const { refreshKey, isBackgroundRefresh } = useDataRefresh();
     useEffect(() => {
         if (!modelId || !currentCell) return;
 
+        const background = isBackgroundRefresh();
         const fetchProcessDefects = async () => {
-            setLoadingData(true);
+            if (!background) setLoadingData(true);
             try {
                 let dateParam = '';
                 if (activeDateFilter) {
@@ -181,7 +185,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             }
         };
         fetchProcessDefects();
-    }, [modelId, currentCell, activeDateFilter, globalStartDate, globalEndDate, checkingTimeFilter]);
+    }, [modelId, currentCell, activeDateFilter, globalStartDate, globalEndDate, checkingTimeFilter, refreshKey]);
 
     // --- Fetch Immediate Actions ---
     useEffect(() => {

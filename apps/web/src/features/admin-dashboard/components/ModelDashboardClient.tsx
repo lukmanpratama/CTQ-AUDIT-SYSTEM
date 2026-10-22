@@ -10,6 +10,7 @@ import { WeeklyDefectRateChart } from './WeeklyDefectRateChart';
 import { ProcessDefectCharts } from './ProcessDefectCharts';
 import { CapDefectTrendModal } from './CapDefectTrendModal';
 import { modelLabel } from '../../../lib/model-label';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 
 export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
     const router = useRouter();
@@ -64,6 +65,8 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
         setIsDateFilterOpen(false);
     };
 
+    // Reload when someone adds / changes data
+    const { refreshKey } = useDataRefresh();
     useEffect(() => {
         if (!modelId) return;
 
@@ -140,7 +143,7 @@ export function ModelDashboardClient({ searchParams }: { searchParams: any }) {
 
         fetchModel();
         fetchDashboardData();
-    }, [modelId, globalStartDate, globalEndDate, activeFilter, globalCell]);
+    }, [modelId, globalStartDate, globalEndDate, activeFilter, globalCell, refreshKey]);
 
     // Recalculate totalPassRate, RQC/TQC pass rates & defect rates when activeFilter changes
     useEffect(() => {

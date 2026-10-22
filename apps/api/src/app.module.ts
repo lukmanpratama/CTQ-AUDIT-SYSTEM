@@ -19,6 +19,7 @@ import { RqcModule } from './rqc/rqc.module';
 import { FilesModule } from './files/files.module';
 import { TqcModule } from './tqc/tqc.module';
 import { TqcSetupDefectModule } from './tqc-setup-defect/tqc-setup-defect.module';
+import { DataVersionModule } from './data-version/data-version.module';
 
 @Module({
   imports: [
@@ -79,6 +80,9 @@ import { TqcSetupDefectModule } from './tqc-setup-defect/tqc-setup-defect.module
     FilesModule,
     TqcModule,
     TqcSetupDefectModule,
+
+    // Clears the response cache and bumps the data version after every write
+    DataVersionModule,
   ],
 })
 export class AppModule { }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { apiClient } from '../../../lib/api-client';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, LabelList } from 'recharts';
 import { modelLabel } from '../../../lib/model-label';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 
 export function DefectCtqClient({ searchParams }: { searchParams: any }) {
     const router = useRouter();
@@ -33,6 +34,8 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
     // Raw payload from API (to re-calc when active USP changes)
     const [summaryPayload, setSummaryPayload] = useState<any>(null);
 
+    // Reload when someone adds / changes data
+    const { refreshKey } = useDataRefresh();
     useEffect(() => {
         if (!modelId) return;
         const fetchDashboardData = async () => {
@@ -82,7 +85,7 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
             }
         };
         fetchDashboardData();
-    }, [modelId, startDate, endDate, cell]);
+    }, [modelId, startDate, endDate, cell, refreshKey]);
 
     // Update KPI Boxes & Charts when active USP or Payload changes
     useEffect(() => {

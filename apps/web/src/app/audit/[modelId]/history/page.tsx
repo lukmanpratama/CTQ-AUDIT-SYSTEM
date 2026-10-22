@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { use } from 'react';
 import { modelLabel } from '../../../../lib/model-label';
+import { useDataRefresh } from '../../../../lib/use-data-refresh';
 
 const isFilled = (v?: string | null) => !!(v && v.trim() !== '');
 
@@ -76,6 +77,8 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
     const [loading, setLoading] = useState(true);
     const [headers, setHeaders] = useState<any[]>([]);
 
+    // Reload when someone adds / changes data (the loading screen only shows on the first load)
+    const { refreshKey } = useDataRefresh();
     useEffect(() => {
         fetch(`/api/rqc/headers?modelId=${modelId}`)
             .then(res => res.json())
@@ -87,7 +90,7 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                 console.error('Failed to load headers', err);
                 setLoading(false);
             });
-    }, [modelId]);
+    }, [modelId, refreshKey]);
 
     // Filters
     const [startDate, setStartDate] = useState('');

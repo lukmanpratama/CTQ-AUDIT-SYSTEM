@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useDataRefresh } from '../../../lib/use-data-refresh';
 import { DashboardHeader } from './DashboardHeader';
 import { KPICards } from './KPICards';
 import { RecentInspectionsTable } from './RecentInspectionsTable';
@@ -22,6 +23,8 @@ export function DashboardClient() {
     const [kpiData, setKpiData] = useState<any>(null);
     const [recentInspections, setRecentInspections] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    // Reload when someone adds / changes data, without the loading screen
+    const { refreshKey, isBackgroundRefresh } = useDataRefresh();
 
     // Fetch filter options once
     useEffect(() => {
@@ -32,8 +35,9 @@ export function DashboardClient() {
 
     // Fetch data whenever filters change
     useEffect(() => {
+        const background = isBackgroundRefresh();
         const fetchDashboardData = async () => {
-            setLoading(true);
+            if (!background) setLoading(true);
             try {
                 const queryParams = new URLSearchParams();
                 if (filters.modelId !== 'All') queryParams.append('modelId', filters.modelId);
@@ -58,7 +62,7 @@ export function DashboardClient() {
             }
         };
         fetchDashboardData();
-    }, [filters]);
+    }, [filters, refreshKey]);
 
     const handleFilterChange = (key: string, value: string) => {
         setFilters(prev => ({ ...prev, [key]: value }));
