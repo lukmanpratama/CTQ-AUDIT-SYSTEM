@@ -159,6 +159,14 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
         : rqcQtyDefect;
     const tqcQtyShown = selectedTqcDefect ? tqcQtyDefect.filter((d: any) => d.name === selectedTqcDefect) : tqcQtyDefect;
 
+    // KPI cards follow the cross-filter too: the clicked bar carries its own rate, defects and checked qty
+    // (RQC: that process; TQC: that defect against all TQC checking)
+    const kpiFor = (bar: any) => ({ passRate: 100 - (bar.rate || 0), defectRate: bar.rate || 0, qtyCheck: bar.qtyCheck || 0, qtyDefect: bar.qty || 0 });
+    const selectedRqcBar = selectedProcess ? rqcDefectRateByProcess.find((p: any) => p.name === selectedProcess) : null;
+    const selectedTqcBar = selectedTqcDefect ? tqcDefectRate.find((d: any) => d.name === selectedTqcDefect) : null;
+    const rqcKpi = selectedRqcBar ? kpiFor(selectedRqcBar) : rqcData;
+    const tqcKpi = selectedTqcBar ? kpiFor(selectedTqcBar) : tqcData;
+
     // Clicking the selected bar again clears the filter
     const toggle = (setter: React.Dispatch<React.SetStateAction<string | null>>) => (bar: any) => {
         const name = bar?.name ?? bar?.payload?.name;
@@ -254,46 +262,54 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
                 <div className="flex gap-4">
                     {/* RQC */}
                     <div className="flex-1 flex flex-col gap-2">
-                        <div className="bg-[#FFB00F] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider">RQC</div>
+                        <div className="bg-[#FFB00F] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider truncate px-3">
+                            RQC
+                            {/* The cards below show only the bar clicked in the charts */}
+                            {selectedProcess && <span className="text-sm font-semibold normal-case tracking-normal"> · {selectedProcess}</span>}
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Pass Rate</span>
-                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(rqcData.passRate)}</span>
+                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(rqcKpi.passRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Defect Rate</span>
-                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(rqcData.defectRate)}</span>
+                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(rqcKpi.defectRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Check</span>
-                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(rqcData.qtyCheck)}</span>
+                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(rqcKpi.qtyCheck)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Defect</span>
-                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(rqcData.qtyDefect)}</span>
+                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(rqcKpi.qtyDefect)}</span>
                             </div>
                         </div>
                     </div>
 
                     {/* TQC */}
                     <div className="flex-1 flex flex-col gap-2">
-                        <div className="bg-[#D9262C] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider">TQC</div>
+                        <div className="bg-[#D9262C] text-white text-center py-2 font-bold uppercase rounded shadow-sm text-xl tracking-wider truncate px-3">
+                            TQC
+                            {/* The cards below show only the bar clicked in the charts */}
+                            {selectedTqcDefect && <span className="text-sm font-semibold normal-case tracking-normal"> · {selectedTqcDefect}</span>}
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Pass Rate</span>
-                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(tqcData.passRate)}</span>
+                                <span className="text-3xl font-bold text-green-600 mt-2">{formatPct(tqcKpi.passRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Defect Rate</span>
-                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(tqcData.defectRate)}</span>
+                                <span className="text-3xl font-bold text-red-600 mt-2">{formatPct(tqcKpi.defectRate)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Checking</span>
-                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(tqcData.qtyCheck)}</span>
+                                <span className="text-3xl font-bold text-green-700 mt-2">{formatQty(tqcKpi.qtyCheck)}</span>
                             </div>
                             <div className="bg-white border rounded p-4 flex flex-col shadow-sm items-center justify-center min-h-[90px] relative">
                                 <span className="text-xs text-gray-500 font-semibold absolute top-2 left-3 uppercase">Qty Defect</span>
-                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(tqcData.qtyDefect)}</span>
+                                <span className="text-3xl font-bold text-red-700 mt-2">{formatQty(tqcKpi.qtyDefect)}</span>
                             </div>
                         </div>
                     </div>
