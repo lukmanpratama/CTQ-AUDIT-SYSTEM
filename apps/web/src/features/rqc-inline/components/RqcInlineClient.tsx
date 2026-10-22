@@ -2,17 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+// Rates: 2 decimals, above half up, exact half down (2,058 -> 2,06; 2,055 -> 2,05)
+import { formatRate, roundRate } from '../../../lib/format-rate';
 import { PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine, LabelList, Tooltip } from 'recharts';
 import { apiClient } from '../../../lib/api-client';
-
-// YYYY-MM-DD from the local calendar date. toISOString() uses UTC, which in WIB (UTC+7)
-// turned a clicked "7 Oct 2026" into 2026-10-06 and filtered the wrong day.
-// Defect rates show 2 decimals, cut off instead of rounded: 6 / 320 = 1,875% -> 1,87% (not 1,88%).
-// The tiny epsilon keeps float noise (0,29 * 100 = 28,999...) from dropping a digit.
-const formatRate = (v: number) => {
-    const truncated = Math.floor(Number(v || 0) * 100 + 1e-9) / 100;
-    return `${truncated.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
-};
 
 // INHOUSE treatment cells (NOSEW 9, PRINTING 1, ...) are grouped under the TREATMENT tab
 const TREATMENT_KEYWORDS = ['NOSEW', 'EMBOSS', 'EMBROIDERY', 'PRINTING'];
@@ -21,6 +14,8 @@ const treatmentKeyword = (cell: string) => TREATMENT_KEYWORDS.find(kw => (cell |
 // Short chart animations so switching cell/area/filters feels smooth instead of redrawing from zero
 const CHART_ANIMATION_MS = 350;
 
+// YYYY-MM-DD from the local calendar date. toISOString() uses UTC, which in WIB (UTC+7)
+// turned a clicked "7 Oct 2026" into 2026-10-06 and filtered the wrong day.
 const toLocalIsoDate = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -287,7 +282,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
             }
             return {
                 ...d,
-                passRate: Math.round((exactDailyPass + Number.EPSILON) * 100) / 100
+                passRate: roundRate(exactDailyPass)
             };
         });
 
@@ -329,8 +324,9 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
         : 100;
 
     // Consistency audit doughnut assignment
-    const rqcPassRate = Math.round((manualRqcPassRate + Number.EPSILON) * 100) / 100;
-    const rqcDefectRate = Math.round(((100 - rqcPassRate) + Number.EPSILON) * 100) / 100;
+    const rqcPassRate = roundRate(manualRqcPassRate);
+    // The doughnut's remainder, so both parts add up to 100
+    const rqcDefectRate = roundRate(100 - rqcPassRate);
     const consistencyData = [
         { value: rqcPassRate },
         { value: rqcDefectRate > 0 ? rqcDefectRate : 0 }
@@ -558,7 +554,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                             </PieChart>
                         </ResponsiveContainer>
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <span className="text-[#06C258] text-3xl font-medium tracking-tight">{rqcPassRate.toFixed(2)}%</span>
+                            <span className="text-[#06C258] text-3xl font-medium tracking-tight">{formatRate(rqcPassRate)}</span>
                         </div>
                     </div>
                 </div>
@@ -658,7 +654,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
                                                 fillOpacity={item && isFaded(item.date) ? 0.2 : 1}
                                                 fontWeight={selected ? 'bold' : 'normal'}
                                             >
-                                                {(value % 1 === 0 ? `${value}0` : `${value}`) + '%'}
+                                                {formatRate(value)}
                                             </text>
                                         );
                                     }}
