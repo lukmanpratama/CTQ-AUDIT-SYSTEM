@@ -295,14 +295,14 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                                         : [{ label: 'Action Plan', value: f.actionPlan }];
                                     const rate = f.qtyChecking > 0 ? (f.qtyDefect / f.qtyChecking) * 100 : 0;
                                     return (
-                                        <tr key={f.id} className="align-top">
+                                        <tr key={f.id} className={`align-top ${f.isCap ? 'bg-red-50' : ''}`}>
                                             <td className="px-4 py-3">
                                                 <div className="font-semibold text-gray-900">{f.defectName}</div>
                                                 <div className="text-xs text-gray-500 mt-0.5">{f.processName}</div>
                                             </td>
                                             <td className="px-4 py-3 text-right whitespace-nowrap">
                                                 <div className="font-semibold text-red-600">{f.qtyDefect} / {f.qtyChecking}</div>
-                                                <div className="text-xs text-gray-500">{rate.toFixed(2)}%</div>
+                                                <div className={`text-xs ${f.isCap ? 'font-bold text-red-600' : 'text-gray-500'}`}>{rate.toFixed(2)}%</div>
                                             </td>
                                             <td className="px-4 py-3">
                                                 <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${f.isCap ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>

@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { CAP_DAILY_THRESHOLD } from '../common/cap-thresholds';
 import { MODEL_MATCH_SELECT } from '../common/model-match';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
@@ -12,7 +14,7 @@ type HeaderListFilters = { model?: string; modelId?: string; startDate?: string;
 
 @Injectable()
 export class RqcService {
-    constructor(private prisma: PrismaService) { }
+    constructor(private prisma: PrismaService, private notifications: NotificationsService) { }
 
     async createHeader(dto: CreateHeaderDto) {
         // Resolve PO to snapshot data (to satisfy historical integrity requirement)
@@ -176,7 +178,7 @@ export class RqcService {
             const passRate = Math.max(0, 1 - defectRate);
 
             // Action Decision rule from PRD: rate > 20% = CAP
-            const status = defectRate > 0.20 ? 'CAP' : 'IMMEDIATE_ACTION';
+            const status = defectRate > CAP_DAILY_THRESHOLD ? 'CAP' : 'IMMEDIATE_ACTION';
 
             await this.prisma.rqcInspection.upsert({
                 where: {
@@ -214,6 +216,13 @@ export class RqcService {
                     photoAfterActionPlan: d.photoAfterActionPlan !== undefined ? d.photoAfterActionPlan : undefined
                 }
             });
+        }
+
+        // Daily CAP popup for everyone with the app open; a failed alert must not fail the save
+        try {
+            await this.notifications.notifyDailyCap(processTx.rqcProcessId);
+        } catch (e) {
+            console.error('Daily CAP notification failed', e);
         }
 
         return this.serializeBigInt({
@@ -410,12 +419,13 @@ export class RqcService {
             };
         }));
 
-        // Checks / defects per header for the rows on these pages only
+        // Checks / defects / CAP rows (defect rate above the daily CAP threshold) per header, for these pages only
         const ids = groups.flatMap(g => g.rows.map(r => r.rqcHeaderId));
-        const totals = ids.length === 0 ? [] : await this.prisma.$queryRaw<{ id: string; checks: number; defects: number }[]>`
+        const totals = ids.length === 0 ? [] : await this.prisma.$queryRaw<{ id: string; checks: number; defects: number; caps: number }[]>`
             SELECT a.rqc_header_id::text AS id,
                    COALESCE(SUM(p.qty_checking), 0)::int AS checks,
-                   COALESCE(SUM((SELECT SUM(i.qty_defect) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id)), 0)::int AS defects
+                   COALESCE(SUM((SELECT SUM(i.qty_defect) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id)), 0)::int AS defects,
+                   COALESCE(SUM((SELECT COUNT(*) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id AND i.status = 'CAP')), 0)::int AS caps
             FROM rqc_area a
             JOIN rqc_process p ON p.rqc_area_id = a.rqc_area_id
             WHERE a.rqc_header_id = ANY(${ids}::uuid[])
@@ -427,7 +437,10 @@ export class RqcService {
             pageSize,
             groups: groups.map(g => ({
                 ...g,
-                rows: g.rows.map(r => ({ ...r, checks: totalsById.get(r.rqcHeaderId)?.checks ?? 0, defects: totalsById.get(r.rqcHeaderId)?.defects ?? 0 })),
+                rows: g.rows.map(r => {
+                    const t = totalsById.get(r.rqcHeaderId);
+                    return { ...r, checks: t?.checks ?? 0, defects: t?.defects ?? 0, capCount: t?.caps ?? 0 };
+                }),
             })),
         });
     }

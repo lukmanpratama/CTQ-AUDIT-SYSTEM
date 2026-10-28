@@ -229,7 +229,10 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                     <div
                                         key={h.rqcHeaderId}
                                         onClick={() => router.push(`/audit/session/${h.rqcHeaderId}/summary?view=true`)}
-                                        className={`bg-white border rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${hasPendingAction ? 'border-amber-300 hover:border-amber-400' : 'border-gray-200 hover:border-gray-400'}`}
+                                        className={`border rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${cap.total > 0
+                                            // CAP daily: a defect above 20% marks the whole card red
+                                            ? 'bg-red-50 border-red-400 border-l-4 hover:border-red-500'
+                                            : hasPendingAction ? 'bg-white border-amber-300 hover:border-amber-400' : 'bg-white border-gray-200 hover:border-gray-400'}`}
                                     >
                                         <div className="flex justify-between items-start gap-3">
                                             <div className="min-w-0">

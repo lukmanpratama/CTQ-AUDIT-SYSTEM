@@ -10,6 +10,8 @@ const PAGE_SIZE = 10;
 type HeaderRow = {
     rqcHeaderId: string; date: string; checkingTime: string; po: string; model: string; cell: string | null; nik: string;
     factory: { factory: string } | null; inspector: { namaUser: string } | null; checks: number; defects: number;
+    /** Inspection rows above the daily CAP threshold (20%) */
+    capCount: number;
 };
 type ModelGroup = { setupModelId: string; label: string; total: number; page: number; totalPages: number; rows: HeaderRow[] };
 
@@ -371,7 +373,8 @@ export default function AdminInspectionsPage() {
                                             const passRateColor = passRate < 95 ? 'text-orange-500 font-bold' : 'text-green-600 font-bold';
 
                                             return (
-                                                <tr key={h.rqcHeaderId} className="hover:bg-gray-50 transition-colors">
+                                                // CAP daily: a report with a defect above 20% is marked red
+                                                <tr key={h.rqcHeaderId} className={`transition-colors ${h.capCount > 0 ? 'bg-red-50 hover:bg-red-100 border-l-4 border-l-red-500' : 'hover:bg-gray-50'}`}>
                                                     <td className="px-5 py-3">
                                                         <input
                                                             type="checkbox"
@@ -389,7 +392,14 @@ export default function AdminInspectionsPage() {
                                                     <td className="px-5 py-3 font-semibold">{checks}</td>
                                                     <td className="px-5 py-3 font-semibold text-red-500">{defects}</td>
                                                     <td className={`px-5 py-3 ${passRateColor}`}>{passRate.toFixed(2)}%</td>
-                                                    <td className={`px-5 py-3 ${defectRateColor}`}>{defectRate.toFixed(2)}%</td>
+                                                    <td className={`px-5 py-3 ${defectRateColor}`}>
+                                                        {defectRate.toFixed(2)}%
+                                                        {h.capCount > 0 && (
+                                                            <span className="ml-2 inline-block rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white align-middle" title={`${h.capCount} defect di atas 20%`}>
+                                                                CAP
+                                                            </span>
+                                                        )}
+                                                    </td>
                                                     <td className="px-5 py-3 text-right">
                                                         <div className="flex items-center justify-end gap-3 text-xs font-medium">
                                                             <Link href={`/admin/inspections/${h.rqcHeaderId}`} className="text-blue-600 hover:text-blue-800 hover:underline">
