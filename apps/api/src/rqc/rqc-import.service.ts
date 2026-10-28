@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RqcImportRow } from './rqc.dto';
 import { MODEL_MATCH_SELECT, modelLabel, normalizeArticle } from '../common/model-match';
+import { CAP_DAILY_THRESHOLD } from '../common/cap-thresholds';
 
 const MAX_ROWS = 5000;
 const MAX_ERRORS = 200;
@@ -271,7 +272,7 @@ export class RqcImportService {
                                 rqcProcessId: proc.rqcProcessId, defectId: d.defectId, date,
                                 qtyDefect: d.qtyDefect, defectRate, passRate: Math.max(0, 1 - defectRate),
                                 // Same rule as manual entry: rate > 20% = CAP
-                                status: defectRate > 0.2 ? 'CAP' : 'IMMEDIATE_ACTION',
+                                status: defectRate > CAP_DAILY_THRESHOLD ? 'CAP' : 'IMMEDIATE_ACTION',
                                 actionPlan: d.actionPlan, rootCause: d.rootCause, corrective: d.corrective,
                                 durasiStopline: d.durasiStopline, photoDefect: d.photoDefect, photoAfterActionPlan: d.photoAfterActionPlan,
                                 createdAt,

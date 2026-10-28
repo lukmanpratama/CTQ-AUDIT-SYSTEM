@@ -14,17 +14,25 @@ let changeCount = 0;
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setInterval> | null = null;
 
+// Newest CAP alert id, sent along with the data version (see useLatestAlertId)
+let latestAlertId: string | null = null;
+const alertListeners = new Set<() => void>();
+
 async function poll() {
     if (document.visibilityState !== 'visible') return;
     try {
         const res = await fetch('/api/data-version', { cache: 'no-store' });
         if (!res.ok) return;
-        const { version } = await res.json();
+        const { version, alertId } = await res.json();
         if (serverVersion !== null && version !== serverVersion) {
             changeCount++;
             listeners.forEach(notify => notify());
         }
         serverVersion = version;
+        if (alertId !== undefined && alertId !== latestAlertId) {
+            latestAlertId = String(alertId);
+            alertListeners.forEach(notify => notify());
+        }
     } catch {
         // API unreachable for a moment: try again on the next tick
     }
@@ -66,4 +74,23 @@ export function useDataRefresh() {
         return background;
     }, [refreshKey]);
     return { refreshKey, isBackgroundRefresh };
+}
+
+function subscribeAlerts(notify: () => void) {
+    alertListeners.add(notify);
+    // Keeps the shared poller running while an alert listener is mounted (it never fires data refreshes)
+    const keepPolling = () => { };
+    const unsubscribe = subscribe(keepPolling);
+    return () => {
+        alertListeners.delete(notify);
+        unsubscribe();
+    };
+}
+
+/**
+ * Id of the newest CAP alert on the server (null until the first poll). It rides on the same
+ * 15s /api/data-version poll, so watching for alerts costs no extra requests.
+ */
+export function useLatestAlertId() {
+    return useSyncExternalStore(subscribeAlerts, () => latestAlertId, () => null);
 }

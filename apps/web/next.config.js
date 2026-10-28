@@ -6,6 +6,9 @@
 const API_INTERNAL_URL = process.env.API_INTERNAL_URL || 'http://127.0.0.1:3001';
 
 const nextConfig = {
+  // NEXT_DIST_DIR=.next-prod lets a production build/start use its own folder, so it can be
+  // built while `next dev` is still serving from .next (no downtime while building)
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   output: 'standalone',
   experimental: {
     allowedDevOrigins: ['localhost:3000', '192.168.43.210:3000', '192.168.43.210'],

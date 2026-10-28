@@ -19,6 +19,7 @@ import { RqcModule } from './rqc/rqc.module';
 import { FilesModule } from './files/files.module';
 import { TqcModule } from './tqc/tqc.module';
 import { TqcSetupDefectModule } from './tqc-setup-defect/tqc-setup-defect.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { DataVersionModule } from './data-version/data-version.module';
 
 @Module({
@@ -83,6 +84,9 @@ import { DataVersionModule } from './data-version/data-version.module';
 
     // Clears the response cache and bumps the data version after every write
     DataVersionModule,
+
+    // CAP alerts (popup on every open app)
+    NotificationsModule,
   ],
 })
 export class AppModule { }

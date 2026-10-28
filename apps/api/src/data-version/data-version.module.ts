@@ -6,6 +6,8 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { Observable, tap } from 'rxjs';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /** Writes that change no records the pages show: logging in, uploading a photo before its record is saved. */
 const IGNORED_WRITE_PATHS = ['/api/auth/', '/api/files/upload'];
@@ -61,16 +63,23 @@ export class DataChangeInterceptor implements NestInterceptor {
 
 @Controller('data-version')
 export class DataVersionController {
-    constructor(private readonly dataVersion: DataVersionService) { }
+    constructor(
+        private readonly dataVersion: DataVersionService,
+        private readonly notifications: NotificationsService,
+    ) { }
 
-    /** Polled by open pages (every ~15s); when `version` changes they reload their data. */
+    /**
+     * Polled by open pages (every ~15s); when `version` changes they reload their data.
+     * `alertId` is the newest CAP alert: when it grows, the app fetches and pops up the new ones.
+     */
     @Get()
     get() {
-        return this.dataVersion.current;
+        return { ...this.dataVersion.current, alertId: this.notifications.latestId };
     }
 }
 
 @Module({
+    imports: [NotificationsModule],
     controllers: [DataVersionController],
     providers: [
         DataVersionService,

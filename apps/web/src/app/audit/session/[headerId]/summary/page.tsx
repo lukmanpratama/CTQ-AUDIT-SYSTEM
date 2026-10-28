@@ -338,7 +338,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                             <h2 className="text-gray-900 font-bold mb-3">Defect Evidence</h2>
                             <div className="space-y-4">
                                 {photoInspections.map((item, idx) => (
-                                    <div key={idx} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                                    <div key={idx} className={`border rounded-xl p-4 shadow-sm ${item.status === 'CAP' ? 'bg-red-50 border-red-300 border-l-4 border-l-red-500' : 'bg-white border-gray-200'}`}>
                                         <div className="flex justify-between items-start gap-3 mb-3">
                                             <p className="text-sm font-bold text-gray-900">{item.processName}</p>
                                             <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded border whitespace-nowrap ${item.status === 'CAP' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
