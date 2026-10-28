@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { use } from 'react';
 import { modelLabel } from '../../../../lib/model-label';
 import { useDataRefresh } from '../../../../lib/use-data-refresh';
+import { deleteHeader, listHeaders } from '../../../../lib/offline/inspection-repository';
+import { inspectorSessionUrl, inspectorSummaryUrl } from '../../../../features/rqc/audit-nav';
 
 const isFilled = (v?: string | null) => !!(v && v.trim() !== '');
 
@@ -80,8 +82,8 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
     // Reload when someone adds / changes data (the loading screen only shows on the first load)
     const { refreshKey } = useDataRefresh();
     useEffect(() => {
-        fetch(`/api/rqc/headers?modelId=${modelId}`)
-            .then(res => res.json())
+        // Offline: the list kept on this device, plus audits made / changed offline
+        listHeaders(modelId)
             .then(data => {
                 setHeaders(data);
                 setLoading(false);
@@ -228,7 +230,7 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                 return (
                                     <div
                                         key={h.rqcHeaderId}
-                                        onClick={() => router.push(`/audit/session/${h.rqcHeaderId}/summary?view=true`)}
+                                        onClick={() => router.push(inspectorSummaryUrl(h.rqcHeaderId, '?view=true'))}
                                         className={`border rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${cap.total > 0
                                             // CAP daily: a defect above 20% marks the whole card red
                                             ? 'bg-red-50 border-red-400 border-l-4 hover:border-red-500'
@@ -255,6 +257,13 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                         <div className="flex justify-between items-end gap-3 mt-3">
                                             {/* Immediate Action / CAP follow-up status */}
                                             <div className="flex flex-wrap gap-1.5">
+                                                {/* Saved on this device, not on the server yet */}
+                                                {h._pendingSync && (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-300">
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l2.5 2.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                        {h._localOnly ? 'Dibuat offline · belum terkirim' : 'Belum terkirim'}
+                                                    </span>
+                                                )}
                                                 {ia.total === 0 && cap.total === 0 ? (
                                                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500 border border-gray-200">
                                                         Tidak ada temuan defect
@@ -270,7 +279,7 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            router.push(`/audit/session/${h.rqcHeaderId}`);
+                                                            router.push(inspectorSessionUrl(h.rqcHeaderId));
                                                         }}
                                                         className="p-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors border border-indigo-100"
                                                         title="Edit"
@@ -283,10 +292,12 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                                             if (confirm('Yakin ingin menghapus form inspeksi ini beserta seluruh data proses?')) {
                                                                 const targetBtn = e.currentTarget as HTMLButtonElement | null;
                                                                 if (targetBtn) targetBtn.disabled = true;
-                                                                fetch(`/api/rqc/headers/${h.rqcHeaderId}`, { method: 'DELETE' })
-                                                                    .then(res => {
-                                                                        if (res.ok) setHeaders(headers.filter((r: any) => r.rqcHeaderId !== h.rqcHeaderId));
-                                                                        else alert('Failed to delete.');
+                                                                // An audit made offline is removed from this device; a server one needs the connection
+                                                                deleteHeader(h.rqcHeaderId)
+                                                                    .then(() => setHeaders(headers.filter((r: any) => r.rqcHeaderId !== h.rqcHeaderId)))
+                                                                    .catch(err => {
+                                                                        if (targetBtn) targetBtn.disabled = false;
+                                                                        alert(err instanceof Error ? err.message : 'Failed to delete.');
                                                                     });
                                                             }
                                                         }}

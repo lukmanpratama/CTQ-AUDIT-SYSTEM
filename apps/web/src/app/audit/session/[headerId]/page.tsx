@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
-import { useAuditNav } from '../../../../features/rqc/audit-nav';
+import { inspectorSummaryUrl, useAuditNav } from '../../../../features/rqc/audit-nav';
+import { OfflineUnavailableError, deleteProcess, getHeader, getJson, savePhoto, saveProcess } from '../../../../lib/offline/inspection-repository';
 import { compressImage } from '../../../../lib/compress-image';
 
 const processImageUrl = (url: string) => {
@@ -67,15 +68,13 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
     useEffect(() => {
         const fetchAllData = async () => {
             try {
-                // 1. Fetch saved session state
-                const headerRes = await fetch(`/api/rqc/headers/${headerId}`);
-                const header = await headerRes.json();
+                // 1. Saved session state (offline: the copy on this device, with changes not yet sent)
+                const header = await getHeader(headerId);
                 setHeaderData(header);
 
                 if (header.setupModelId) {
-                    // 2. Fetch CTQ tree
-                    const treeRes = await fetch(`/api/ctq-setup/models/${header.setupModelId}/tree`);
-                    const treeData = await treeRes.json();
+                    // 2. CTQ tree
+                    const treeData = await getJson(`/api/ctq-setup/models/${header.setupModelId}/tree`);
                     const allAreas = treeData.areas || [];
                     setTree(allAreas);
 
@@ -94,6 +93,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                 setLoading(false);
             } catch (err) {
                 console.error("Failed fetching session data", err);
+                if (err instanceof OfflineUnavailableError) alert(err.message);
                 setLoading(false);
             }
         };
@@ -183,23 +183,19 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         }
     };
 
+    // Uploaded to MinIO, or kept on this device while offline (sent with the inspection later)
     const uploadToMinio = async (file: File): Promise<string | undefined> => {
-        const formData = new FormData();
-        // Camera photos are several MB; shrink them first so saving doesn't wait on a slow upload
-        formData.append('file', await compressImage(file));
         try {
-            const res = await fetch('/api/files/upload', {
-                method: 'POST',
-                body: formData,
-            });
-            if (!res.ok) throw new Error('Upload failed');
-            const data = await res.json();
-            return data.url;
+            // Camera photos are several MB; shrink them first so saving doesn't wait on a slow upload
+            return await savePhoto(headerId, await compressImage(file));
         } catch (err) {
             console.error('Failed to upload file to MinIO', err);
             return undefined;
         }
     };
+
+    // Re-reads the audit after a save (offline: the device copy with the change applied)
+    const refreshHeader = async () => setHeaderData(await getHeader(headerId));
 
     const handleSaveNoDefect = async (area: any, process: any) => {
         setSavingProcessId(process.setupProcessId);
@@ -209,26 +205,11 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         };
 
         try {
-            const res = await fetch(
-                `/api/rqc/headers/${headerId}/areas/${area.setupAreaId}/processes/${process.setupProcessId}/inspections`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                }
-            );
-
-            if (res.ok) {
-                // Refresh header data locally
-                const headerRes = await fetch(`/api/rqc/headers/${headerId}`);
-                const updatedHeader = await headerRes.json();
-                setHeaderData(updatedHeader);
-            } else {
-                alert('Failed to save status.');
-            }
+            await saveProcess(headerId, area.setupAreaId, process.setupProcessId, payload, { processName: process.masterProcess?.process });
+            await refreshHeader();
         } catch (err) {
             console.error(err);
-            alert('A network error occurred.');
+            alert('Failed to save status.');
         } finally {
             setSavingProcessId(null);
         }
@@ -238,22 +219,11 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         if (!confirm('Are you sure you want to delete this inspection and reset the process?')) return;
 
         try {
-            const res = await fetch(
-                `/api/rqc/headers/${headerId}/areas/${area.setupAreaId}/processes/${process.setupProcessId}/inspections`,
-                { method: 'DELETE' }
-            );
-
-            if (res.ok) {
-                // Refresh header data locally
-                const headerRes = await fetch(`/api/rqc/headers/${headerId}`);
-                const updatedHeader = await headerRes.json();
-                setHeaderData(updatedHeader);
-            } else {
-                alert('Failed to delete inspection.');
-            }
+            await deleteProcess(headerId, area.setupAreaId, process.setupProcessId);
+            await refreshHeader();
         } catch (err) {
             console.error(err);
-            alert('A network error occurred.');
+            alert('Failed to delete inspection.');
         }
     };
 
@@ -295,27 +265,12 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         };
 
         try {
-            const res = await fetch(
-                `/api/rqc/headers/${headerId}/areas/${modalArea.setupAreaId}/processes/${modalProcess.setupProcessId}/inspections`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                }
-            );
-
-            if (res.ok) {
-                // Refresh header data locally
-                const headerRes = await fetch(`/api/rqc/headers/${headerId}`);
-                const updatedHeader = await headerRes.json();
-                setHeaderData(updatedHeader);
-                setIsDefectModalOpen(false);
-            } else {
-                alert('Failed to save defect.');
-            }
+            await saveProcess(headerId, modalArea.setupAreaId, modalProcess.setupProcessId, payload, { processName: modalProcess.masterProcess?.process });
+            await refreshHeader();
+            setIsDefectModalOpen(false);
         } catch (err) {
             console.error(err);
-            alert('A network error occurred.');
+            alert('Failed to save defect.');
         } finally {
             setSavingDefect(false);
         }
@@ -399,7 +354,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                             Inspection Report
                         </button>
                     ) : viewOnly ? (
-                        <button onClick={() => router.push(`/audit/session/${headerId}/summary?view=true`)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
+                        <button onClick={() => router.push(inspectorSummaryUrl(headerId, '?view=true'))} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
                             <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                             Inspection Summary
                         </button>
