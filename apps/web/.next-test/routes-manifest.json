@@ -1,0 +1,291 @@
+{
+  "version": 3,
+  "pages404": true,
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [
+      {
+        "source": "/api/:path*",
+        "destination": "http://127.0.0.1:3001/api/:path*",
+        "regex": "^/api(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))?(?:/)?$"
+      }
+    ],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/admin/inspections/[headerId]",
+      "regex": "^/admin/inspections/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPheaderId": "nxtPheaderId"
+      },
+      "namedRegex": "^/admin/inspections/(?<nxtPheaderId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/admin/inspections/[headerId]/edit",
+      "regex": "^/admin/inspections/([^/]+?)/edit(?:/)?$",
+      "routeKeys": {
+        "nxtPheaderId": "nxtPheaderId"
+      },
+      "namedRegex": "^/admin/inspections/(?<nxtPheaderId>[^/]+?)/edit(?:/)?$"
+    },
+    {
+      "page": "/admin/inspections/[headerId]/edit/header/[modelId]",
+      "regex": "^/admin/inspections/([^/]+?)/edit/header/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPheaderId": "nxtPheaderId",
+        "nxtPmodelId": "nxtPmodelId"
+      },
+      "namedRegex": "^/admin/inspections/(?<nxtPheaderId>[^/]+?)/edit/header/(?<nxtPmodelId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/admin/inspections/[headerId]/edit/summary",
+      "regex": "^/admin/inspections/([^/]+?)/edit/summary(?:/)?$",
+      "routeKeys": {
+        "nxtPheaderId": "nxtPheaderId"
+      },
+      "namedRegex": "^/admin/inspections/(?<nxtPheaderId>[^/]+?)/edit/summary(?:/)?$"
+    },
+    {
+      "page": "/admin/setup/tree/[modelId]",
+      "regex": "^/admin/setup/tree/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPmodelId": "nxtPmodelId"
+      },
+      "namedRegex": "^/admin/setup/tree/(?<nxtPmodelId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/admin/tqc/[module]",
+      "regex": "^/admin/tqc/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPmodule": "nxtPmodule"
+      },
+      "namedRegex": "^/admin/tqc/(?<nxtPmodule>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/audit/session/[headerId]",
+      "regex": "^/audit/session/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPheaderId": "nxtPheaderId"
+      },
+      "namedRegex": "^/audit/session/(?<nxtPheaderId>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/audit/session/[headerId]/summary",
+      "regex": "^/audit/session/([^/]+?)/summary(?:/)?$",
+      "routeKeys": {
+        "nxtPheaderId": "nxtPheaderId"
+      },
+      "namedRegex": "^/audit/session/(?<nxtPheaderId>[^/]+?)/summary(?:/)?$"
+    },
+    {
+      "page": "/audit/[modelId]/header",
+      "regex": "^/audit/([^/]+?)/header(?:/)?$",
+      "routeKeys": {
+        "nxtPmodelId": "nxtPmodelId"
+      },
+      "namedRegex": "^/audit/(?<nxtPmodelId>[^/]+?)/header(?:/)?$"
+    },
+    {
+      "page": "/audit/[modelId]/history",
+      "regex": "^/audit/([^/]+?)/history(?:/)?$",
+      "routeKeys": {
+        "nxtPmodelId": "nxtPmodelId"
+      },
+      "namedRegex": "^/audit/(?<nxtPmodelId>[^/]+?)/history(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/admin",
+      "regex": "^/admin(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin(?:/)?$"
+    },
+    {
+      "page": "/admin/dashboard",
+      "regex": "^/admin/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/dashboard(?:/)?$"
+    },
+    {
+      "page": "/admin/inspections",
+      "regex": "^/admin/inspections(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/inspections(?:/)?$"
+    },
+    {
+      "page": "/admin/master",
+      "regex": "^/admin/master(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/master(?:/)?$"
+    },
+    {
+      "page": "/admin/master/usp",
+      "regex": "^/admin/master/usp(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/master/usp(?:/)?$"
+    },
+    {
+      "page": "/admin/pos",
+      "regex": "^/admin/pos(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/pos(?:/)?$"
+    },
+    {
+      "page": "/admin/setup-ctq",
+      "regex": "^/admin/setup\\-ctq(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/setup\\-ctq(?:/)?$"
+    },
+    {
+      "page": "/admin/setup-defect-tqc",
+      "regex": "^/admin/setup\\-defect\\-tqc(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/setup\\-defect\\-tqc(?:/)?$"
+    },
+    {
+      "page": "/admin/tqc",
+      "regex": "^/admin/tqc(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/tqc(?:/)?$"
+    },
+    {
+      "page": "/admin/users",
+      "regex": "^/admin/users(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/users(?:/)?$"
+    },
+    {
+      "page": "/apple-icon.png",
+      "regex": "^/apple\\-icon\\.png(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/apple\\-icon\\.png(?:/)?$"
+    },
+    {
+      "page": "/audit/session/local",
+      "regex": "^/audit/session/local(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/audit/session/local(?:/)?$"
+    },
+    {
+      "page": "/audit/session/local/summary",
+      "regex": "^/audit/session/local/summary(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/audit/session/local/summary(?:/)?$"
+    },
+    {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/dashboard-view",
+      "regex": "^/dashboard\\-view(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard\\-view(?:/)?$"
+    },
+    {
+      "page": "/icon.png",
+      "regex": "^/icon\\.png(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/icon\\.png(?:/)?$"
+    },
+    {
+      "page": "/login",
+      "regex": "^/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login(?:/)?$"
+    },
+    {
+      "page": "/manifest.webmanifest",
+      "regex": "^/manifest\\.webmanifest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/manifest\\.webmanifest(?:/)?$"
+    },
+    {
+      "page": "/model-dashboard",
+      "regex": "^/model\\-dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/model\\-dashboard(?:/)?$"
+    },
+    {
+      "page": "/model-dashboard/ctq",
+      "regex": "^/model\\-dashboard/ctq(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/model\\-dashboard/ctq(?:/)?$"
+    },
+    {
+      "page": "/model-dashboard/ctq-detail",
+      "regex": "^/model\\-dashboard/ctq\\-detail(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/model\\-dashboard/ctq\\-detail(?:/)?$"
+    },
+    {
+      "page": "/model-dashboard/defect-ctq",
+      "regex": "^/model\\-dashboard/defect\\-ctq(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/model\\-dashboard/defect\\-ctq(?:/)?$"
+    },
+    {
+      "page": "/model-dashboard/rqc-inline",
+      "regex": "^/model\\-dashboard/rqc\\-inline(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/model\\-dashboard/rqc\\-inline(?:/)?$"
+    },
+    {
+      "page": "/model-dashboard/tqc-eol",
+      "regex": "^/model\\-dashboard/tqc\\-eol(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/model\\-dashboard/tqc\\-eol(?:/)?$"
+    },
+    {
+      "page": "/offline",
+      "regex": "^/offline(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/offline(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSuffix": ".prefetch.rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments"
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}
