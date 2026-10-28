@@ -1,9 +1,26 @@
+import { randomUUID } from 'node:crypto';
+import withSerwistInit from '@serwist/next';
+
 /** @type {import('next').NextConfig} */
 
 // Where the Next.js server forwards /api/* to. The proxy runs on the same machine as the API,
 // so it goes through loopback: a LAN address (e.g. a phone hotspot IP) changes or drops and then
 // every page lost its API connection. In Docker set API_INTERNAL_URL=http://api:3001.
 const API_INTERNAL_URL = process.env.API_INTERNAL_URL || 'http://127.0.0.1:3001';
+
+// Offline PWA (service worker built from src/app/sw.ts into public/sw.js; it also shows the
+// CAP browser notifications). Service workers only run on https (https://ctq-audit.nihonesia.online),
+// never on the plain-http LAN address.
+const withSerwist = withSerwistInit({
+  swSrc: 'src/app/sw.ts',
+  swDest: 'public/sw.js',
+  // Only production builds get it: in `next dev` it would cache code that keeps changing
+  disable: process.env.NODE_ENV === 'development',
+  // Coming back online must not reload the page: an inspector may be in the middle of a form
+  reloadOnOnline: false,
+  // The page shown when a page that was never opened is requested offline (new id per build)
+  additionalPrecacheEntries: [{ url: '/offline', revision: randomUUID() }],
+});
 
 const nextConfig = {
   // NEXT_DIST_DIR=.next-prod lets a production build/start use its own folder, so it can be
@@ -35,4 +52,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+export default withSerwist(nextConfig);
