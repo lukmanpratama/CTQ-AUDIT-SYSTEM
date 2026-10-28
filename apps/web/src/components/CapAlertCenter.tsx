@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLatestAlertId } from '../lib/use-data-refresh';
-import { enablePushNotifications, pushAvailability, syncPushSubscription, type PushAvailability } from '../lib/push-notifications';
+import { PUBLIC_HTTPS_URL, enablePushNotifications, pushAvailability, syncPushSubscription, type PushAvailability } from '../lib/push-notifications';
 
 type CapAlert = {
   id: string;
@@ -40,6 +40,8 @@ const promptClosedRecently = () => {
   try { return Date.now() - Number(localStorage.getItem(PROMPT_KEY) || 0) < PROMPT_AGAIN_MS; } catch { return false; }
 };
 
+const httpsHost = new URL(PUBLIC_HTTPS_URL).host;
+
 const pct = (rate: number) => `${Number((rate * 100).toFixed(2))}%`;
 const fmtDate = (ymd: string) =>
   new Date(`${ymd}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -68,7 +70,7 @@ export function CapAlertCenter() {
   useEffect(() => {
     const avail = pushAvailability();
     setAvailability(avail);
-    setShowPrompt((avail === 'default' || avail === 'ios-browser') && !promptClosedRecently());
+    setShowPrompt((avail === 'default' || avail === 'ios-browser' || avail === 'insecure') && !promptClosedRecently());
     if (avail !== 'granted') {
       setPushActive(false);
       return;
@@ -137,9 +139,14 @@ export function CapAlertCenter() {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-gray-900">Notifikasi alert CAP</p>
-          {availability === 'ios-browser' ? (
+          {availability === 'insecure' ? (
             <p className="mt-0.5 text-xs text-gray-600">
-              Di iPhone, notifikasi hanya bisa dari aplikasi di Layar Utama: buka alamat ini di <b>Safari</b>, ketuk
+              Notifikasi browser hanya bisa lewat alamat aman <b>{httpsHost}</b>. Buka CTQ Audit dari alamat itu untuk
+              menerima alert CAP di HP ini, juga saat aplikasi ditutup.
+            </p>
+          ) : availability === 'ios-browser' ? (
+            <p className="mt-0.5 text-xs text-gray-600">
+              Di iPhone, notifikasi hanya bisa dari aplikasi di Layar Utama: buka <b>{httpsHost}</b> di <b>Safari</b>, ketuk
               <b> Bagikan</b> → <b>Tambahkan ke Layar Utama</b>, lalu buka CTQ Audit dari ikonnya.
             </p>
           ) : (
@@ -149,8 +156,17 @@ export function CapAlertCenter() {
           )}
           <div className="mt-2 flex justify-end gap-2">
             <button onClick={closePrompt} className="rounded-md px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100">
-              {availability === 'ios-browser' ? 'Tutup' : 'Nanti'}
+              {availability === 'default' ? 'Nanti' : 'Tutup'}
             </button>
+            {availability === 'insecure' && (
+              // Same page on the https address (phones register for notifications per address)
+              <a
+                href={`${PUBLIC_HTTPS_URL}${pathname}${typeof window !== 'undefined' ? window.location.search : ''}`}
+                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+              >
+                Buka {httpsHost}
+              </a>
+            )}
             {availability === 'default' && (
               <button onClick={enable} disabled={enabling} className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">
                 {enabling ? 'Mengaktifkan...' : 'Aktifkan notifikasi'}

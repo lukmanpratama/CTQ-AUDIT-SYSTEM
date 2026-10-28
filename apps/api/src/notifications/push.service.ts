@@ -22,8 +22,10 @@ export interface BrowserPushSubscription {
  * Browser (Web Push) notifications: the phone shows them like an app notification, also when
  * the app is closed. Each browser that allowed notifications stores a subscription here; every
  * CAP alert is pushed to all of them.
- * The VAPID key pair that signs the pushes is generated once and kept in the database, so no
- * .env setup is needed. Changing it would invalidate every subscription.
+ * The VAPID key pair that signs the pushes comes from .env (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY /
+ * VAPID_SUBJECT); without it, one is generated once and kept in the database. Changing the keys
+ * invalidates every subscription: phones re-subscribe by themselves the next time they open the
+ * app (syncPushSubscription in the web app compares the key).
  */
 @Injectable()
 export class PushService implements OnModuleInit {
@@ -52,8 +54,14 @@ export class PushService implements OnModuleInit {
                     last_sent_at TIMESTAMPTZ
                 )`);
 
-            let [keys] = await this.prisma.$queryRaw<{ public_key: string; private_key: string }[]>`
-                SELECT public_key, private_key FROM push_vapid WHERE id = 1`;
+            // Keys from .env (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY, made with `npx web-push generate-vapid-keys`)
+            // win; without them a pair is generated once and kept in the database
+            const envPublic = process.env.VAPID_PUBLIC_KEY?.trim();
+            const envPrivate = process.env.VAPID_PRIVATE_KEY?.trim();
+            let [keys] = envPublic && envPrivate
+                ? [{ public_key: envPublic, private_key: envPrivate }]
+                : await this.prisma.$queryRaw<{ public_key: string; private_key: string }[]>`
+                    SELECT public_key, private_key FROM push_vapid WHERE id = 1`;
             if (!keys) {
                 const generated = webpush.generateVAPIDKeys();
                 // ON CONFLICT: a second API instance starting at the same time keeps the first pair
@@ -66,14 +74,14 @@ export class PushService implements OnModuleInit {
                 this.logger.log('Generated the Web Push (VAPID) key pair');
             }
 
-            // Push services (Apple's included) want a contact URL or mailto: in the signed token
+            // Push services (Apple's included) want a contact mailto: or URL in the signed token
             webpush.setVapidDetails(
-                process.env.VAPID_SUBJECT || 'https://github.com/lukmanpratama/CTQ-AUDIT-SYSTEM',
+                process.env.VAPID_SUBJECT?.trim() || 'mailto:admin@nihonesia.online',
                 keys.public_key,
                 keys.private_key,
             );
             this.publicKey = keys.public_key;
-            this.logger.log('Web Push ready');
+            this.logger.log(`Web Push ready (VAPID keys from ${envPublic && envPrivate ? '.env' : 'database'})`);
         } catch (e: any) {
             this.logger.warn('Web Push setup skipped: ' + e.message);
         }

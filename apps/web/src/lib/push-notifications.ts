@@ -4,6 +4,13 @@
 // subscription the API pushes to. See apps/web/public/sw.js and the API's PushService.
 
 /**
+ * The fixed https address of CTQ Audit. Browser notifications only work over https, and a phone's
+ * registration belongs to the address it was made on, so everyone should use this one
+ * (the LAN address http://192.168.43.210:3000 can't show browser notifications).
+ */
+export const PUBLIC_HTTPS_URL = process.env.NEXT_PUBLIC_HTTPS_URL || 'https://ctq-audit.nihonesia.online';
+
+/**
  * Why browser notifications can or can't be used on this device:
  * - 'insecure':   page opened over plain http (e.g. http://192.168.43.210:3000) — browsers only allow it on https
  * - 'ios-browser': iPhone/iPad outside a Home Screen app — iOS only allows it once the app is added to the Home Screen
