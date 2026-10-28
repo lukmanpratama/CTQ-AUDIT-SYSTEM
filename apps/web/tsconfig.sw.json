@@ -1,0 +1,16 @@
+// Type-checks the service worker (src/app/sw.ts) on its own: it runs in a worker, not a page,
+// so it needs the "webworker" lib instead of "dom". Run: npx tsc -p tsconfig.sw.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["esnext", "webworker"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "types": []
+  },
+  "include": ["src/app/sw.ts"]
+}
