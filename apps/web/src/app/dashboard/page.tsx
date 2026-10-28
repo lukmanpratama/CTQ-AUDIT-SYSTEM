@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ModelCard } from '../../features/rqc/components/ModelCard';
 import { clearSession } from '../../lib/session';
-import { getJson, prefetchMasterData } from '../../lib/offline/inspection-repository';
+import { getJson, pendingCount, prefetchMasterData } from '../../lib/offline/inspection-repository';
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -70,7 +70,13 @@ export default function DashboardPage() {
                         Inspector: {namaUser ? <><span className="font-semibold text-gray-900">{namaUser}</span> ({nik})</> : nik}
                     </span>
                     <button
-                        onClick={() => { clearSession(); router.replace('/login'); }}
+                        onClick={async () => {
+                            // Unsent offline data stays on this device after logout (and is still sent later); say so
+                            const pending = await pendingCount();
+                            if (pending > 0 && !confirm(`${pending} perubahan belum terkirim ke server. Data tetap tersimpan di perangkat ini dan dikirim otomatis saat online. Tetap logout?`)) return;
+                            clearSession();
+                            router.replace('/login');
+                        }}
                         className="text-sm text-red-600 font-semibold hover:underline"
                     >
                         Logout

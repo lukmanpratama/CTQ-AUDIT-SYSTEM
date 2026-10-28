@@ -5,16 +5,15 @@
 // Reads: online they come from the API and the response is kept on the device; offline (or API
 // down) the kept copy is used. Writes: online they go straight to the API as before; offline they
 // are queued on the device (syncQueue) and applied on top of what the pages show, so an inspector
-// sees their own entries. Stage 4 sends the queue to the server.
+// sees their own entries. The sync engine (sync-engine.ts) sends the queue when the API is reachable.
 //
 // Once a header has queued changes, later changes to it are queued too (even online), so the
 // server receives them in the order they were made.
 
+import { LOCAL_PHOTO, applyMutation } from './apply-mutations';
 import { isUnreachableResponse, reportApiReachable } from './connectivity';
 import { offlineDb, type InspectionDraft, type ProcessPayload, type QueueItem, type SyncMutation } from './db';
-
-// Same rule as the API (CAP_DAILY_THRESHOLD): a defect above 20% is a CAP
-const CAP_DAILY_RATE = 0.20;
+import { requestSync } from './sync-engine';
 
 export class ApiError extends Error {
     constructor(message: string, public status: number) {
@@ -29,8 +28,6 @@ export class OfflineUnavailableError extends Error {
     }
 }
 
-const LOCAL_PHOTO = 'local-photo:';
-
 const uuid = () =>
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
@@ -39,7 +36,7 @@ const uuid = () =>
             return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
         });
 
-async function readError(res: Response) {
+export async function readError(res: Response) {
     const body = await res.json().catch(() => null);
     const msg = body?.message;
     return Array.isArray(msg) ? msg.join(', ') : msg || `Request failed (${res.status})`;
@@ -100,58 +97,7 @@ async function displayPhoto(value?: string | null) {
 async function applyQueue(header: any, items: QueueItem[]) {
     if (items.length === 0) return header;
     const view = structuredClone(header);
-    view.rqcAreas = view.rqcAreas || [];
-
-    for (const item of items) {
-        if (item.type === 'updateHeader') {
-            Object.assign(view, item.payload, {
-                date: `${item.payload.date}T00:00:00.000Z`,
-                factory: { ...(view.factory || {}), factoryId: item.payload.factoryId, factory: item.display?.factoryName ?? view.factory?.factory },
-            });
-        } else if (item.type === 'saveProcess' || item.type === 'deleteProcess') {
-            let area = view.rqcAreas.find((a: any) => String(a.setupAreaId) === String(item.setupAreaId));
-            if (item.type === 'deleteProcess') {
-                if (area) area.rqcProcesses = (area.rqcProcesses || []).filter((p: any) => String(p.setupProcessId) !== String(item.setupProcessId));
-                continue;
-            }
-            if (!area) {
-                area = { rqcAreaId: `local-area-${item.setupAreaId}`, setupAreaId: item.setupAreaId, rqcProcesses: [] };
-                view.rqcAreas.push(area);
-            }
-            area.rqcProcesses = area.rqcProcesses || [];
-            let proc = area.rqcProcesses.find((p: any) => String(p.setupProcessId) === String(item.setupProcessId));
-            if (!proc) {
-                proc = {
-                    rqcProcessId: `local-process-${item.setupProcessId}`,
-                    setupProcessId: item.setupProcessId,
-                    rqcInspections: [],
-                    setupProcess: { masterProcess: { process: item.display?.processName } },
-                };
-                area.rqcProcesses.push(proc);
-            }
-            const { qtyChecking, defects } = item.payload;
-            proc.qtyChecking = qtyChecking;
-            proc.rqcInspections = proc.rqcInspections || [];
-            // Same rule as the API: only the defects sent are inserted / updated, missing fields are kept
-            for (const d of defects) {
-                const defectRate = qtyChecking > 0 ? d.qtyDefect / qtyChecking : 0;
-                let insp = proc.rqcInspections.find((i: any) => String(i.defectId) === String(d.defectId));
-                if (!insp) {
-                    insp = { rqcInspectionId: `local-${item.setupProcessId}-${d.defectId}`, defectId: d.defectId };
-                    proc.rqcInspections.push(insp);
-                }
-                Object.assign(insp, {
-                    qtyDefect: d.qtyDefect,
-                    defectRate,
-                    passRate: Math.max(0, 1 - defectRate),
-                    status: defectRate > CAP_DAILY_RATE ? 'CAP' : 'IMMEDIATE_ACTION',
-                });
-                for (const key of ['actionPlan', 'rootCause', 'corrective', 'durasiStopline', 'photoDefect', 'photoAfterActionPlan'] as const) {
-                    if (d[key] !== undefined) insp[key] = d[key];
-                }
-            }
-        }
-    }
+    for (const item of items) applyMutation(view, item);
 
     // Photos still on the device are shown from there
     for (const area of view.rqcAreas) {
@@ -198,6 +144,7 @@ async function enqueue(rqcHeaderId: string, mutation: SyncMutation) {
     const db = offlineDb();
     if (!db) throw new Error('Penyimpanan offline tidak tersedia di browser ini.');
     await db.syncQueue.add({ ...mutation, mutationId: uuid(), rqcHeaderId, status: 'PENDING_SYNC', createdAt: Date.now() });
+    requestSync();
 }
 
 /** True when changes to this header must be queued (made offline, or older changes still queued). */
@@ -412,7 +359,7 @@ export async function prefetchMasterData(models: { setupModelId: string | number
     try { localStorage.setItem(PAGES_KEY, String(Date.now())); } catch { /* ignore */ }
 }
 
-/** Number of changes waiting to be sent (for the status indicator). */
+/** Number of changes not sent yet (logout warning, status indicator). */
 export async function pendingCount() {
     return (await offlineDb()?.syncQueue.count()) ?? 0;
 }

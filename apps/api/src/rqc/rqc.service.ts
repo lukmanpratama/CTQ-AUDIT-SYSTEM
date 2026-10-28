@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CAP_DAILY_THRESHOLD } from '../common/cap-thresholds';
@@ -26,24 +27,65 @@ export class RqcService {
             throw new NotFoundException(`PO ${dto.po} not found in master data.`);
         }
 
+        // An audit started offline is sent with the id the phone gave it: a second send (retry after a
+        // lost response) returns that audit instead of creating a duplicate
+        if (dto.rqcHeaderId) {
+            const existing = await this.findSameClientHeader(dto);
+            if (existing) return existing;
+        }
+
+        // A clear error instead of a foreign-key 500 (e.g. an inspector removed while a phone was offline)
+        const inspector = await this.prisma.masterUser.findUnique({ where: { nik: dto.nik }, select: { nik: true } });
+        if (!inspector) {
+            throw new BadRequestException(`Inspector NIK ${dto.nik} tidak terdaftar di Master User.`);
+        }
+
         const resolvedFactoryId = await this.resolveFactoryId(dto.factoryId);
 
-        const header = await this.prisma.rqcHeader.create({
-            data: {
-                date: new Date(dto.date),
-                checkingTime: dto.checkingTime,
-                setupModelId: BigInt(dto.setupModelId),
-                po: dto.po,
-                article: poData.article, // Snaphots
-                model: poData.model,     // Snaphots
-                qtyOrder: poData.qtyOrder, // Snaphots
-                factoryId: resolvedFactoryId,
-                nik: dto.nik,
-                cell: dto.cell,
+        try {
+            const header = await this.prisma.rqcHeader.create({
+                data: {
+                    ...(dto.rqcHeaderId ? { rqcHeaderId: dto.rqcHeaderId } : {}),
+                    date: new Date(dto.date),
+                    checkingTime: dto.checkingTime,
+                    setupModelId: BigInt(dto.setupModelId),
+                    po: dto.po,
+                    article: poData.article, // Snaphots
+                    model: poData.model,     // Snaphots
+                    qtyOrder: poData.qtyOrder, // Snaphots
+                    factoryId: resolvedFactoryId,
+                    nik: dto.nik,
+                    cell: dto.cell,
+                }
+            });
+            return this.serializeBigInt(header);
+        } catch (e) {
+            // The same id sent twice at once: the other request created it first
+            if (dto.rqcHeaderId && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+                const existing = await this.findSameClientHeader(dto);
+                if (existing) return existing;
             }
-        });
+            throw e;
+        }
+    }
 
-        return this.serializeBigInt(header);
+    /**
+     * The header created earlier with this client id, or null. Same id but a different audit
+     * (model, PO, date, time or inspector) is a conflict, never silently merged.
+     */
+    private async findSameClientHeader(dto: CreateHeaderDto) {
+        const existing = await this.prisma.rqcHeader.findUnique({ where: { rqcHeaderId: dto.rqcHeaderId! } });
+        if (!existing) return null;
+        const same =
+            String(existing.setupModelId) === String(dto.setupModelId) &&
+            existing.po === dto.po &&
+            existing.nik === dto.nik &&
+            existing.checkingTime === dto.checkingTime &&
+            existing.date.toISOString().slice(0, 10) === String(dto.date).slice(0, 10);
+        if (!same) {
+            throw new ConflictException(`Inspeksi dengan id ${dto.rqcHeaderId} sudah ada dengan data berbeda.`);
+        }
+        return this.serializeBigInt(existing);
     }
 
     async updateHeader(headerId: string, dto: UpdateHeaderDto) {
