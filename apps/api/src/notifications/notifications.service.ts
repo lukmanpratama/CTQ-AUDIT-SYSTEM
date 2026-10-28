@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service';
 import { CAP_DAILY_THRESHOLD, CAP_WEEKLY_THRESHOLD } from '../common/cap-thresholds';
 import { modelLabel } from '../common/model-match';
+import { PushService } from './push.service';
 
 /** One alert as the app shows it in the "QDRS — ALERT DEFECT RATE" popup. */
 export interface CapNotification {
@@ -29,6 +30,10 @@ const WEEKLY_CHECK_MS = 15 * 60 * 1000;
 const ymd = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+const pct = (rate: number) => `${Number((rate * 100).toFixed(2))}%`;
+const shortDate = (ymdStr: string) =>
+    new Date(`${ymdStr}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+
 /**
  * CAP alerts for everyone who has the app open.
  * DAILY: written when an inspection is saved with a defect above CAP_DAILY_THRESHOLD.
@@ -43,7 +48,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     /** Newest alert id, sent with GET /data-version so open pages notice new alerts on their usual poll. */
     latestId = '0';
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(private readonly prisma: PrismaService, private readonly push: PushService) { }
 
     async onModuleInit() {
         try {
@@ -238,7 +243,31 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
             ON CONFLICT (dedupe_key) DO NOTHING
             RETURNING id`;
         if (inserted.length === 0) return;
-        this.latestId = String(inserted[0].id);
+        const id = String(inserted[0].id);
+        this.latestId = id;
         this.logger.log(`CAP ${n.type} alert: ${n.modelLabel} ${n.process ?? ''} ${(n.defectRate * 100).toFixed(2)}%`);
+
+        // Browser notification on every subscribed phone. Not awaited: saving an inspection must not
+        // wait on push services, and a push failure must not fail the save.
+        const lines = n.type === 'DAILY'
+            ? [
+                n.title,
+                `Factory/Cell: ${[n.factory, n.cell].filter(Boolean).join(' / ') || '-'}`,
+                `Model: ${n.modelLabel || '-'}`,
+                `Proses: ${n.process || '-'} — ${pct(n.defectRate)}`,
+                ...(n.defect ? [`Defect: ${n.defect}`] : []),
+            ]
+            : [
+                n.title,
+                `Model: ${n.modelLabel || '-'}`,
+                ...(n.periodStart && n.periodEnd ? [`Periode: ${shortDate(n.periodStart)} – ${shortDate(n.periodEnd)}`] : []),
+                `Avg Defect Rate: ${pct(n.defectRate)}`,
+            ];
+        this.push.sendToAll({
+            title: 'QDRS — ALERT DEFECT RATE',
+            body: lines.join('\n'),
+            url: n.type === 'DAILY' && n.rqcHeaderId ? `/audit/session/${n.rqcHeaderId}/summary?view=true` : '/',
+            tag: `cap-${id}`,
+        }).catch(e => this.logger.warn('Push send failed: ' + e.message));
     }
 }

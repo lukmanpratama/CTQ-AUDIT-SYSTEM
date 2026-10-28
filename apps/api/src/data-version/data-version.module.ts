@@ -9,8 +9,8 @@ import { Observable, tap } from 'rxjs';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { NotificationsService } from '../notifications/notifications.service';
 
-/** Writes that change no records the pages show: logging in, uploading a photo before its record is saved. */
-const IGNORED_WRITE_PATHS = ['/api/auth/', '/api/files/upload'];
+/** Writes that change no records the pages show: logging in, uploading a photo before its record is saved, (un)subscribing to browser notifications. */
+const IGNORED_WRITE_PATHS = ['/api/auth/', '/api/files/upload', '/api/notifications/'];
 
 @Injectable()
 export class DataVersionService {
