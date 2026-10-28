@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
 import { useAuditNav } from '../../../../features/rqc/audit-nav';
+import { OfflineUnavailableError, createHeader, getHeader, getJson, updateHeader } from '../../../../lib/offline/inspection-repository';
 
 // BOTTOM "INCOMING MIDSOLE" has one fixed cell, named after its Setup CTQ area
 const INCOMING_CELL = 'INCOMING BOTTOM';
@@ -93,6 +94,8 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     const sessionUrl = (id: string) => urls.session(id);
 
     const [modelName, setModelName] = useState('');
+    // The Setup CTQ model, kept to label an audit started offline
+    const [modelInfo, setModelInfo] = useState<{ modelName: string; modelNo?: string | null } | null>(null);
     const [hasArticles, setHasArticles] = useState(false);
     const [factories, setFactories] = useState<any[]>([]);
     const [poOptions, setPoOptions] = useState<any[]>([]);
@@ -141,29 +144,25 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
 
         const fetchInitialData = async () => {
             try {
-                const [modelsRes, factoriesRes, headerRes] = await Promise.all([
-                    fetch('/api/ctq-setup/models'),
-                    fetch('/api/master/factories'),
-                    editHeaderId ? fetch(`/api/rqc/headers/${editHeaderId}`) : Promise.resolve(null)
+                // Through the offline layer: without a connection the copies kept on this device are used
+                const [models, factoryData, h] = await Promise.all([
+                    getJson<any[]>('/api/ctq-setup/models'),
+                    getJson<any[]>('/api/master/factories'),
+                    editHeaderId
+                        ? getHeader(editHeaderId).catch(e => { alert(e instanceof OfflineUnavailableError ? e.message : 'Failed to load the existing header data.'); return null; })
+                        : Promise.resolve(null),
                 ]);
 
-                const models = await modelsRes.json();
-                const factoryData = await factoriesRes.json();
-                if (headerRes) {
-                    if (headerRes.ok) {
-                        const h = await headerRes.json();
-                        applyExistingHeader(h);
-                        // Names of the areas that already have inspections in this audit
-                        const usedAreaIds = new Set((h.rqcAreas || []).filter((a: any) => a.rqcProcesses?.length).map((a: any) => String(a.setupAreaId)));
-                        if (usedAreaIds.size > 0) {
-                            const tree = await fetch(`/api/ctq-setup/models/${modelId}/tree`).then(r => (r.ok ? r.json() : null)).catch(() => null);
-                            setRecordedAreas((tree?.areas || [])
-                                .filter((a: any) => usedAreaIds.has(String(a.setupAreaId)))
-                                .map((a: any) => a.masterArea?.area)
-                                .filter(Boolean));
-                        }
-                    } else {
-                        alert('Failed to load the existing header data.');
+                if (h) {
+                    applyExistingHeader(h);
+                    // Names of the areas that already have inspections in this audit
+                    const usedAreaIds = new Set((h.rqcAreas || []).filter((a: any) => a.rqcProcesses?.length).map((a: any) => String(a.setupAreaId)));
+                    if (usedAreaIds.size > 0) {
+                        const tree = await getJson(`/api/ctq-setup/models/${modelId}/tree`).catch(() => null);
+                        setRecordedAreas((tree?.areas || [])
+                            .filter((a: any) => usedAreaIds.has(String(a.setupAreaId)))
+                            .map((a: any) => a.masterArea?.area)
+                            .filter(Boolean));
                     }
                 }
 
@@ -171,6 +170,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                 const currentModel = models.find((m: any) => String(m.setupModelId) === String(modelId));
                 if (currentModel) {
                     currentName = currentModel.modelName;
+                    setModelInfo({ modelName: currentModel.modelName, modelNo: currentModel.modelNo });
                     setModelName(currentModel.modelNo ? `${currentName} (${currentModel.modelNo})` : currentName);
                     setHasArticles((currentModel.articles || []).length > 0);
                 }
@@ -178,8 +178,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                 // POs of this model: by its articles when set (models can share a name), else by name
                 let poData = [];
                 if (currentName) {
-                    const poRes = await fetch(`/api/master/pos?setupModelId=${encodeURIComponent(String(modelId))}`);
-                    if (poRes.ok) poData = await poRes.json();
+                    poData = await getJson(`/api/master/pos?setupModelId=${encodeURIComponent(String(modelId))}`).catch(() => []);
                 }
 
                 setPoOptions(poData);
@@ -187,6 +186,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                 setLoading(false);
             } catch (error) {
                 console.error("Failed fetching initial data:", error);
+                if (error instanceof OfflineUnavailableError) alert(error.message);
                 setLoading(false);
             }
         };
@@ -218,6 +218,9 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     ];
 
     const selectedBottomPart = BOTTOM_PARTS.find(p => p.value === part) ?? null;
+
+    // Factory name for an audit kept offline (factoryId is an id, or a name like "BOTTOM 1")
+    const factoryNameOf = (id: string) => factories.find(f => String(f.factoryId) === String(id))?.factory || id;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -261,21 +264,15 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
             }
             setSubmitting(true);
             try {
-                const res = await fetch(`/api/rqc/headers/${editHeaderId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ date, checkingTime, po, factoryId, cell })
+                // Offline: the change is kept on this device and sent when the connection is back
+                await updateHeader(editHeaderId, { date, checkingTime, po, factoryId, cell }, {
+                    factoryName: factoryNameOf(factoryId),
+                    poRow: poOptions.find(p => p.po === po),
                 });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok) {
-                    router.push(sessionUrl(editHeaderId));
-                } else {
-                    alert('Failed to update header: ' + (data.message || 'Unknown error'));
-                    setSubmitting(false);
-                }
+                router.push(sessionUrl(editHeaderId));
             } catch (error) {
                 console.error("Update error:", error);
-                alert('A network error occurred.');
+                alert('Failed to update header: ' + (error instanceof Error ? error.message : 'Unknown error'));
                 setSubmitting(false);
             }
             return;
@@ -293,25 +290,19 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
 
         setSubmitting(true);
         try {
-            const res = await fetch('/api/rqc/headers', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+            // Offline: the audit starts on this device and is sent when the connection is back
+            const { rqcHeaderId } = await createHeader(payload, {
+                setupModel: modelInfo ?? undefined,
+                factoryName: factoryNameOf(factoryId),
+                poRow: poOptions.find(p => p.po === po),
             });
-            const data = await res.json();
-
-            if (res.ok && data.rqcHeaderId) {
-                // Navigate to the actual audit session page for this header.
-                // Replace (not push) so the browser Back button doesn't reopen an empty "new" form
-                // and create a duplicate session; "Previous" on the Inspection step reopens it pre-filled.
-                router.replace(`/audit/session/${data.rqcHeaderId}`);
-            } else {
-                alert('Failed to start session: ' + (data.message || 'Unknown error'));
-                setSubmitting(false);
-            }
+            // Navigate to the actual audit session page for this header.
+            // Replace (not push) so the browser Back button doesn't reopen an empty "new" form
+            // and create a duplicate session; "Previous" on the Inspection step reopens it pre-filled.
+            router.replace(sessionUrl(rqcHeaderId));
         } catch (error) {
             console.error("Submission error:", error);
-            alert('A network error occurred.');
+            alert('Failed to start session: ' + (error instanceof Error ? error.message : 'Unknown error'));
             setSubmitting(false);
         }
     };

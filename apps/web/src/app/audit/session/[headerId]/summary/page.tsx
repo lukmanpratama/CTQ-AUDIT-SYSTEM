@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuditNav } from '../../../../../features/rqc/audit-nav';
+import { OfflineUnavailableError, getHeader, getJson } from '../../../../../lib/offline/inspection-repository';
 import { use } from 'react';
 
 const formatDate = (dateString: string) => {
@@ -39,33 +40,29 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
     useEffect(() => {
         const fetchHeader = async () => {
             try {
-                const res = await fetch(`/api/rqc/headers/${headerId}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setHeader(data);
-                    if (data.setupModelId) {
-                        try {
-                            const treeRes = await fetch(`/api/ctq-setup/models/${data.setupModelId}/tree`);
-                            if (treeRes.ok) {
-                                const tree = await treeRes.json();
-                                const names: Record<string, string> = {};
-                                tree.areas?.forEach((area: any) => {
-                                    area.setupProcesses?.forEach((proc: any) => {
-                                        proc.setupDefects?.forEach((sd: any) => {
-                                            if (sd.masterDefect?.defect) names[String(sd.defectId)] = sd.masterDefect.defect;
-                                        });
-                                    });
+                // Offline: the copy on this device, with changes not yet sent
+                const data = await getHeader(headerId);
+                setHeader(data);
+                if (data.setupModelId) {
+                    try {
+                        const tree = await getJson(`/api/ctq-setup/models/${data.setupModelId}/tree`);
+                        const names: Record<string, string> = {};
+                        tree.areas?.forEach((area: any) => {
+                            area.setupProcesses?.forEach((proc: any) => {
+                                proc.setupDefects?.forEach((sd: any) => {
+                                    if (sd.masterDefect?.defect) names[String(sd.defectId)] = sd.masterDefect.defect;
                                 });
-                                setDefectNames(names);
-                            }
-                        } catch (e) {
-                            console.error('Failed to fetch defect names', e);
-                        }
+                            });
+                        });
+                        setDefectNames(names);
+                    } catch (e) {
+                        console.error('Failed to fetch defect names', e);
                     }
                 }
                 setLoading(false);
             } catch (err) {
                 console.error('Failed to fetch summary data', err);
+                if (err instanceof OfflineUnavailableError) alert(err.message);
                 setLoading(false);
             }
         };

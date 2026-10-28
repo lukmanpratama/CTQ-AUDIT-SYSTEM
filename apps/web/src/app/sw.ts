@@ -7,7 +7,7 @@
 
 import { defaultCache } from '@serwist/next/worker';
 import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist';
-import { NetworkOnly, Serwist } from 'serwist';
+import { ExpirationPlugin, NetworkFirst, NetworkOnly, Serwist } from 'serwist';
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -20,12 +20,32 @@ declare const self: ServiceWorkerGlobalScope;
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
+  precacheOptions: {
+    // The precached pages take their data from the query (/audit/session/local?id=...), and the
+    // other precached files have their version in the path: ignore every query when matching
+    ignoreURLParametersMatching: [/.*/],
+  },
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: [
     // First match wins: keep every /api/ call on the network (defaultCache would cache GETs)
     { matcher: ({ sameOrigin, url }) => sameOrigin && url.pathname.startsWith('/api/'), handler: new NetworkOnly() },
+    // Pages (HTML) opened on this device stay usable offline for 30 days; defaultCache keeps
+    // them one day, so a phone offline the next morning would have lost them
+    {
+      matcher: ({ request, sameOrigin, url }) =>
+        sameOrigin &&
+        !url.pathname.startsWith('/_next/') &&
+        request.headers.get('RSC') !== '1' &&
+        (request.mode === 'navigate' || (request.headers.get('Accept') || '').includes('text/html')),
+      handler: new NetworkFirst({
+        cacheName: 'pages',
+        // On a weak factory Wi-Fi, don't wait long before using the kept copy
+        networkTimeoutSeconds: 5,
+        plugins: [new ExpirationPlugin({ maxEntries: 100, maxAgeSeconds: 30 * 24 * 60 * 60 })],
+      }),
+    },
     ...defaultCache,
   ],
   fallbacks: {

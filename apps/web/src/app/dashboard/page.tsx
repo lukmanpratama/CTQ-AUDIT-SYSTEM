@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ModelCard } from '../../features/rqc/components/ModelCard';
 import { clearSession } from '../../lib/session';
+import { getJson, prefetchMasterData } from '../../lib/offline/inspection-repository';
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -40,12 +41,13 @@ export default function DashboardPage() {
             }
         }
 
-        // Fetch setup models via API
-        fetch('/api/ctq-setup/models')
-            .then(res => res.text().then(t => t ? JSON.parse(t) : []))
+        // Setup models (offline: the list kept on this device)
+        getJson<any[]>('/api/ctq-setup/models')
             .then(data => {
-                setModels(data);
+                setModels(data || []);
                 setLoading(false);
+                // While online, keep what starting an audit needs for every model, for use without a connection
+                prefetchMasterData(data || []);
             })
             .catch(err => {
                 console.error('Error fetching models', err);

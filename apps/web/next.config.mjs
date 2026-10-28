@@ -18,8 +18,11 @@ const withSerwist = withSerwistInit({
   disable: process.env.NODE_ENV === 'development',
   // Coming back online must not reload the page: an inspector may be in the middle of a form
   reloadOnOnline: false,
-  // The page shown when a page that was never opened is requested offline (new id per build)
-  additionalPrecacheEntries: [{ url: '/offline', revision: randomUUID() }],
+  // Static pages kept at install (new revision per build): the fallback for a page never opened
+  // offline, the dashboard, and the offline routes of the Inspection / Summary steps
+  // (/audit/session/local?id=...), which open any audit, also one started without a connection
+  additionalPrecacheEntries: ['/offline', '/dashboard', '/audit/session/local', '/audit/session/local/summary']
+    .map(url => ({ url, revision: randomUUID() })),
 });
 
 const nextConfig = {

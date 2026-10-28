@@ -32,8 +32,9 @@ export default function OfflinePage() {
                     Halaman ini belum pernah dibuka di perangkat ini, jadi belum tersimpan untuk dipakai tanpa koneksi.
                     Halaman yang sudah pernah dibuka tetap bisa digunakan.
                 </p>
-                <p className={`mt-4 text-xs font-semibold ${online ? 'text-green-600' : 'text-gray-400'}`}>
-                    {online ? 'Koneksi sudah kembali.' : 'Menunggu koneksi...'}
+                {/* navigator.onLine only says the network is up, not that the server can be reached */}
+                <p className="mt-4 text-xs font-semibold text-gray-400">
+                    {online ? 'Jaringan tersambung. Ketuk "Coba lagi" untuk memuat halaman.' : 'Menunggu koneksi...'}
                 </p>
                 <div className="mt-4 flex flex-col gap-2">
                     <button

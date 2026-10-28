@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AppFooter } from '../components/AppFooter';
 import { CapAlertCenter } from '../components/CapAlertCenter';
+import { OfflineSyncStatus } from '../components/OfflineSyncStatus';
 
 // Browser bar colour on phones, matching the navy of the app icon
 export const viewport: Viewport = {
@@ -37,6 +38,8 @@ export default function RootLayout({
           <AppFooter />
           {/* CAP alert popups for everyone with the app open */}
           <CapAlertCenter />
+          {/* Offline / not-yet-sent status of the audit data */}
+          <OfflineSyncStatus />
         </div>
       </body>
     </html>
