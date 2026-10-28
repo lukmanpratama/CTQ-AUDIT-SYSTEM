@@ -10,10 +10,18 @@ let apiReachable = true;
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(l => l());
 
+const backOnlineCallbacks = new Set<() => void>();
+
+/** Runs `callback` whenever the API answers again after being unreachable (the sync uses it). */
+export function onApiBackOnline(callback: () => void) {
+    backOnlineCallbacks.add(callback);
+}
+
 export function reportApiReachable(reachable: boolean) {
     if (reachable === apiReachable) return;
     apiReachable = reachable;
     notify();
+    if (reachable) backOnlineCallbacks.forEach(cb => cb());
 }
 
 /** True when the browser is offline or the last API call couldn't reach the server. */

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsInt, IsOptional, ValidateNested, IsDecimal, Min, IsArray, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsInt, IsOptional, ValidateNested, IsDecimal, Min, IsArray, IsBoolean, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateHeaderDto {
@@ -29,6 +29,11 @@ export class CreateHeaderDto {
     @IsString()
     @IsOptional()
     cell?: string;
+
+    /** Set by the offline sync: the id the phone gave an audit started without a connection */
+    @IsUUID()
+    @IsOptional()
+    rqcHeaderId?: string;
 }
 
 export class UpdateHeaderDto {

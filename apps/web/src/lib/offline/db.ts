@@ -53,6 +53,8 @@ export type QueueItem = SyncMutation & {
     rqcHeaderId: string;
     status: SyncStatus;
     createdAt: number;
+    /** Server errors (JSON 5xx) so far; after a few the change needs attention */
+    attempts?: number;
     error?: string;
 };
 
