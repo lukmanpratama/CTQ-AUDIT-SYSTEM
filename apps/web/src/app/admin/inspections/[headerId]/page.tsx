@@ -215,17 +215,17 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                         <div>
                             <div className="flex justify-between items-end mb-3">
                                 <span className="text-sm font-bold text-gray-800">Immediate Action Triggered</span>
-                                <span className="text-sm font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">{iaCount} Defect{iaCount !== 1 && 's'}</span>
+                                <span className="text-sm font-bold text-yellow-700 bg-yellow-50 px-2 py-0.5 rounded">{iaCount} Defect{iaCount !== 1 && 's'}</span>
                             </div>
                             <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden flex mb-4 relative">
-                                <div className="h-full bg-orange-500" style={{ width: `${iaPercent}%` }}></div>
+                                <div className="h-full bg-yellow-400" style={{ width: `${iaPercent}%` }}></div>
                                 <div className="h-full bg-gray-200 striped-bg opacity-30" style={{ width: `${100 - iaPercent}%` }}></div>
                             </div>
                             {iaFindings.length > 0 ? (
-                                <ul className="space-y-2 mt-4 bg-orange-50/50 p-4 rounded-lg border border-orange-100">
+                                <ul className="space-y-2 mt-4 bg-yellow-50/60 p-4 rounded-lg border border-yellow-200">
                                     {iaFindings.map(f => (
                                         <li key={f.id} className="text-sm flex items-start">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 mr-2.5 mt-2 flex-shrink-0"></span>
+                                            <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 mr-2.5 mt-2 flex-shrink-0"></span>
                                             <span>
                                                 <span className="font-semibold text-gray-900">{f.defectName}</span>
                                                 <span className="block text-xs text-gray-500">{f.processName}</span>
@@ -305,7 +305,7 @@ export default function AdminInspectionSummaryPage({ params }: { params: Promise
                                                 <div className={`text-xs ${f.isCap ? 'font-bold text-red-600' : 'text-gray-500'}`}>{rate.toFixed(2)}%</div>
                                             </td>
                                             <td className="px-4 py-3">
-                                                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${f.isCap ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${f.isCap ? 'bg-red-50 text-red-700 border-red-200' : 'bg-yellow-50 text-yellow-800 border-yellow-300'}`}>
                                                     {f.isCap ? 'CAP' : 'Immediate Action'}
                                                 </span>
                                             </td>

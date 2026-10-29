@@ -263,17 +263,17 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                         <div>
                             <div className="flex justify-between items-end mb-2">
                                 <span className="text-sm font-bold text-gray-700">Immediate Action</span>
-                                <span className="text-sm font-bold text-orange-600">{iaCount} Process</span>
+                                <span className="text-sm font-bold text-yellow-600">{iaCount} Process</span>
                             </div>
                             <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
-                                <div className="h-full bg-orange-500" style={{ width: `${iaPercent}%` }}></div>
+                                <div className="h-full bg-yellow-400" style={{ width: `${iaPercent}%` }}></div>
                                 <div className="h-full bg-gray-200 striped-bg opacity-30" style={{ width: `${100 - iaPercent}%` }}></div>
                             </div>
                             {iaProcesses.length > 0 && (
                                 <ul className="mt-3 space-y-1.5 pl-1">
                                     {iaProcesses.map((p, i) => (
                                         <li key={i} className="text-xs font-semibold text-gray-500 flex items-start">
-                                            <svg className="w-4 h-4 text-orange-400 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            <svg className="w-4 h-4 text-yellow-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                             {p}
                                         </li>
                                     ))}
@@ -338,7 +338,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
                                     <div key={idx} className={`border rounded-xl p-4 shadow-sm ${item.status === 'CAP' ? 'bg-red-50 border-red-300 border-l-4 border-l-red-500' : 'bg-white border-gray-200'}`}>
                                         <div className="flex justify-between items-start gap-3 mb-3">
                                             <p className="text-sm font-bold text-gray-900">{item.processName}</p>
-                                            <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded border whitespace-nowrap ${item.status === 'CAP' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-orange-50 text-orange-700 border-orange-200'}`}>
+                                            <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded border whitespace-nowrap ${item.status === 'CAP' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-yellow-50 text-yellow-800 border-yellow-300'}`}>
                                                 {item.status === 'CAP' ? 'CAP' : 'Immediate Action'}
                                             </span>
                                         </div>

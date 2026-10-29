@@ -5,6 +5,7 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
 import { inspectorSummaryUrl, useAuditNav } from '../../../../features/rqc/audit-nav';
+import { missingFollowUp } from '../../../../lib/followup';
 import { OfflineUnavailableError, deleteProcess, getHeader, getJson, savePhoto, saveProcess } from '../../../../lib/offline/inspection-repository';
 import { compressImage } from '../../../../lib/compress-image';
 
@@ -516,9 +517,9 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                                             {/* Status row: Done on the left, Immediate Action / CAP follow-up on the right */}
                                                             {(() => {
                                                                 const isCap = insp.status === 'CAP';
-                                                                const followUpFilled = isCap
-                                                                    ? !!(insp.rootCause && String(insp.rootCause).trim())
-                                                                    : !!(insp.actionPlan && String(insp.actionPlan).trim());
+                                                                // Complete only when every part is filled in, photos included (lib/followup.ts)
+                                                                const missing = missingFollowUp(insp);
+                                                                const followUpFilled = missing.length === 0;
                                                                 return (
                                                                     <div className="flex items-center justify-between gap-2">
                                                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-50 text-green-700 border border-green-200">
@@ -527,14 +528,14 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                                                         </span>
                                                                         <span
                                                                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${followUpFilled ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
-                                                                            title={followUpFilled ? 'Sudah diisi' : 'Belum diisi'}
+                                                                            title={followUpFilled ? 'Sudah lengkap' : `Belum ada: ${missing.join(', ')}`}
                                                                         >
                                                                             {followUpFilled ? (
                                                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                                                                             ) : (
                                                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                                                                             )}
-                                                                            {isCap ? 'CAP' : 'Immediate Action'} {followUpFilled ? 'sudah diisi' : 'belum diisi'}
+                                                                            {isCap ? 'CAP' : 'Immediate Action'} {followUpFilled ? 'lengkap' : `belum lengkap (${missing.length})`}
                                                                         </span>
                                                                     </div>
                                                                 );
@@ -798,7 +799,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                         </div>
                                     ) : (
                                         <div className="mb-4">
-                                            <div className="flex items-center gap-2 text-orange-600 mb-3 font-bold border-l-4 border-orange-500 pl-3">
+                                            <div className="flex items-center gap-2 text-yellow-700 mb-3 font-bold border-l-4 border-yellow-400 pl-3">
                                                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
                                                 Immediate Action
                                             </div>
