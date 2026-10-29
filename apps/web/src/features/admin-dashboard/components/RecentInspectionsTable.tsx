@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
+import { missingFollowUp } from '../../../lib/followup';
 
 export function RecentInspectionsTable({ data }: { data?: any[] }) {
     const displayData = data || [];
     const [selectedRow, setSelectedRow] = useState<any>(null);
+    // What the selected finding still lacks (status here is the display text "CAP" / "Immediate Action")
+    const missing = selectedRow
+        ? missingFollowUp({ ...selectedRow, status: selectedRow.status === 'CAP' ? 'CAP' : 'IMMEDIATE_ACTION' })
+        : [];
 
     const formatDate = (dateString: string) => {
         if (!dateString) return '-';
@@ -156,7 +161,7 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    <div className="flex items-center gap-2 text-orange-600 font-bold text-sm border-l-4 border-orange-500 pl-3">
+                                    <div className="flex items-center gap-2 text-yellow-700 font-bold text-sm border-l-4 border-yellow-400 pl-3">
                                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
                                         Immediate Action
                                     </div>
@@ -185,13 +190,26 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                                 )}
                             </div>
 
-                            {/* Completion Status */}
-                            <div className={`p-3 rounded-xl text-center text-xs font-bold uppercase tracking-wider border ${selectedRow.submitted === 'COMPLETED'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-red-50 text-red-700 border-red-200'
-                                }`}>
-                                {selectedRow.submitted === 'COMPLETED' ? '✔️ Sudah Diisi Lengkap' : '❌ Belum Diisi Lengkap'}
-                            </div>
+                            {/* Completion Status: complete only when every part (photos included) is filled in */}
+                            {missing.length === 0 ? (
+                                <div className="p-3 rounded-xl text-center text-xs font-bold uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200">
+                                    ✔️ Sudah Diisi Lengkap
+                                </div>
+                            ) : (
+                                <div className="p-3 rounded-xl border bg-red-50 border-red-200">
+                                    <div className="text-center text-xs font-bold uppercase tracking-wider text-red-700">
+                                        ❌ Belum Lengkap ({missing.length})
+                                    </div>
+                                    <ul className="mt-2 space-y-1">
+                                        {missing.map(part => (
+                                            <li key={part} className="flex items-center gap-2 text-xs font-medium text-red-700">
+                                                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500" />
+                                                Belum ada {part.charAt(0).toLowerCase() + part.slice(1)}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
                         </div>
 
                         {/* Modal Footer */}

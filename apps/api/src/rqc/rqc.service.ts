@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CAP_DAILY_THRESHOLD } from '../common/cap-thresholds';
+import { missingFollowUp } from '../common/followup';
 import { MODEL_MATCH_SELECT } from '../common/model-match';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
@@ -538,6 +539,27 @@ export class RqcService {
         return whereClause;
     }
 
+    /**
+     * Per model: findings (inspection rows with a defect) whose Immediate Action / CAP follow-up is
+     * not complete yet, for the red badge on the inspectors' model cards. Models with none are left out.
+     */
+    async getFollowUpPending() {
+        const findings = await this.prisma.rqcInspection.findMany({
+            where: { qtyDefect: { gt: 0 } },
+            select: {
+                status: true, photoDefect: true, actionPlan: true, rootCause: true, corrective: true, photoAfterActionPlan: true,
+                rqcProcess: { select: { rqcArea: { select: { rqcHeader: { select: { setupModelId: true } } } } } },
+            },
+        });
+        const pending = new Map<string, number>();
+        for (const f of findings) {
+            if (missingFollowUp(f).length === 0) continue;
+            const modelId = String(f.rqcProcess.rqcArea.rqcHeader.setupModelId);
+            pending.set(modelId, (pending.get(modelId) ?? 0) + 1);
+        }
+        return [...pending].map(([setupModelId, count]) => ({ setupModelId, count }));
+    }
+
     async getDashboardFilterOptions() {
         // Query distinct models that have RQC Headers
         const models = await this.prisma.setupModel.findMany({
@@ -945,10 +967,8 @@ export class RqcService {
             // Determine display status
             const displayStatus = i.status === 'CAP' ? 'CAP' : 'Immediate Action';
 
-            // Submitted logic: for IMMEDIATE_ACTION check actionPlan, for CAP check rootCause
-            const isCompleted = i.status === 'CAP'
-                ? !!(i.rootCause && i.rootCause.trim() !== '')
-                : !!(i.actionPlan && i.actionPlan.trim() !== '');
+            // Complete only when every follow-up part is filled in (photos included); see common/followup.ts
+            const missing = missingFollowUp(i);
 
             return {
                 id: i.rqcInspectionId,
@@ -964,9 +984,12 @@ export class RqcService {
                 qtyDefect,
                 defectRate: defectRate.toFixed(1),
                 status: displayStatus,
-                submitted: isCompleted ? 'COMPLETED' : 'NOT COMPLETED',
-                statusColor: i.status === 'IMMEDIATE_ACTION' ? 'bg-red-100 text-red-800 border-red-200' :
-                    i.status === 'CAP' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                submitted: missing.length === 0 ? 'COMPLETED' : 'NOT COMPLETED',
+                /** What is still missing, shown in the detail popup */
+                missing,
+                // Immediate Action yellow, CAP red
+                statusColor: i.status === 'CAP' ? 'bg-red-100 text-red-800 border-red-200' :
+                    i.status === 'IMMEDIATE_ACTION' || i.status === 'IA' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
                         'bg-gray-100 text-gray-800 border-gray-200',
                 photoDefect: i.photoDefect || null,
                 photoAfterActionPlan: i.photoAfterActionPlan || null,

@@ -129,6 +129,12 @@ export class RqcController {
         return this.rqcService.getHeaderCells(modelId);
     }
 
+    /** Unfinished Immediate Action / CAP follow-ups per model: [{ setupModelId, count }] (model card badges). */
+    @Get('followup-pending')
+    async getFollowUpPending() {
+        return this.rqcService.getFollowUpPending();
+    }
+
     @Get('filters')
     async getFilters() {
         return this.rqcService.getDashboardFilterOptions();

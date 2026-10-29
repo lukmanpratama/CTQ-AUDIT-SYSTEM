@@ -8,8 +8,7 @@ import { modelLabel } from '../../../../lib/model-label';
 import { useDataRefresh } from '../../../../lib/use-data-refresh';
 import { deleteHeader, listHeaders } from '../../../../lib/offline/inspection-repository';
 import { inspectorSessionUrl, inspectorSummaryUrl } from '../../../../features/rqc/audit-nav';
-
-const isFilled = (v?: string | null) => !!(v && v.trim() !== '');
+import { missingFollowUp } from '../../../../lib/followup';
 
 function ActionBadge({ label, filled, total }: { label: string; filled: number; total: number }) {
     if (total === 0) return null;
@@ -17,14 +16,14 @@ function ActionBadge({ label, filled, total }: { label: string; filled: number; 
     return (
         <span
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${done ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
-            title={done ? `${label} sudah diisi semua` : `${total - filled} ${label} belum diisi`}
+            title={done ? `${label} sudah lengkap semua` : `${total - filled} ${label} belum lengkap`}
         >
             {done ? (
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
             ) : (
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 8v4m0 4h.01" /></svg>
             )}
-            {label}: {done ? 'Sudah diisi' : 'Belum diisi'} ({filled}/{total})
+            {label}: {done ? 'Lengkap' : 'Belum lengkap'} ({filled}/{total})
         </span>
     );
 }
@@ -42,8 +41,7 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 function summarize(h: any) {
     let checks = 0;
     let defects = 0;
-    // Follow-up status: same rule as the dashboard
-    // (Immediate Action is filled when Action Plan has text, CAP when Root Cause has text)
+    // Follow-up status: complete when every part is filled in, photos included (lib/followup.ts)
     const ia = { total: 0, filled: 0 };
     const cap = { total: 0, filled: 0 };
     h.rqcAreas?.forEach((a: any) => {
@@ -54,10 +52,10 @@ function summarize(h: any) {
                 if (!(i.qtyDefect > 0)) return;
                 if (i.status === 'CAP') {
                     cap.total++;
-                    if (isFilled(i.rootCause)) cap.filled++;
+                    if (missingFollowUp(i).length === 0) cap.filled++;
                 } else if (i.status === 'IMMEDIATE_ACTION' || i.status === 'IA') {
                     ia.total++;
-                    if (isFilled(i.actionPlan)) ia.filled++;
+                    if (missingFollowUp(i).length === 0) ia.filled++;
                 }
             });
         });

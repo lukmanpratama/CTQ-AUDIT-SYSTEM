@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ModelCard } from '../../features/rqc/components/ModelCard';
 import { clearSession } from '../../lib/session';
 import { getJson, pendingCount, prefetchMasterData } from '../../lib/offline/inspection-repository';
+import { useDataRefresh } from '../../lib/use-data-refresh';
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -12,6 +13,16 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [nik, setNik] = useState<string>('');
     const [namaUser, setNamaUser] = useState<string>('');
+    // Unfinished Immediate Action / CAP follow-ups per model, for the red badge on each card
+    const [followUpPending, setFollowUpPending] = useState<Record<string, number>>({});
+    const { refreshKey } = useDataRefresh();
+
+    useEffect(() => {
+        // Offline: the last counts kept on this device
+        getJson<{ setupModelId: string; count: number }[]>('/api/rqc/followup-pending')
+            .then(rows => setFollowUpPending(Object.fromEntries(rows.map(r => [String(r.setupModelId), r.count]))))
+            .catch(() => { /* never loaded on this device: no badges */ });
+    }, [refreshKey]);
 
     useEffect(() => {
         // Check simulated auth
@@ -103,6 +114,7 @@ export default function DashboardPage() {
                                 model={model}
                                 isSelected={false}
                                 onClick={handleModelSelect}
+                                pendingCount={followUpPending[String(model.setupModelId)] ?? 0}
                             />
                         ))}
                         {models.length === 0 && (
