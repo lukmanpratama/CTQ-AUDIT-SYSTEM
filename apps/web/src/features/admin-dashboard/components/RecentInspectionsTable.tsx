@@ -55,10 +55,14 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                                     <td className="p-4 text-red-500 font-semibold">{row.defectName}</td>
                                     <td className="p-4 text-center">{row.qtyChecking}</td>
                                     <td className="p-4 text-center">{row.qtyDefect}</td>
-                                    <td className="p-4">
+                                    <td className="p-4 text-left">
+                                        {/* Colours set here, not from the API's statusColor: Tailwind only generates classes
+                                            written in the web code, so an API-only class like bg-yellow-100 had no style */}
                                         <button
                                             onClick={() => setSelectedRow(row)}
-                                            className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold hover:opacity-80 transition-opacity cursor-pointer ${row.statusColor || 'bg-gray-200 text-gray-700'}`}
+                                            className={`inline-block whitespace-nowrap px-2.5 py-1 rounded-md border text-[10px] font-bold hover:opacity-80 transition-opacity cursor-pointer ${row.status === 'CAP'
+                                                ? 'bg-red-100 text-red-800 border-red-200'
+                                                : 'bg-yellow-100 text-yellow-800 border-yellow-300'}`}
                                         >
                                             {row.status}
                                         </button>
