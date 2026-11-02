@@ -1560,18 +1560,10 @@ export class RqcService {
 
         // Re-eval TQC Total Defect for modal summary overall block:
         let tqcTotalDefect = 0;
-        let tqcDefectRateSum = 0;
-        let tqcProcessCount = 0;
 
         if (tqcRecords && tqcRecords.length > 0) {
             for (const tqc of tqcRecords) {
                 if (hasUspClassification(tqc)) tqcTotalDefect += (tqc.qtyDefect || 0);
-            }
-            for (const tArea of tqcAreas) {
-                for (const proc of tArea.processes) {
-                    tqcDefectRateSum += parseFloat(proc.defectRate.toFixed(2));
-                    tqcProcessCount++;
-                }
             }
         }
 
@@ -1583,7 +1575,9 @@ export class RqcService {
             for (const qty of finalTqcUniqueChecks.values()) finalTqcTotalChecking += qty;
         }
 
-        const tqcDefectRate = tqcProcessCount > 0 ? tqcDefectRateSum / tqcProcessCount : 0;
+        const tqcDefectRate = finalTqcTotalChecking > 0
+            ? (tqcTotalDefect / finalTqcTotalChecking) * 100
+            : 0;
         const tqcPassRate = 100 - tqcDefectRate;
 
         return this.serializeBigInt({
