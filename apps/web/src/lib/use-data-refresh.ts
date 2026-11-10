@@ -59,6 +59,12 @@ function subscribe(notify: () => void) {
     };
 }
 
+/** Reload every page that uses useDataRefresh right now (the header's Refresh button). */
+export function triggerRefresh() {
+    changeCount++;
+    listeners.forEach(notify => notify());
+}
+
 /**
  * `refreshKey` changes whenever the server's data changed: add it to the deps of the effect
  * that loads the page's data. Inside that effect `isBackgroundRefresh()` tells whether this run

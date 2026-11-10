@@ -100,9 +100,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 <div className="flex-1 min-h-0 overflow-y-auto p-6 w-full">
                     {children}
                 </div>
-                <footer className="flex-shrink-0 py-3 text-center text-xs font-semibold text-gray-400 border-t border-gray-200 bg-white">
-                    DEVELOP BY DIGITAL QUALITY TEAM @2026
-                </footer>
             </main>
         </div>
     );

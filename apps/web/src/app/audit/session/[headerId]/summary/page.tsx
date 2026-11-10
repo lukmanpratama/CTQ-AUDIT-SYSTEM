@@ -150,9 +150,9 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-28 relative'}>
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-44 relative'}>
             {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
-            <div className="sticky top-0 z-20 shadow-sm mb-4">
+            <div className={`sticky ${isAdmin ? 'top-0' : 'top-14'} z-20 shadow-sm mb-4`}>
                 {/* Top Navigation Bar */}
                 <nav className="bg-white px-4 py-4 flex items-center justify-between">
                     <button
@@ -390,7 +390,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
             </div>
 
             {/* Bottom Navigation */}
-            <div className={`${isAdmin ? 'sticky p-4' : 'fixed left-0 px-4 pt-4 pb-8'} bottom-0 w-full bg-white border-t z-10`}>
+            <div className={`${isAdmin ? 'sticky p-4 bottom-0' : 'fixed left-0 px-4 py-4 bottom-16'} w-full bg-white border-t z-10`}>
                 <div className="max-w-2xl mx-auto w-full flex justify-between gap-4">
                     {viewOnly ? (
                         <button

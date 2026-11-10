@@ -9,6 +9,7 @@ import { useDataRefresh } from '../../../../lib/use-data-refresh';
 import { deleteHeader, listHeaders } from '../../../../lib/offline/inspection-repository';
 import { inspectorSessionUrl, inspectorSummaryUrl } from '../../../../features/rqc/audit-nav';
 import { missingFollowUp } from '../../../../lib/followup';
+import { HeaderFilter, ShellSlot } from '../../../../components/shell/InspectorShell';
 
 function ActionBadge({ label, filled, total }: { label: string; filled: number; total: number }) {
     if (total === 0) return null;
@@ -107,15 +108,52 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
     const datedAudits = audits.filter(a => inDateRange(a.day));
     const visibleAudits = datedAudits.filter(a => matchesStatus(a.s, status));
     const hasFilter = !!startDate || !!endDate || status !== 'ALL';
+    // Active filters: badge on the header's filter button, chips under the list header
+    const dateFilterCount = (startDate ? 1 : 0) + (endDate ? 1 : 0);
+    const activeFilterCount = dateFilterCount + (status !== 'ALL' ? 1 : 0);
 
     const formatDate = (dateStr: string) => {
         return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col pb-28 relative">
+        <div className="min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-24 relative">
+            {/* Header filter: date range, with a badge for the active filters */}
+            <ShellSlot name="filter">
+                <HeaderFilter
+                    count={activeFilterCount}
+                    title="Filter Tanggal"
+                    onReset={() => { setStartDate(''); setEndDate(''); setStatus('ALL'); }}
+                >
+                    <div className="space-y-3">
+                        {[
+                            { label: 'Dari', value: startDate, set: setStartDate, min: undefined, max: endDate || undefined },
+                            { label: 'Sampai', value: endDate, set: setEndDate, min: startDate || undefined, max: undefined },
+                        ].map(d => (
+                            <label key={d.label} className="block">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{d.label}</span>
+                                <div className="mt-1 flex items-center gap-1">
+                                    <input
+                                        type="date"
+                                        value={d.value}
+                                        min={d.min}
+                                        max={d.max}
+                                        onChange={e => d.set(e.target.value)}
+                                        className="w-full min-w-0 h-9 px-2 rounded-lg bg-[#0E2947] border border-[#1A3A60] text-sm text-white outline-none [color-scheme:dark] focus:border-[#F5A623]"
+                                    />
+                                    {d.value && (
+                                        // iOS's own "Reset" in the date picker never cleared a React-controlled date
+                                        <button type="button" onClick={() => d.set('')} className="px-1.5 text-slate-400 hover:text-white" aria-label={`Hapus tanggal ${d.label}`}>✕</button>
+                                    )}
+                                </div>
+                            </label>
+                        ))}
+                    </div>
+                </HeaderFilter>
+            </ShellSlot>
+
             {/* Top Navigation Bar */}
-            <nav className="bg-white px-4 h-14 flex items-center justify-between shadow-sm sticky top-0 z-20">
+            <nav className="bg-white px-4 h-14 flex items-center justify-between shadow-sm sticky top-14 z-20">
                 <button onClick={() => router.push('/dashboard')} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
                     <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -144,42 +182,8 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                         )}
 
                         {/* Filters stay pinned under the top bar while the list scrolls (top-14 = nav height) */}
-                        <div className="sticky top-14 z-10 -mx-5 px-5 pt-2 pb-3 bg-gray-50/95 backdrop-blur">
+                        <div className="sticky top-28 z-10 -mx-5 px-5 pt-2 pb-3 bg-gray-50/95 backdrop-blur">
                             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                {/* Date range */}
-                                <div className="grid grid-cols-2 divide-x divide-gray-100 border-b border-gray-100">
-                                    {[
-                                        { label: 'Dari', value: startDate, set: setStartDate, min: undefined, max: endDate || undefined },
-                                        { label: 'Sampai', value: endDate, set: setEndDate, min: startDate || undefined, max: undefined },
-                                    ].map(d => (
-                                        <div key={d.label} className="flex flex-col px-3 py-2 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{d.label}</span>
-                                                {/* iOS's own "Reset" in the date picker restores the input's default value,
-                                                    which React keeps equal to the chosen date, so it never cleared it */}
-                                                {d.value && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => d.set('')}
-                                                        className="-my-1 -mr-1 px-1.5 text-sm leading-none text-gray-400 hover:text-gray-900"
-                                                        aria-label={`Hapus tanggal ${d.label}`}
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <input
-                                                type="date"
-                                                value={d.value}
-                                                min={d.min}
-                                                max={d.max}
-                                                onChange={e => d.set(e.target.value)}
-                                                className="w-full min-w-0 h-7 bg-transparent text-sm font-medium text-gray-900 outline-none appearance-none"
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-
                                 {/* Follow-up status: one equal-width segment each; counts follow the date range */}
                                 <div className="grid grid-cols-4 gap-1 p-1.5">
                                     {STATUS_FILTERS.map(f => {
@@ -203,15 +207,21 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                 <span className="text-xs text-gray-500">
                                     Menampilkan <b className="text-gray-700">{visibleAudits.length}</b> dari {audits.length} inspeksi
                                 </span>
-                                {hasFilter && (
-                                    <button
-                                        onClick={() => { setStartDate(''); setEndDate(''); setStatus('ALL'); }}
-                                        className="text-xs font-semibold text-gray-500 hover:text-gray-900"
-                                    >
-                                        Reset filter
-                                    </button>
-                                )}
                             </div>
+                            {/* Active date filters */}
+                            {dateFilterCount > 0 && (
+                                <div className="flex flex-wrap items-center gap-1.5 mt-2 px-1">
+                                    {[
+                                        { label: 'Dari', value: startDate, clear: () => setStartDate('') },
+                                        { label: 'Sampai', value: endDate, clear: () => setEndDate('') },
+                                    ].filter(c => c.value).map(c => (
+                                        <span key={c.label} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full bg-[#0E2947] text-white text-[11px] font-semibold">
+                                            {c.label}: {formatDate(c.value)}
+                                            <button onClick={c.clear} className="w-4 h-4 rounded-full hover:bg-white/20 leading-none" aria-label={`Hapus tanggal ${c.label}`}>✕</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div className="space-y-4 mt-2">
@@ -314,18 +324,17 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                 )}
             </div>
 
-            {/* Bottom Floating Button for New Report */}
-            <div className="fixed bottom-0 left-0 w-full bg-white border-t px-4 pt-4 pb-8 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                <div className="max-w-2xl mx-auto w-full">
-                    <button
-                        onClick={() => router.push(`/audit/${modelId}/header`)}
-                        className="w-full py-4 bg-gray-900 text-white font-bold rounded-xl shadow-lg flex items-center justify-center hover:bg-gray-800 transition-colors"
-                    >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                        New Report
-                    </button>
-                </div>
-            </div>
+            {/* New Report: round + button above the bottom navigation */}
+            <ShellSlot name="fab">
+                <button
+                    onClick={() => router.push(`/audit/${modelId}/header`)}
+                    className="w-14 h-14 rounded-full bg-[#F5A623] text-[#0E2947] shadow-xl shadow-black/30 flex items-center justify-center hover:brightness-95 active:scale-95 transition"
+                    aria-label="New Report"
+                    title="New Report"
+                >
+                    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                </button>
+            </ShellSlot>
         </div>
     );
 }

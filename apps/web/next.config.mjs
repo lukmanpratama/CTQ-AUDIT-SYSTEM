@@ -21,7 +21,7 @@ const withSerwist = withSerwistInit({
   // Static pages kept at install (new revision per build): the fallback for a page never opened
   // offline, the dashboard, and the offline routes of the Inspection / Summary steps
   // (/audit/session/local?id=...), which open any audit, also one started without a connection
-  additionalPrecacheEntries: ['/offline', '/dashboard', '/audit/session/local', '/audit/session/local/summary']
+  additionalPrecacheEntries: ['/offline', '/dashboard', '/history', '/profile', '/audit/session/local', '/audit/session/local/summary']
     .map(url => ({ url, revision: randomUUID() })),
 });
 
