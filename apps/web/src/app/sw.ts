@@ -68,7 +68,7 @@ self.addEventListener('push', (event) => {
     data = { body: event.data ? event.data.text() : '' };
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'QDRS — ALERT DEFECT RATE', {
+    self.registration.showNotification(data.title || 'CAP — ALERT DEFECT RATE', {
       body: data.body || '',
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',

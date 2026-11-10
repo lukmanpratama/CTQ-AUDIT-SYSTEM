@@ -145,8 +145,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             setRootCause(existingInsp.rootCause || '');
             setCorrective(existingInsp.corrective || '');
             setDurasiStopline(String(existingInsp.durasiStopline || 15));
-            setDefectPhotoPreview(existingInsp.photoDefect || null);
-            setImprovementPhotoPreview(existingInsp.photoAfterActionPlan || null);
+            setDefectPhotoPreview(existingInsp.photoDefect ? processImageUrl(existingInsp.photoDefect) : null);
+            setImprovementPhotoPreview(existingInsp.photoAfterActionPlan ? processImageUrl(existingInsp.photoAfterActionPlan) : null);
             setDefectPhotoFile(null);
             setImprovementPhotoFile(null);
         } else {
