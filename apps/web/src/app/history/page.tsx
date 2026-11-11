@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { getJson } from '../../lib/offline/inspection-repository';
 import { useDataRefresh } from '../../lib/use-data-refresh';
-import { inspectorSessionUrl } from '../../features/rqc/audit-nav';
+import { inspectorSummaryUrl } from '../../features/rqc/audit-nav';
+import { setListOrigin } from '../../lib/nav-origin';
 
 export default function HistoryPage() {
     const router = useRouter();
@@ -24,7 +25,7 @@ export default function HistoryPage() {
         <main className="py-6 px-4 sm:px-6 max-w-2xl mx-auto w-full min-h-[calc(100vh-7.5rem)] bg-gray-50">
             <div className="mb-6">
                 <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#0E2947] to-[#1A3A60]">
-                    Audit History
+                    Inspection History
                 </h2>
                 <p className="text-gray-500 text-sm">Riwayat inspeksi audit yang telah dibuat.</p>
             </div>
@@ -54,7 +55,7 @@ export default function HistoryPage() {
                         return (
                             <div
                                 key={h.rqcHeaderId}
-                                onClick={() => router.push(inspectorSessionUrl(h.rqcHeaderId))}
+                                onClick={() => { setListOrigin('history'); router.push(inspectorSummaryUrl(h.rqcHeaderId, '?view=true')); }}
                                 className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-4"
                             >
                                 <div className="min-w-0">

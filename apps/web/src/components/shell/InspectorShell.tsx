@@ -12,10 +12,11 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Filter, History, Home, RotateCw, Settings, User, X } from 'lucide-react';
+import { ChevronLeft, Filter, History, Home, RotateCw, Settings, User, X } from 'lucide-react';
 import { clearSession, getSession } from '../../lib/session';
 import { pendingCount } from '../../lib/offline/inspection-repository';
 import { triggerRefresh } from '../../lib/use-data-refresh';
+import { getListOrigin, setListOrigin } from '../../lib/nav-origin';
 
 type SlotName = 'search' | 'filter' | 'fab';
 
@@ -49,6 +50,18 @@ export function ShellSlot({ name, children }: { name: SlotName; children: ReactN
     }, [name, setUsed]);
     const el = ctx?.els[name];
     return el ? createPortal(children, el) : null;
+}
+
+/** Back button in the header, named after where it goes ("< Inspection Report"). Replaces the default "< Home". */
+export function ShellBack({ label, onClick }: { label: string; onClick: () => void }) {
+    if (!label) return null;
+    return (
+        <ShellSlot name="search">
+            <button onClick={onClick} className="flex items-center -ml-1 pr-2 py-1 font-semibold text-sm text-white hover:text-[#F5A623] transition-colors max-w-full">
+                <ChevronLeft className="w-5 h-5 shrink-0" /> <span className="truncate">{label}</span>
+            </button>
+        </ShellSlot>
+    );
 }
 
 /**
@@ -112,6 +125,10 @@ export function InspectorShell({ children }: { children: ReactNode }) {
 
     const [els, setEls] = useState<Record<SlotName, HTMLElement | null>>({ search: null, filter: null, fab: null });
     const [used, setUsedState] = useState<Record<SlotName, boolean>>({ search: false, filter: false, fab: false });
+    // Stable callback refs: an inline ref changes every render, so React re-calls it (null, then the element) and setState loops
+    const searchRef = useCallback((el: HTMLElement | null) => setEls(p => (p.search === el ? p : { ...p, search: el })), []);
+    const filterRef = useCallback((el: HTMLElement | null) => setEls(p => (p.filter === el ? p : { ...p, filter: el })), []);
+    const fabRef = useCallback((el: HTMLElement | null) => setEls(p => (p.fab === el ? p : { ...p, fab: el })), []);
     const setUsed = useCallback((name: SlotName, value: boolean) => {
         setUsedState(prev => (prev[name] === value ? prev : { ...prev, [name]: value }));
     }, []);
@@ -123,9 +140,16 @@ export function InspectorShell({ children }: { children: ReactNode }) {
     const [showSettings, setShowSettings] = useState(false);
     // Admins edit reports through the audit pages inside their own layout (?source=admin): no inspector chrome there
     const [adminView, setAdminView] = useState(false);
+    const [fromHistory, setFromHistory] = useState(false);
 
     useEffect(() => {
         setAdminView(new URLSearchParams(window.location.search).get('source') === 'admin');
+    }, [pathname]);
+
+    // Home and a model's Inspection Report start a new trail; audits opened from History keep History highlighted
+    useEffect(() => {
+        if (pathname === '/dashboard' || /^\/audit\/[^/]+\/history$/.test(pathname)) setListOrigin(null);
+        setFromHistory(getListOrigin() === 'history');
     }, [pathname]);
 
     useEffect(() => {
@@ -158,7 +182,7 @@ export function InspectorShell({ children }: { children: ReactNode }) {
 
     if (adminView) return <>{children}</>;
 
-    const activeHref = pathname.startsWith('/history') ? '/history' : pathname.startsWith('/profile') ? '/profile' : '/dashboard';
+    const activeHref = pathname.startsWith('/history') || (pathname.startsWith('/audit') && fromHistory) ? '/history' : pathname.startsWith('/profile') ? '/profile' : '/dashboard';
 
     return (
         <ShellContext.Provider value={ctx}>
@@ -166,11 +190,15 @@ export function InspectorShell({ children }: { children: ReactNode }) {
             <header className="fixed top-0 left-0 right-0 z-40 h-14 bg-[#0E2947] text-white px-4 border-b border-[#1A3A60] shadow-md">
                 <div className="max-w-7xl mx-auto h-full flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0 max-w-md flex items-center">
-                        <div ref={el => setEls(p => (p.search === el ? p : { ...p, search: el }))} className="w-full empty:hidden" />
-                        {!used.search && <span className="font-bold tracking-wide text-sm">CTQ Audit</span>}
+                        <div ref={searchRef} className="w-full empty:hidden" />
+                        {!used.search && (
+                            <Link href="/dashboard" className="flex items-center -ml-1 pr-2 py-1 font-semibold text-sm text-white hover:text-[#F5A623] transition-colors">
+                                <ChevronLeft className="w-5 h-5" /> Home
+                            </Link>
+                        )}
                     </div>
                     <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                        <div ref={el => setEls(p => (p.filter === el ? p : { ...p, filter: el }))} className="empty:hidden" />
+                        <div ref={filterRef} className="empty:hidden" />
                         <button
                             onClick={refresh}
                             disabled={isRefreshing}
@@ -197,7 +225,7 @@ export function InspectorShell({ children }: { children: ReactNode }) {
 
             {/* Floating action button of the page, above the nav */}
             <div
-                ref={el => setEls(p => (p.fab === el ? p : { ...p, fab: el }))}
+                ref={fabRef}
                 className="fixed right-4 bottom-20 z-40 empty:hidden"
                 style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
             />

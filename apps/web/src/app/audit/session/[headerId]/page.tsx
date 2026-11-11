@@ -8,6 +8,8 @@ import { inspectorSummaryUrl, useAuditNav } from '../../../../features/rqc/audit
 import { missingFollowUp } from '../../../../lib/followup';
 import { OfflineUnavailableError, deleteProcess, getHeader, getJson, savePhoto, saveProcess } from '../../../../lib/offline/inspection-repository';
 import { compressImage } from '../../../../lib/compress-image';
+import { ShellBack } from '../../../../components/shell/InspectorShell';
+import { useListBack } from '../../../../lib/nav-origin';
 
 const processImageUrl = (url: string) => {
     if (!url) return '';
@@ -100,6 +102,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         };
         fetchAllData();
     }, [headerId]);
+
+    const backTarget = useListBack(headerData?.setupModelId);
 
     // Admin edits run through the same wizard inside the admin layout (/admin/inspections/[id]/edit/...)
     const headerEditUrl = headerData?.setupModelId ? urls.headerEdit(headerData.setupModelId, headerId) : null;
@@ -347,8 +351,14 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
             {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
             <div className={`sticky ${isAdmin ? 'top-0' : 'top-14'} z-20 shadow-sm mb-6`}>
-                {/* Top Navigation Bar from Design */}
-                <nav className="bg-white px-4 py-4 flex items-center justify-between">
+                {/* Inspectors get the back button in the app header; the bar stays for admins */}
+                {!isAdmin && (
+                    <ShellBack
+                        label={viewOnly ? 'Inspection Summary' : backTarget.label}
+                        onClick={() => router.push(viewOnly ? inspectorSummaryUrl(headerId, '?view=true') : backTarget.href)}
+                    />
+                )}
+                <nav className={isAdmin ? 'bg-white px-4 py-4 flex items-center justify-between' : 'hidden'}>
                     {isAdmin ? (
                         <button onClick={() => router.push(urls.adminReport)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
                             <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
