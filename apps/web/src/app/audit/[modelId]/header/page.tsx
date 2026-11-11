@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
 import { useAuditNav } from '../../../../features/rqc/audit-nav';
+import { ShellBack } from '../../../../components/shell/InspectorShell';
 import { OfflineUnavailableError, createHeader, getHeader, getJson, updateHeader } from '../../../../lib/offline/inspection-repository';
 
 // BOTTOM "INCOMING MIDSOLE" has one fixed cell, named after its Setup CTQ area
@@ -15,10 +16,12 @@ function HeaderPageChrome({ onBack, backLabel, children }: { onBack: () => void;
     // Inside the admin layout the page fills the content area (cancelling its p-6) so the sidebar stays visible
     const { isAdmin } = useAuditNav();
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col pb-10' : 'min-h-screen bg-gray-50 flex flex-col pb-20'}>
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col pb-10' : 'min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-20'}>
             {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
-            <div className="sticky top-0 z-20 shadow-sm mb-6">
-                <nav className="bg-white px-4 py-4 flex items-center justify-between">
+            <div className={`sticky ${isAdmin ? 'top-0' : 'top-14'} z-20 shadow-sm mb-6`}>
+                {/* Inspectors get the back button in the app header; the bar stays for admins */}
+                {!isAdmin && <ShellBack label={backLabel} onClick={onBack} />}
+                <nav className={isAdmin ? 'bg-white px-4 py-4 flex items-center justify-between' : 'hidden'}>
                     <button onClick={onBack} className="flex items-center text-gray-600 font-medium">
                         <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                         {backLabel}
@@ -204,7 +207,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
         else if (isAdmin) router.push('/dashboard');
         else router.push(`/audit/${modelId}/history`);
     };
-    const backLabel = editHeaderId || isAdmin ? 'Inspection' : 'Inspection History';
+    const backLabel = editHeaderId || isAdmin ? 'Inspection' : 'Inspection Report';
 
 
     // Helper: is BOTTOM factory selected

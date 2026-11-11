@@ -4,7 +4,7 @@ import { CAP_DAILY_THRESHOLD, CAP_WEEKLY_THRESHOLD } from '../common/cap-thresho
 import { modelLabel } from '../common/model-match';
 import { PushService } from './push.service';
 
-/** One alert as the app shows it in the "QDRS — ALERT DEFECT RATE" popup. */
+/** One alert as the app shows it in the "CAP — ALERT DEFECT RATE" popup. */
 export interface CapNotification {
     id: string;
     type: 'DAILY' | 'WEEKLY';
@@ -44,6 +44,29 @@ const shortDate = (ymdStr: string) =>
 export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(NotificationsService.name);
     private weeklyTimer?: NodeJS.Timeout;
+
+    /**
+     * Inserts a weekly CAP notification if defect rate exceeds threshold.
+     */
+    async notifyWeeklyCap(data: {
+        setupModelId: bigint;
+        modelLabel: string | null;
+        defectRate: number;
+        periodStart: string;
+        periodEnd: string;
+        threshold: number;
+    }) {
+        await this.insert({
+            type: 'WEEKLY',
+            dedupeKey: `WEEKLY:${data.setupModelId}:${data.periodStart}`,
+            title: `Rata-rata Defect Rate Minggu Lalu Melebihi ${data.threshold * 100}%`,
+            setupModelId: data.setupModelId,
+            modelLabel: data.modelLabel,
+            defectRate: data.defectRate,
+            periodStart: data.periodStart,
+            periodEnd: data.periodEnd,
+        });
+    }
 
     /** Newest alert id, sent with GET /data-version so open pages notice new alerts on their usual poll. */
     latestId = '0';
@@ -151,35 +174,144 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
             const lastSunday = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 1);
             const [start, end] = [ymd(lastMonday), ymd(lastSunday)];
 
-            const models = await this.prisma.$queryRaw<{ setup_model_id: bigint; checks: number; defects: number }[]>`
-                SELECT h.setup_model_id,
-                       COALESCE(SUM(p.qty_checking), 0)::int AS checks,
-                       COALESCE(SUM((SELECT SUM(i.qty_defect) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id)), 0)::int AS defects
+            // Find distinct models with RQC headers in the period
+            const distinctModels = await this.prisma.$queryRaw<{ setup_model_id: bigint }[]>`
+                SELECT DISTINCT h.setup_model_id
                 FROM rqc_header h
-                JOIN rqc_area a ON a.rqc_header_id = h.rqc_header_id
-                JOIN rqc_process p ON p.rqc_area_id = a.rqc_area_id
-                WHERE h.date BETWEEN ${start}::date AND ${end}::date
-                GROUP BY h.setup_model_id`;
+                WHERE h.date BETWEEN ${start}::date AND ${end}::date`;
 
-            const over = models.filter(m => m.checks > 0 && m.defects / m.checks > CAP_WEEKLY_THRESHOLD);
-            if (over.length === 0) return;
-            const labels = await this.prisma.setupModel.findMany({
-                where: { setupModelId: { in: over.map(m => m.setup_model_id) } },
-                select: { setupModelId: true, modelName: true, modelNo: true },
-            });
-            const labelById = new Map(labels.map(l => [String(l.setupModelId), modelLabel(l)]));
+            if (distinctModels.length === 0) return;
 
-            for (const m of over) {
-                await this.insert({
-                    type: 'WEEKLY',
-                    dedupeKey: `WEEKLY:${m.setup_model_id}:${start}`,
-                    title: `Rata-rata Defect Rate Minggu Lalu Melebihi ${CAP_WEEKLY_THRESHOLD * 100}%`,
-                    setupModelId: m.setup_model_id,
-                    modelLabel: labelById.get(String(m.setup_model_id)) ?? null,
-                    defectRate: m.defects / m.checks,
-                    periodStart: start,
-                    periodEnd: end,
+            // Compute weekly defect rate using the exact formula of the dashboard weeklyTrend (avg of daily avgDefectRate)
+            for (const dm of distinctModels) {
+                const modelId = dm.setup_model_id;
+
+                // 1. Fetch RqcProcesses in range
+                const processes = await this.prisma.rqcProcess.findMany({
+                    where: {
+                        rqcArea: {
+                            rqcHeader: {
+                                setupModelId: modelId,
+                                date: { gte: new Date(start), lte: new Date(end) }
+                            }
+                        }
+                    },
+                    include: {
+                        rqcArea: { include: { rqcHeader: true } },
+                        rqcInspections: { select: { qtyDefect: true } }
+                    }
                 });
+
+                // 2. Fetch TQC records for this model in range
+                const masterModel = await this.prisma.setupModel.findUnique({
+                    where: { setupModelId: modelId },
+                    select: { setupModelId: true, modelName: true, modelNo: true }
+                });
+                if (!masterModel) continue;
+
+                const dailyMap = new Map<string, {
+                    checking: number, defect: number, rqcChecking: number, rqcDefect: number,
+                    rqcDefectRateSum: number, rqcProcessCount: number,
+                    tqcProcessMap: Map<string, { defect: number, checking: number }>
+                }>();
+
+                if (masterModel.modelName) {
+                    const { tqcWhereForModel } = require('../common/model-match');
+                    const { tqcDayCellChecking, TQC_CHECK_PER_DAY } = require('../common/tqc-checking');
+
+                    const tqcRecords = await this.prisma.tqcReport.findMany({
+                        where: {
+                            ...tqcWhereForModel(masterModel),
+                            moduleType: 'ASSEMBLY',
+                            date: { gte: new Date(start), lte: new Date(end) }
+                        }
+                    });
+
+                    const dayCellChecking = tqcDayCellChecking(tqcRecords.filter((t: any) => t.date), (tqc: any) =>
+                        `${tqc.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}_${tqc.cell || tqc.building || 'no-cell'}`);
+                    const uniqueCheckingMap = new Map<string, number>();
+
+                    for (const tqc of tqcRecords) {
+                        const dateObj = tqc.date;
+                        if (!dateObj) continue;
+                        const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+                        if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { checking: 0, defect: 0, rqcChecking: 0, rqcDefect: 0, rqcDefectRateSum: 0, rqcProcessCount: 0, tqcProcessMap: new Map() });
+                        const dStats = dailyMap.get(dateStr)!;
+
+                        const isUspDefect = !!tqc.uspClassification?.trim();
+                        if (isUspDefect) dStats.defect += (tqc.qtyDefect || 0);
+
+                        const cellKey = tqc.cell || tqc.building || 'no-cell';
+                        const uniqueDayCellKey = `${dateStr}_${cellKey}`;
+                        if (!uniqueCheckingMap.has(uniqueDayCellKey)) {
+                            const qtyDiff = dayCellChecking.get(uniqueDayCellKey) ?? TQC_CHECK_PER_DAY;
+                            uniqueCheckingMap.set(uniqueDayCellKey, qtyDiff);
+                            dStats.checking += qtyDiff;
+                        }
+
+                        if (!isUspDefect) continue;
+                        const defectName = tqc.defectName || 'UNKNOWN';
+                        if (!dStats.tqcProcessMap.has(defectName)) {
+                            dStats.tqcProcessMap.set(defectName, { defect: 0, checking: 0 });
+                        }
+                        dStats.tqcProcessMap.get(defectName)!.defect += (tqc.qtyDefect || 0);
+                        dStats.tqcProcessMap.get(defectName)!.checking = uniqueCheckingMap.get(uniqueDayCellKey) ?? TQC_CHECK_PER_DAY;
+                    }
+                }
+
+                // 3. Aggregate RQC processes into dailyMap
+                for (const p of processes) {
+                    const dateObj = p.rqcArea?.rqcHeader?.date;
+                    if (!dateObj) continue;
+                    const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+                    if (!dailyMap.has(dateStr)) dailyMap.set(dateStr, { checking: 0, defect: 0, rqcChecking: 0, rqcDefect: 0, rqcDefectRateSum: 0, rqcProcessCount: 0, tqcProcessMap: new Map() });
+                    const dStats = dailyMap.get(dateStr)!;
+
+                    const chk = p.qtyChecking || 0;
+                    const def = p.rqcInspections.reduce((sum, i) => sum + (i.qtyDefect || 0), 0);
+                    dStats.rqcChecking += chk;
+                    dStats.rqcDefect += def;
+
+                    const processDefectRate = chk > 0 ? (def / chk) * 100 : 0;
+                    dStats.rqcDefectRateSum += parseFloat(processDefectRate.toFixed(2));
+                    dStats.rqcProcessCount += 1;
+                }
+
+                if (dailyMap.size === 0) continue;
+
+                // 4. Calculate daily avgDefectRate (dashboard formula)
+                let weeklySum = 0;
+                let dayCount = 0;
+                for (const stats of dailyMap.values()) {
+                    let tqcTotalDailyDefect = 0;
+                    for (const proc of stats.tqcProcessMap.values()) {
+                        tqcTotalDailyDefect += proc.defect;
+                    }
+                    const tqcDefectRate = stats.checking > 0 ? (tqcTotalDailyDefect / stats.checking) * 100 : 0;
+                    const rqcDefectRate = stats.rqcProcessCount > 0 ? (stats.rqcDefectRateSum / stats.rqcProcessCount) : 0;
+                    const avgDefectRate = (tqcDefectRate + rqcDefectRate) / 2;
+
+                    weeklySum += avgDefectRate;
+                    dayCount += 1;
+                }
+
+                const weeklyDefectRatePct = dayCount > 0 ? (weeklySum / dayCount) : 0;
+                const weeklyDefectRateRatio = weeklyDefectRatePct / 100;
+
+                if (weeklyDefectRateRatio > CAP_WEEKLY_THRESHOLD) {
+                    await this.insert({
+                        type: 'WEEKLY',
+                        dedupeKey: `WEEKLY:${modelId}:${start}`,
+                        title: `Rata-rata Defect Rate Minggu Lalu Melebihi ${CAP_WEEKLY_THRESHOLD * 100}%`,
+                        setupModelId: modelId,
+                        modelLabel: modelLabel(masterModel),
+                        defectRate: weeklyDefectRateRatio,
+                        periodStart: start,
+                        periodEnd: end,
+                    });
+                }
             }
         } catch (e: any) {
             this.logger.warn('Weekly CAP check failed: ' + e.message);
@@ -264,7 +396,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
                 `Avg Defect Rate: ${pct(n.defectRate)}`,
             ];
         this.push.sendToAll({
-            title: 'QDRS — ALERT DEFECT RATE',
+            title: 'CAP — ALERT DEFECT RATE',
             body: lines.join('\n'),
             url: n.type === 'DAILY' && n.rqcHeaderId ? `/audit/session/${n.rqcHeaderId}/summary?view=true` : '/',
             tag: `cap-${id}`,

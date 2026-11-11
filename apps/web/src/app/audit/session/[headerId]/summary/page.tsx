@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuditNav } from '../../../../../features/rqc/audit-nav';
 import { OfflineUnavailableError, getHeader, getJson } from '../../../../../lib/offline/inspection-repository';
 import { use } from 'react';
+import { ShellBack } from '../../../../../components/shell/InspectorShell';
+import { useListBack } from '../../../../../lib/nav-origin';
 
 const formatDate = (dateString: string) => {
     const d = new Date(dateString);
@@ -34,6 +36,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     const [loading, setLoading] = useState(true);
     const [header, setHeader] = useState<any>(null);
+    const listBack = useListBack(header?.setupModelId);
     const [defectNames, setDefectNames] = useState<Record<string, string>>({});
     const [submitting, setSubmitting] = useState(false);
 
@@ -150,11 +153,17 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
 
     // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-28 relative'}>
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-44 relative'}>
             {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
-            <div className="sticky top-0 z-20 shadow-sm mb-4">
-                {/* Top Navigation Bar */}
-                <nav className="bg-white px-4 py-4 flex items-center justify-between">
+            <div className={`sticky ${isAdmin ? 'top-0' : 'top-14'} z-20 shadow-sm mb-4`}>
+                {/* Inspectors get the back button in the app header; the bar stays for admins */}
+                {!isAdmin && (
+                    <ShellBack
+                        label={viewOnly ? listBack.label : 'New Report'}
+                        onClick={() => router.push(viewOnly ? listBack.href : urls.session(headerId))}
+                    />
+                )}
+                <nav className={isAdmin ? 'bg-white px-4 py-4 flex items-center justify-between' : 'hidden'}>
                     <button
                         onClick={() => {
                             if (isAdmin) router.push(urls.adminReport);
@@ -390,7 +399,7 @@ function AuditSummaryInner(props: { params: Promise<{ headerId: string }>; searc
             </div>
 
             {/* Bottom Navigation */}
-            <div className={`${isAdmin ? 'sticky p-4' : 'fixed left-0 px-4 pt-4 pb-8'} bottom-0 w-full bg-white border-t z-10`}>
+            <div className={`${isAdmin ? 'sticky p-4 bottom-0' : 'fixed left-0 px-4 py-4 bottom-16'} w-full bg-white border-t z-10`}>
                 <div className="max-w-2xl mx-auto w-full flex justify-between gap-4">
                     {viewOnly ? (
                         <button

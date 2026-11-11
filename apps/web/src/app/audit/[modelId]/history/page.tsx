@@ -9,6 +9,9 @@ import { useDataRefresh } from '../../../../lib/use-data-refresh';
 import { deleteHeader, listHeaders } from '../../../../lib/offline/inspection-repository';
 import { inspectorSessionUrl, inspectorSummaryUrl } from '../../../../features/rqc/audit-nav';
 import { missingFollowUp } from '../../../../lib/followup';
+import { HeaderFilter, ShellSlot } from '../../../../components/shell/InspectorShell';
+import { CapReport } from '../../../../features/rqc/components/CapReport';
+import { computeWeeklyCap, inspKey, weeklyCapInspectionIds } from '../../../../lib/cap-weekly';
 
 function ActionBadge({ label, filled, total }: { label: string; filled: number; total: number }) {
     if (total === 0) return null;
@@ -34,11 +37,11 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
     { value: 'ALL', label: 'Semua' },
     { value: 'IA', label: 'Immediate' },
     { value: 'CAP', label: 'CAP' },
-    { value: 'NO_DEFECT', label: 'Tanpa Defect' },
+    { value: 'NO_DEFECT', label: 'No Defect' },
 ];
 
 /** Checks, defects and Immediate Action / CAP follow-up counts of one audit. */
-function summarize(h: any) {
+function summarize(h: any, weeklyCap: Set<string>) {
     let checks = 0;
     let defects = 0;
     // Follow-up status: complete when every part is filled in, photos included (lib/followup.ts)
@@ -50,12 +53,14 @@ function summarize(h: any) {
             p.rqcInspections?.forEach((i: any) => {
                 defects += i.qtyDefect || 0;
                 if (!(i.qtyDefect > 0)) return;
-                if (i.status === 'CAP') {
+                // CAP weekly: the defect's weekly rate in this process is above 5% (lib/cap-weekly.ts),
+                // not the daily 20% the API stores in i.status
+                if (weeklyCap.has(inspKey(h.rqcHeaderId, p.setupProcessId, i.defectId))) {
                     cap.total++;
-                    if (missingFollowUp(i).length === 0) cap.filled++;
-                } else if (i.status === 'IMMEDIATE_ACTION' || i.status === 'IA') {
+                    if (missingFollowUp({ ...i, status: 'CAP' }).length === 0) cap.filled++;
+                } else {
                     ia.total++;
-                    if (missingFollowUp(i).length === 0) ia.filled++;
+                    if (missingFollowUp({ ...i, status: 'IMMEDIATE_ACTION' }).length === 0) ia.filled++;
                 }
             });
         });
@@ -98,90 +103,102 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
     const [status, setStatus] = useState<StatusFilter>('ALL');
 
     // Newest audit date first, each with its totals and follow-up status
-    const audits = useMemo(() => (Array.isArray(headers) ? headers : [])
-        .map(h => ({ h, s: summarize(h), day: String(h.date).slice(0, 10) }))
-        .sort((a, b) => b.day.localeCompare(a.day) || String(b.h.createdAt).localeCompare(String(a.h.createdAt))),
-        [headers]);
+    const weekly = useMemo(() => computeWeeklyCap(headers), [headers]);
+    const audits = useMemo(() => {
+        const weeklyCap = weeklyCapInspectionIds(weekly);
+        return (Array.isArray(headers) ? headers : [])
+            .map(h => ({ h, s: summarize(h, weeklyCap), day: String(h.date).slice(0, 10) }))
+            .sort((a, b) => b.day.localeCompare(a.day) || String(b.h.createdAt).localeCompare(String(a.h.createdAt)));
+    }, [headers, weekly]);
+    const [tab, setTab] = useState<'INSPECTION' | 'CAP'>('INSPECTION');
 
     const inDateRange = (day: string) => (!startDate || day >= startDate) && (!endDate || day <= endDate);
     const datedAudits = audits.filter(a => inDateRange(a.day));
     const visibleAudits = datedAudits.filter(a => matchesStatus(a.s, status));
     const hasFilter = !!startDate || !!endDate || status !== 'ALL';
+    // Active filters: badge on the header's filter button, chips under the list header
+    const dateFilterCount = (startDate ? 1 : 0) + (endDate ? 1 : 0);
+    const activeFilterCount = dateFilterCount + (status !== 'ALL' ? 1 : 0);
 
     const formatDate = (dateStr: string) => {
         return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col pb-28 relative">
-            {/* Top Navigation Bar */}
-            <nav className="bg-white px-4 h-14 flex items-center justify-between shadow-sm sticky top-0 z-20">
-                <button onClick={() => router.push('/dashboard')} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
-                    <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                    Dashboard
-                </button>
-            </nav>
+        <div className="min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-24 relative">
+            {/* Header filter: date range, with a badge for the active filters */}
+            {tab === 'INSPECTION' && (
+                <ShellSlot name="filter">
+                    <HeaderFilter
+                        count={activeFilterCount}
+                        title="Filter Tanggal"
+                        onReset={() => { setStartDate(''); setEndDate(''); setStatus('ALL'); }}
+                    >
+                        <div className="space-y-3">
+                            {[
+                                { label: 'Dari', value: startDate, set: setStartDate, min: undefined, max: endDate || undefined },
+                                { label: 'Sampai', value: endDate, set: setEndDate, min: startDate || undefined, max: undefined },
+                            ].map(d => (
+                                <label key={d.label} className="block">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{d.label}</span>
+                                    <div className="mt-1 flex items-center gap-1">
+                                        <input
+                                            type="date"
+                                            value={d.value}
+                                            min={d.min}
+                                            max={d.max}
+                                            onChange={e => d.set(e.target.value)}
+                                            className="w-full min-w-0 h-9 px-2 rounded-lg bg-[#0E2947] border border-[#1A3A60] text-sm text-white outline-none [color-scheme:dark] focus:border-[#F5A623]"
+                                        />
+                                        {d.value && (
+                                            // iOS's own "Reset" in the date picker never cleared a React-controlled date
+                                            <button type="button" onClick={() => d.set('')} className="px-1.5 text-slate-400 hover:text-white" aria-label={`Hapus tanggal ${d.label}`}>✕</button>
+                                        )}
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </HeaderFilter>
+                </ShellSlot>
+            )}
+
+            {/* Sessions: Inspection / CAP Report, pinned under the header */}
+            <div className="sticky top-14 z-20 h-11 bg-white border-b border-gray-200 shadow-sm">
+                <div className="max-w-2xl mx-auto h-full grid grid-cols-2">
+                    {([['INSPECTION', 'Inspection Report'], ['CAP', 'CAP Report']] as const).map(([value, label]) => (
+                        <button
+                            key={value}
+                            onClick={() => setTab(value)}
+                            className={`text-xs font-bold uppercase tracking-wide border-b-2 transition-colors ${tab === value ? 'border-[#F5A623] text-[#0E2947]' : 'border-transparent text-gray-400 hover:text-gray-700'}`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+            </div>
 
             {/* No overflow here: the window scrolls, which is what keeps the filter panel sticky */}
-            <div className="flex-1 p-5 max-w-2xl mx-auto w-full">
-                <h1 className="text-xl font-bold text-gray-900 mb-1">Inspection History</h1>
-                <p className="text-sm text-gray-500 mb-6">Past records for this model.</p>
+            <div className="flex-1 px-3 pt-2 pb-4 max-w-2xl mx-auto w-full">
+                <h1 className="text-sm font-bold text-gray-900 mb-1.5 truncate uppercase">
+                    {headers[0]?.setupModel?.modelName ? modelLabel(headers[0].setupModel) : tab === 'CAP' ? 'CAP Report' : 'Inspection Report'}
+                </h1>
 
                 {loading ? (
                     <p className="text-gray-500 text-sm animate-pulse text-center mt-10">Loading records...</p>
+                ) : tab === 'CAP' ? (
+                    <CapReport modelId={modelId} items={weekly} />
                 ) : headers.length === 0 ? (
                     <div className="text-center py-10 bg-gray-50 border border-gray-200 border-dashed rounded-xl mt-4">
                         <p className="text-gray-500 text-sm mb-2">Belum ada riwayat inspeksi.</p>
                     </div>
                 ) : (
                     <>
-                        {headers.length > 0 && headers[0].setupModel?.modelName && (
-                            <p className="text-xs font-bold text-gray-800 bg-gray-100 uppercase tracking-widest inline-block px-3 py-1 rounded-full mb-4">
-                                {modelLabel(headers[0].setupModel)}
-                            </p>
-                        )}
 
                         {/* Filters stay pinned under the top bar while the list scrolls (top-14 = nav height) */}
-                        <div className="sticky top-14 z-10 -mx-5 px-5 pt-2 pb-3 bg-gray-50/95 backdrop-blur">
+                        <div className="sticky top-[6.25rem] z-10 -mx-3 px-3 pt-1.5 pb-1.5 bg-gray-50/95 backdrop-blur">
                             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                                {/* Date range */}
-                                <div className="grid grid-cols-2 divide-x divide-gray-100 border-b border-gray-100">
-                                    {[
-                                        { label: 'Dari', value: startDate, set: setStartDate, min: undefined, max: endDate || undefined },
-                                        { label: 'Sampai', value: endDate, set: setEndDate, min: startDate || undefined, max: undefined },
-                                    ].map(d => (
-                                        <div key={d.label} className="flex flex-col px-3 py-2 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{d.label}</span>
-                                                {/* iOS's own "Reset" in the date picker restores the input's default value,
-                                                    which React keeps equal to the chosen date, so it never cleared it */}
-                                                {d.value && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => d.set('')}
-                                                        className="-my-1 -mr-1 px-1.5 text-sm leading-none text-gray-400 hover:text-gray-900"
-                                                        aria-label={`Hapus tanggal ${d.label}`}
-                                                    >
-                                                        ✕
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <input
-                                                type="date"
-                                                value={d.value}
-                                                min={d.min}
-                                                max={d.max}
-                                                onChange={e => d.set(e.target.value)}
-                                                className="w-full min-w-0 h-7 bg-transparent text-sm font-medium text-gray-900 outline-none appearance-none"
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-
                                 {/* Follow-up status: one equal-width segment each; counts follow the date range */}
-                                <div className="grid grid-cols-4 gap-1 p-1.5">
+                                <div className="grid grid-cols-4 gap-1 p-1">
                                     {STATUS_FILTERS.map(f => {
                                         const count = datedAudits.filter(a => matchesStatus(a.s, f.value)).length;
                                         const active = status === f.value;
@@ -189,32 +206,38 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                             <button
                                                 key={f.value}
                                                 onClick={() => setStatus(f.value)}
-                                                className={`flex flex-col items-center justify-center rounded-lg px-1 py-1.5 leading-tight transition-colors ${active ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                                className={`flex items-center justify-center gap-1 rounded-lg px-1 py-1.5 leading-tight transition-colors ${active ? 'bg-[#0E2947] text-white' : 'text-gray-600 hover:bg-gray-100'}`}
                                             >
-                                                <span className="text-[11px] font-semibold text-center">{f.label}</span>
-                                                <span className={`text-sm font-bold ${active ? 'text-white' : 'text-gray-900'}`}>{count}</span>
+                                                <span className="text-[11px] font-semibold">{f.label}</span>
+                                                <span className={`text-[11px] font-bold px-1.5 rounded-full ${active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-700'}`}>{count}</span>
                                             </button>
                                         );
                                     })}
                                 </div>
                             </div>
 
-                            <div className="flex items-center justify-between mt-2 px-1">
+                            <div className="flex items-center justify-between mt-1 px-1">
                                 <span className="text-xs text-gray-500">
                                     Menampilkan <b className="text-gray-700">{visibleAudits.length}</b> dari {audits.length} inspeksi
                                 </span>
-                                {hasFilter && (
-                                    <button
-                                        onClick={() => { setStartDate(''); setEndDate(''); setStatus('ALL'); }}
-                                        className="text-xs font-semibold text-gray-500 hover:text-gray-900"
-                                    >
-                                        Reset filter
-                                    </button>
-                                )}
                             </div>
+                            {/* Active date filters */}
+                            {dateFilterCount > 0 && (
+                                <div className="flex flex-wrap items-center gap-1.5 mt-2 px-1">
+                                    {[
+                                        { label: 'Dari', value: startDate, clear: () => setStartDate('') },
+                                        { label: 'Sampai', value: endDate, clear: () => setEndDate('') },
+                                    ].filter(c => c.value).map(c => (
+                                        <span key={c.label} className="inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full bg-[#0E2947] text-white text-[11px] font-semibold">
+                                            {c.label}: {formatDate(c.value)}
+                                            <button onClick={c.clear} className="w-4 h-4 rounded-full hover:bg-white/20 leading-none" aria-label={`Hapus tanggal ${c.label}`}>✕</button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
-                        <div className="space-y-4 mt-2">
+                        <div className="space-y-2 mt-1">
                             {visibleAudits.length === 0 && (
                                 <div className="text-center py-10 bg-white border border-gray-200 border-dashed rounded-xl">
                                     <p className="text-gray-500 text-sm">Tidak ada inspeksi yang cocok dengan filter.</p>
@@ -229,8 +252,8 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                     <div
                                         key={h.rqcHeaderId}
                                         onClick={() => router.push(inspectorSummaryUrl(h.rqcHeaderId, '?view=true'))}
-                                        className={`border rounded-xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${cap.total > 0
-                                            // CAP daily: a defect above 20% marks the whole card red
+                                        className={`border rounded-xl p-3 shadow-sm hover:shadow-md transition-all cursor-pointer ${cap.total > 0
+                                            // CAP weekly: a defect above 5% over its week marks the whole card red
                                             ? 'bg-red-50 border-red-400 border-l-4 hover:border-red-500'
                                             : hasPendingAction ? 'bg-white border-amber-300 hover:border-amber-400' : 'bg-white border-gray-200 hover:border-gray-400'}`}
                                     >
@@ -252,7 +275,7 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                             </div>
                                         </div>
 
-                                        <div className="flex justify-between items-end gap-3 mt-3">
+                                        <div className="flex justify-between items-end gap-3 mt-2">
                                             {/* Immediate Action / CAP follow-up status */}
                                             <div className="flex flex-wrap gap-1.5">
                                                 {/* Saved on this device, not on the server yet */}
@@ -269,7 +292,7 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                                                 ) : (
                                                     <>
                                                         <ActionBadge label="Immediate Action" filled={ia.filled} total={ia.total} />
-                                                        <ActionBadge label="CAP" filled={cap.filled} total={cap.total} />
+                                                        <ActionBadge label="CAP Weekly" filled={cap.filled} total={cap.total} />
                                                     </>
                                                 )}
                                             </div>
@@ -314,18 +337,17 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
                 )}
             </div>
 
-            {/* Bottom Floating Button for New Report */}
-            <div className="fixed bottom-0 left-0 w-full bg-white border-t px-4 pt-4 pb-8 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                <div className="max-w-2xl mx-auto w-full">
-                    <button
-                        onClick={() => router.push(`/audit/${modelId}/header`)}
-                        className="w-full py-4 bg-gray-900 text-white font-bold rounded-xl shadow-lg flex items-center justify-center hover:bg-gray-800 transition-colors"
-                    >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                        New Report
-                    </button>
-                </div>
-            </div>
+            {/* New Report: round + button above the bottom navigation */}
+            <ShellSlot name="fab">
+                <button
+                    onClick={() => router.push(`/audit/${modelId}/header`)}
+                    className="w-14 h-14 rounded-full bg-[#F5A623] text-[#0E2947] shadow-xl shadow-black/30 flex items-center justify-center hover:brightness-95 active:scale-95 transition"
+                    aria-label="New Report"
+                    title="New Report"
+                >
+                    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                </button>
+            </ShellSlot>
         </div>
     );
 }

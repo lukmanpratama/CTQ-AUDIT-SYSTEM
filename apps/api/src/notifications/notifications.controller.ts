@@ -40,6 +40,38 @@ export class NotificationsController {
         return this.pushService.subscribe(dto.subscription, userAgent);
     }
 
+    /** Test endpoint to trigger a weekly CAP test notification to all subscribed devices. */
+    @Post('test-weekly')
+    @HttpCode(200)
+    async testWeekly(@Query('defectRate') rate?: string) {
+        const defectRate = rate ? parseFloat(rate) : 0.0525; // default 5.25%
+        const now = new Date();
+        const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+        const lastMonday = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 7);
+        const lastSunday = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 1);
+        const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+        const testDedupeKey = `TEST_WEEKLY:${Date.now()}`;
+
+        await (this.notificationsService as any).insert({
+            type: 'WEEKLY',
+            dedupeKey: testDedupeKey,
+            title: 'Rata-rata Defect Rate Minggu Lalu Melebihi 5% (TEST)',
+            setupModelId: BigInt(8),
+            modelLabel: 'TAEKWONDO MEI BALLET W (OQG90)',
+            defectRate: defectRate,
+            periodStart: ymd(lastMonday),
+            periodEnd: ymd(lastSunday),
+        });
+
+        return {
+            message: 'Test weekly notification dispatched to push subscriptions',
+            model: 'TAEKWONDO MEI BALLET W (OQG90)',
+            defectRate: (defectRate * 100).toFixed(2) + '%',
+            period: `${ymd(lastMonday)} to ${ymd(lastSunday)}`
+        };
+    }
+
     @Post('unsubscribe')
     @HttpCode(200)
     unsubscribe(@Body() dto: PushUnsubscribeDto) {

@@ -8,6 +8,8 @@ import { inspectorSummaryUrl, useAuditNav } from '../../../../features/rqc/audit
 import { missingFollowUp } from '../../../../lib/followup';
 import { OfflineUnavailableError, deleteProcess, getHeader, getJson, savePhoto, saveProcess } from '../../../../lib/offline/inspection-repository';
 import { compressImage } from '../../../../lib/compress-image';
+import { ShellBack } from '../../../../components/shell/InspectorShell';
+import { useListBack } from '../../../../lib/nav-origin';
 
 const processImageUrl = (url: string) => {
     if (!url) return '';
@@ -101,6 +103,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
         fetchAllData();
     }, [headerId]);
 
+    const backTarget = useListBack(headerData?.setupModelId);
+
     // Admin edits run through the same wizard inside the admin layout (/admin/inspections/[id]/edit/...)
     const headerEditUrl = headerData?.setupModelId ? urls.headerEdit(headerData.setupModelId, headerId) : null;
 
@@ -145,8 +149,8 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             setRootCause(existingInsp.rootCause || '');
             setCorrective(existingInsp.corrective || '');
             setDurasiStopline(String(existingInsp.durasiStopline || 15));
-            setDefectPhotoPreview(existingInsp.photoDefect || null);
-            setImprovementPhotoPreview(existingInsp.photoAfterActionPlan || null);
+            setDefectPhotoPreview(existingInsp.photoDefect ? processImageUrl(existingInsp.photoDefect) : null);
+            setImprovementPhotoPreview(existingInsp.photoAfterActionPlan ? processImageUrl(existingInsp.photoAfterActionPlan) : null);
             setDefectPhotoFile(null);
             setImprovementPhotoFile(null);
         } else {
@@ -343,12 +347,18 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
     // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-screen bg-gray-50 flex flex-col pb-28 relative'}>
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-44 relative'}>
 
             {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
-            <div className="sticky top-0 z-20 shadow-sm mb-6">
-                {/* Top Navigation Bar from Design */}
-                <nav className="bg-white px-4 py-4 flex items-center justify-between">
+            <div className={`sticky ${isAdmin ? 'top-0' : 'top-14'} z-20 shadow-sm mb-6`}>
+                {/* Inspectors get the back button in the app header; the bar stays for admins */}
+                {!isAdmin && (
+                    <ShellBack
+                        label={viewOnly ? 'Inspection Summary' : backTarget.label}
+                        onClick={() => router.push(viewOnly ? inspectorSummaryUrl(headerId, '?view=true') : backTarget.href)}
+                    />
+                )}
+                <nav className={isAdmin ? 'bg-white px-4 py-4 flex items-center justify-between' : 'hidden'}>
                     {isAdmin ? (
                         <button onClick={() => router.push(urls.adminReport)} className="flex items-center text-gray-600 font-medium hover:text-gray-900 transition-colors">
                             <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -612,7 +622,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
             </div>
 
             {/* Bottom Navigation */}
-            <div className={`${isAdmin ? 'sticky p-4' : 'fixed left-0 px-4 pt-4 pb-8'} bottom-0 w-full bg-white border-t z-10`}>
+            <div className={`${isAdmin ? 'sticky p-4 bottom-0' : 'fixed left-0 px-4 py-4 bottom-16'} w-full bg-white border-t z-10`}>
                 <div className="max-w-2xl mx-auto w-full flex flex-col gap-3">
                     {!viewOnly && attemptedNext && !canProceed && (
                         <div className="text-center text-red-600 text-xs font-bold bg-red-50 p-2 rounded-lg border border-red-200 mb-[-4px]">

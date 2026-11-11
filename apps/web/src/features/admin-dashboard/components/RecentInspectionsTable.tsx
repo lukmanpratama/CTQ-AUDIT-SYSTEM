@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { missingFollowUp } from '../../../lib/followup';
 
+import { processImageUrl } from '../../../lib/image-url';
 export function RecentInspectionsTable({ data }: { data?: any[] }) {
     const displayData = data || [];
     const [selectedRow, setSelectedRow] = useState<any>(null);
@@ -130,7 +131,7 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                                 </h4>
                                 {selectedRow.photoDefect ? (
                                     <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-                                        <img src={selectedRow.photoDefect} alt="Foto Defect" className="w-full h-48 object-cover" />
+                                        <img src={processImageUrl(selectedRow.photoDefect || '')} alt="Foto Defect" className="w-full h-48 object-cover" />
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-center h-32 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 text-sm font-medium">
@@ -185,7 +186,7 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                                 </h4>
                                 {selectedRow.photoAfterActionPlan ? (
                                     <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-                                        <img src={selectedRow.photoAfterActionPlan} alt="Foto After Action" className="w-full h-48 object-cover" />
+                                        <img src={processImageUrl(selectedRow.photoAfterActionPlan || '')} alt="Foto After Action" className="w-full h-48 object-cover" />
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-center h-32 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 text-sm font-medium">

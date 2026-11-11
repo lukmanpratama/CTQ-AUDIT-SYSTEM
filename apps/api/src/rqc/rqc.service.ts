@@ -1196,16 +1196,13 @@ export class RqcService {
         }
 
         const dailyTrend = Array.from(dailyMap.entries()).map(([date, stats]) => {
-            let tqcDefectRateSum = 0;
-            let tqcProcessCount = 0;
+            // TQC defect rate: total USP defects / total daily checking (not avg of per-defect rates).
+            // Using the sum approach guarantees defectRate = sum(defects) / checking, e.g. 27/960 = 2.81%.
+            let tqcTotalDailyDefect = 0;
             for (const proc of stats.tqcProcessMap.values()) {
-                // Denominator for TQC graph is the global daily checking total
-                const rawRate = stats.checking > 0 ? (proc.defect / stats.checking) * 100 : 0;
-                // Round to 2 decimals first to guarantee visual sum matches exactly
-                tqcDefectRateSum += parseFloat(rawRate.toFixed(2));
-                tqcProcessCount++;
+                tqcTotalDailyDefect += proc.defect;
             }
-            const tqcDefectRate = tqcProcessCount > 0 ? (tqcDefectRateSum / tqcProcessCount) : 0;
+            const tqcDefectRate = stats.checking > 0 ? (tqcTotalDailyDefect / stats.checking) * 100 : 0;
 
             const rqcDefectRate = stats.rqcProcessCount > 0 ? (stats.rqcDefectRateSum / stats.rqcProcessCount) : 0;
 
@@ -1567,14 +1564,19 @@ export class RqcService {
             }
         }
 
-        // Must re-evaluate global checking if modelId wasn't provided or we didn't hit the block above
+
+        // Qty Checking for TQC summary: scope to the same day+cell slots that have USP defects.
+        // Non-USP rows may belong to additional cells and would inflate the denominator vs the
+        // numerator (tqcTotalDefect only counts USP rows). Formula: defectRate = defect / checking.
+        // If no USP rows exist fall back to all rows so the denominator is never zero artificially.
         let finalTqcTotalChecking = 0;
         if (tqcRecords && tqcRecords.length > 0) {
-            const finalTqcUniqueChecks = tqcDayCellChecking(tqcRecords, tqc =>
+            const uspRows = tqcRecords.filter(hasUspClassification);
+            const rowsForChecking = uspRows.length > 0 ? uspRows : tqcRecords;
+            const finalTqcUniqueChecks = tqcDayCellChecking(rowsForChecking, tqc =>
                 `${tqc.date ? tqc.date.toISOString().split('T')[0] : 'no-date'}_${tqc.cell || tqc.building || 'no-cell'}`);
             for (const qty of finalTqcUniqueChecks.values()) finalTqcTotalChecking += qty;
         }
-
         const tqcDefectRate = finalTqcTotalChecking > 0
             ? (tqcTotalDefect / finalTqcTotalChecking) * 100
             : 0;
@@ -2291,6 +2293,60 @@ export class RqcService {
             rqcTopDefectsByUsp,
             tqcTopDefectsByUsp
         };
+    }
+
+    /**
+     * Recomputes the weekly defect rate using the exact same calculation as the dashboard (weeklyTrend)
+     * for last week (Mon-Sun), and dispatches a notification if it exceeds threshold (> 5%).
+     */
+    async checkModelWeeklyCap(modelId: bigint, startStr: string, endStr: string, threshold = 0.05) {
+        try {
+            const trends = await this.getTrends({
+                modelId: String(modelId),
+                startDate: startStr,
+                endDate: endStr
+            });
+
+            if (!trends || !trends.weeklyTrend || trends.weeklyTrend.length === 0) {
+                return;
+            }
+
+            // Find the weeklyTrend entry corresponding to the week of startStr
+            const startDate = new Date(startStr);
+            const shortMonth = startDate.toLocaleString('en-US', { month: 'short' });
+            const year = startDate.getFullYear();
+            const day = startDate.getDate();
+            const w = Math.ceil(day / 7);
+            const targetWeekStr = `${shortMonth} ${year} W ${w > 4 ? 4 : w}`;
+
+            const matchingWeek = trends.weeklyTrend.find((wt: any) => wt.week === targetWeekStr)
+                || trends.weeklyTrend[trends.weeklyTrend.length - 1];
+
+            if (!matchingWeek) return;
+
+            // defectRate in weeklyTrend is in percent (e.g. 3.75 for 3.75%)
+            const defectRatePct = Number(matchingWeek.defectRate) || 0;
+            const defectRateRatio = defectRatePct / 100;
+
+            if (defectRateRatio > threshold) {
+                const model = await this.prisma.setupModel.findUnique({
+                    where: { setupModelId: modelId },
+                    select: { setupModelId: true, modelName: true, modelNo: true }
+                });
+                const label = model ? modelLabel(model) : null;
+
+                await this.notifications.notifyWeeklyCap({
+                    setupModelId: modelId,
+                    modelLabel: label,
+                    defectRate: defectRateRatio,
+                    periodStart: startStr,
+                    periodEnd: endStr,
+                    threshold
+                });
+            }
+        } catch (e: any) {
+            console.error('checkModelWeeklyCap failed for model ' + modelId, e);
+        }
     }
 
     // Utility to serialize BigInts to string for JSON responses

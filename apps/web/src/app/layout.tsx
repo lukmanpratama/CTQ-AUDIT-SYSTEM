@@ -1,7 +1,6 @@
 // apps/web/src/app/layout.tsx
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import { AppFooter } from '../components/AppFooter';
 import { CapAlertCenter } from '../components/CapAlertCenter';
 import { OfflineSyncStatus } from '../components/OfflineSyncStatus';
 
@@ -32,10 +31,9 @@ export default function RootLayout({
     <html lang="en" className="h-full" suppressHydrationWarning>
       <body className="h-full" suppressHydrationWarning>
         <div className="flex flex-col min-h-screen">
-          <main className="flex-1 pb-6 w-full relative">
+          <main className="flex-1 w-full relative">
             {children}
           </main>
-          <AppFooter />
           {/* CAP alert popups for everyone with the app open */}
           <CapAlertCenter />
           {/* Offline / not-yet-sent status of the audit data */}

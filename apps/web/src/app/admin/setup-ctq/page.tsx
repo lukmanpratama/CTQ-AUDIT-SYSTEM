@@ -97,7 +97,7 @@ export default function SetupCtqPage() {
         const original = e.target.files?.[0];
         if (!original) return;
         // Stored in the database and shown as a small card image: 1000 px is plenty
-        const file = await compressImage(original, { maxDimension: 1000, quality: 0.8 });
+        const file = await compressImage(original, { maxDimension: 1000, quality: 0.8, preserveTransparency: true });
 
         const reader = new FileReader();
         reader.onloadend = async () => {
