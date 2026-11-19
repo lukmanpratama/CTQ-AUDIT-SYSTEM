@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { modelLabel } from '../../lib/model-label';
 
@@ -26,10 +26,56 @@ export default function UspPanel({ models }: { models: any[] }) {
     });
 
     const [errorMsg, setErrorMsg] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    // "Tambah USP" takes several names at once for one model, one input per name
+    const [newNames, setNewNames] = useState<string[]>(['']);
+    const nameRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const [focusRow, setFocusRow] = useState<number | null>(null);
+    // USPs the chosen model already has, to flag names that would be refused as duplicates
+    const [existingNames, setExistingNames] = useState<string[]>([]);
 
     useEffect(() => {
         fetchUsps();
     }, [filterModel, filterStatus]);
+
+    useEffect(() => {
+        if (focusRow === null) return;
+        nameRefs.current[focusRow]?.focus();
+        setFocusRow(null);
+    }, [focusRow, newNames]);
+
+    useEffect(() => {
+        if (!isModalOpen || editingUspId || !formData.setupModelId) { setExistingNames([]); return; }
+        let cancelled = false;
+        fetch(`/api/master/usps?modelId=${formData.setupModelId}`)
+            .then(r => r.json())
+            .then(data => { if (!cancelled) setExistingNames(Array.isArray(data) ? data.map((u: any) => String(u.uspName)) : []); })
+            .catch(() => { if (!cancelled) setExistingNames([]); });
+        return () => { cancelled = true; };
+    }, [isModalOpen, editingUspId, formData.setupModelId]);
+
+    const existingKeys = new Set(existingNames.map(n => n.trim().toUpperCase()));
+    // Names that will be sent: filled in, repeats counted once
+    const uniqueNewCount = new Set(newNames.map(n => n.trim().toUpperCase()).filter(Boolean)).size;
+
+    const setNameAt = (i: number, value: string) => setNewNames(rows => rows.map((r, j) => (j === i ? value : r)));
+    const addRowAfter = (i: number) => {
+        setNewNames(rows => [...rows.slice(0, i + 1), '', ...rows.slice(i + 1)]);
+        setFocusRow(i + 1);
+    };
+    const removeRow = (i: number) => {
+        setNewNames(rows => (rows.length === 1 ? [''] : rows.filter((_, j) => j !== i)));
+        setFocusRow(Math.max(0, i - 1));
+    };
+    // Pasting a column copied from Excel (one name per line) fills one row per line
+    const pasteRows = (i: number, e: React.ClipboardEvent<HTMLInputElement>) => {
+        const lines = e.clipboardData.getData('text').split(/\r?\n|\t/).map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) return;
+        e.preventDefault();
+        setNewNames(rows => [...rows.slice(0, i), ...lines, ...rows.slice(i + 1)].filter((r, j, all) => r.trim() || all.length === 1));
+        setFocusRow(i + lines.length - 1);
+    };
 
     const fetchUsps = async () => {
         try {
@@ -64,8 +110,59 @@ export default function UspPanel({ models }: { models: any[] }) {
                 description: '',
                 isActive: true
             });
+            setNewNames(['']);
+            setFocusRow(0);
         }
         setIsModalOpen(true);
+    };
+
+    // Creates one USP per filled-in name; names that fail stay in the form with the reason
+    const createMany = async () => {
+        const seen = new Set<string>();
+        const names = newNames.map(n => n.trim()).filter(n => {
+            const key = n.toUpperCase();
+            if (!n || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        if (names.length === 0) {
+            setErrorMsg('Isi minimal satu nama USP.');
+            return;
+        }
+        setSaving(true);
+        const stamp = Date.now();
+        const failed: { name: string; reason: string }[] = [];
+        for (const [i, name] of names.entries()) {
+            try {
+                const res = await fetch('/api/master/usps', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        setupModelId: BigInt(formData.setupModelId).toString(),
+                        // Codes are unique per model, so a batch can't share one timestamp
+                        uspCode: `USP-${stamp}-${i + 1}`,
+                        uspName: name,
+                        description: '',
+                        isActive: formData.isActive,
+                    }),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    failed.push({ name, reason: err.message || `HTTP ${res.status}` });
+                }
+            } catch (e: any) {
+                failed.push({ name, reason: e.message || 'Network error' });
+            }
+        }
+        setSaving(false);
+        fetchUsps();
+        if (failed.length === 0) {
+            setIsModalOpen(false);
+            return;
+        }
+        setNewNames(failed.map(f => f.name));
+        const saved = names.length - failed.length;
+        setErrorMsg(`${saved > 0 ? `${saved} USP tersimpan. ` : ''}Gagal disimpan: ${failed.map(f => `${f.name} (${f.reason})`).join('; ')}`);
     };
 
     const handleSave = async (e: React.FormEvent) => {
@@ -73,6 +170,10 @@ export default function UspPanel({ models }: { models: any[] }) {
         setErrorMsg('');
         if (!formData.setupModelId) {
             setErrorMsg('Model is required.');
+            return;
+        }
+        if (!editingUspId) {
+            await createMany();
             return;
         }
 
@@ -244,14 +345,14 @@ export default function UspPanel({ models }: { models: any[] }) {
             {/* Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="bg-white w-full max-w-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                    <div className="bg-white w-full max-w-[500px] max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                            <h3 className="font-bold text-gray-900">{editingUspId ? 'Edit USP Formulation' : 'Create New USP'}</h3>
+                            <h3 className="font-bold text-gray-900">{editingUspId ? 'Edit USP Formulation' : 'Tambah USP'}</h3>
                             <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 transition-colors" aria-label="Close">
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
-                        <form onSubmit={handleSave} className="p-6 flex flex-col gap-4">
+                        <form onSubmit={handleSave} className="p-6 flex flex-col gap-4 overflow-y-auto">
                             {errorMsg && (
                                 <div className="bg-red-50 text-red-600 border border-red-200 text-xs px-3 py-2 rounded font-medium">
                                     {errorMsg}
@@ -273,17 +374,83 @@ export default function UspPanel({ models }: { models: any[] }) {
                                 </select>
                             </div>
 
-                            <div>
-                                <label className="block text-xs font-bold text-gray-700 mb-1">USP Name <span className="text-red-500">*</span></label>
-                                <input
-                                    type="text"
-                                    required
-                                    className="w-full text-sm border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 font-medium text-blue-900"
-                                    value={formData.uspName}
-                                    onChange={e => setFormData({ ...formData, uspName: e.target.value })}
-                                    placeholder="e.g. 2.5 D NOSEW"
-                                />
-                            </div>
+                            {editingUspId ? (
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-700 mb-1">USP Name <span className="text-red-500">*</span></label>
+                                    <input
+                                        type="text"
+                                        required
+                                        className="w-full text-sm border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 font-medium text-blue-900"
+                                        value={formData.uspName}
+                                        onChange={e => setFormData({ ...formData, uspName: e.target.value })}
+                                        placeholder="e.g. 2.5 D NOSEW"
+                                    />
+                                </div>
+                            ) : (
+                                <div>
+                                    <div className="flex items-baseline justify-between mb-1">
+                                        <label className="block text-xs font-bold text-gray-700">
+                                            USP Name <span className="text-red-500">*</span>
+                                        </label>
+                                        <span className="text-[11px] text-gray-400">
+                                            {uniqueNewCount} nama
+                                        </span>
+                                    </div>
+                                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                        {newNames.map((name, i) => {
+                                            const isExisting = !!name.trim() && existingKeys.has(name.trim().toUpperCase());
+                                            const isRepeat = !!name.trim() && newNames.findIndex(n => n.trim().toUpperCase() === name.trim().toUpperCase()) !== i;
+                                            return (
+                                                <div key={i}>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-5 text-right text-[11px] text-gray-400 font-mono flex-shrink-0">{i + 1}</span>
+                                                        <input
+                                                            ref={el => { nameRefs.current[i] = el; }}
+                                                            type="text"
+                                                            value={name}
+                                                            onChange={e => setNameAt(i, e.target.value)}
+                                                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addRowAfter(i); } }}
+                                                            onPaste={e => pasteRows(i, e)}
+                                                            placeholder={i === 0 ? 'e.g. 2.5 D NOSEW' : 'Nama USP berikutnya'}
+                                                            className={`flex-1 min-w-0 text-sm border rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 font-medium text-blue-900 ${isExisting || isRepeat ? 'border-amber-400 bg-amber-50/50' : 'border-gray-300'}`}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeRow(i)}
+                                                            disabled={newNames.length === 1 && !name}
+                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-30 disabled:pointer-events-none"
+                                                            aria-label={`Hapus baris ${i + 1}`}
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                    {(isExisting || isRepeat) && (
+                                                        <p className="ml-7 mt-0.5 text-[11px] text-amber-700">
+                                                            {isExisting ? 'Sudah ada untuk model ini.' : 'Nama ganda di daftar ini; hanya disimpan sekali.'}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => addRowAfter(newNames.length - 1)}
+                                        className="mt-2 ml-7 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                                    >
+                                        <Plus className="w-3.5 h-3.5" />
+                                        Tambah baris
+                                    </button>
+                                    <p className="mt-1.5 ml-7 text-[11px] text-gray-400">
+                                        Enter menambah baris baru. Bisa juga tempel daftar dari Excel (satu nama per baris).
+                                    </p>
+                                    {existingNames.length > 0 && (
+                                        <p className="mt-1.5 ml-7 text-[11px] text-gray-500">
+                                            Sudah ada untuk model ini: {existingNames.join(', ')}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1">Status <span className="text-red-500">*</span></label>
@@ -308,9 +475,14 @@ export default function UspPanel({ models }: { models: any[] }) {
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-bold rounded shadow-md transition-all"
+                                    disabled={saving}
+                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-bold rounded shadow-md transition-all disabled:opacity-50"
                                 >
-                                    {editingUspId ? 'Save Changes' : 'Create USP'}
+                                    {saving
+                                        ? 'Menyimpan...'
+                                        : editingUspId
+                                            ? 'Save Changes'
+                                            : `Simpan ${Math.max(1, uniqueNewCount)} USP`}
                                 </button>
                             </div>
                         </form>
