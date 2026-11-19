@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Search, X } from 'lucide-react';
+import { Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { modelLabel } from '../../lib/model-label';
 
 // USP (selling point) management per model, shown as the "USP" tab of Setup CTQ
@@ -193,7 +193,7 @@ export default function UspPanel({ models }: { models: any[] }) {
                                 <th className="px-4 py-3">USP Name</th>
                                 <th className="px-4 py-3">Status</th>
                                 <th className="px-4 py-3">Last Updated</th>
-                                <th className="px-4 py-3 text-right">Action</th>
+                                <th className="px-4 py-3 text-right">Aksi</th>
                             </tr>
                         </thead>
                         <tbody className="text-sm divide-y divide-gray-200 text-gray-800">
@@ -201,7 +201,7 @@ export default function UspPanel({ models }: { models: any[] }) {
                                 <tr><td colSpan={5} className="text-center py-8 text-gray-400">No USPs found for current filters.</td></tr>
                             ) : (
                                 filteredUsps.map(usp => (
-                                    <tr key={usp.uspId} className="hover:bg-blue-50/50 transition-colors">
+                                    <tr key={usp.uspId} className="hover:bg-blue-50/50 transition-colors group">
                                         <td className="px-4 py-2.5 font-medium text-gray-900">
                                             {modelLabel(usp.setupModel) || 'UNKNOWN'}
                                         </td>
@@ -220,9 +220,18 @@ export default function UspPanel({ models }: { models: any[] }) {
                                         <td className="px-4 py-2.5 text-xs text-gray-400">
                                             {new Date(usp.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                                         </td>
-                                        <td className="px-4 py-2.5 text-right space-x-3">
-                                            <button onClick={() => openModal(usp)} className="text-blue-600 hover:text-blue-800 font-medium text-xs">Edit</button>
-                                            <button onClick={() => handleDelete(usp.uspId)} className="text-red-500 hover:text-red-700 font-medium text-xs">Delete</button>
+                                        <td className="px-4 py-2.5 text-right">
+                                            {/* Same action buttons as the Master Data lists */}
+                                            <div className="inline-flex gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => openModal(usp)} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded transition-colors">
+                                                    <Edit2 className="w-3 h-3" />
+                                                    Edit
+                                                </button>
+                                                <button onClick={() => handleDelete(usp.uspId)} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-400 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 rounded transition-colors">
+                                                    <Trash2 className="w-3 h-3" />
+                                                    Hapus
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))

@@ -2,12 +2,16 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Edit2, Settings2, Trash2, X } from 'lucide-react';
 import { compressImage } from '../../../lib/compress-image';
+import { modelLabel } from '../../../lib/model-label';
 import { fetchPoArticlesForModelName } from '../../../lib/po-models';
 import PoModelPicker from '../../../components/admin/PoModelPicker';
 import UspPanel from '../../../components/admin/UspPanel';
 
 type SetupTab = 'MODELS' | 'USP';
+// Long article lists show this many chips until expanded
+const ARTICLES_FOLDED = 8;
 
 export default function SetupCtqPage() {
     const router = useRouter();
@@ -21,6 +25,14 @@ export default function SetupCtqPage() {
     const [editError, setEditError] = useState('');
     const [editNote, setEditNote] = useState('');
     const [poArticlesLoading, setPoArticlesLoading] = useState(false);
+    const [actionError, setActionError] = useState('');
+    // Models whose full article list is shown (long lists start folded)
+    const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
+    const toggleArticles = (id: string) => setExpandedArticles(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
 
     const handleViewFile = (base64Str: string) => {
         // The model list now sends a file URL (served by the API) instead of the base64 data
@@ -169,6 +181,23 @@ export default function SetupCtqPage() {
         fetchModels();
     };
 
+    const handleDeleteModel = async (m: any) => {
+        const label = modelLabel(m);
+        if (!window.confirm(`Hapus model "${label}" (ID: ${m.setupModelId})?\nSetup area / process / defect, USP, dan artikel model ini ikut terhapus.\nModel yang sudah punya data inspeksi tidak bisa dihapus.`)) return;
+        setActionError('');
+        try {
+            const res = await fetch(`/api/ctq-setup/models/${m.setupModelId}`, { method: 'DELETE' });
+            if (!res.ok) {
+                setActionError(await readError(res));
+                return;
+            }
+            if (editingModelId === m.setupModelId) setEditingModelId(null);
+            fetchModels();
+        } catch (e: any) {
+            setActionError(e.message || 'Gagal menghapus model.');
+        }
+    };
+
     // Names used by more than one Model No get a hint so admins fill in the articles
     const nameCounts = models.reduce((acc: Record<string, number>, m) => {
         acc[m.modelName] = (acc[m.modelName] || 0) + 1;
@@ -222,30 +251,36 @@ export default function SetupCtqPage() {
 
             {activeTab === 'USP' && <UspPanel models={models} />}
 
-            {activeTab === 'MODELS' && (
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100">
-                    <h2 className="text-sm font-medium text-gray-800">Models</h2>
+            {activeTab === 'MODELS' && actionError && (
+                <div className="px-4 py-2.5 bg-red-50 border border-red-200 text-red-700 rounded-md text-xs flex items-center justify-between">
+                    <span>{actionError}</span>
+                    <button onClick={() => setActionError('')} className="text-red-400 hover:text-red-700 p-0.5" aria-label="Tutup">
+                        <X className="w-3.5 h-3.5" />
+                    </button>
                 </div>
-                <div className="p-4 overflow-x-auto">
-                    <table className="w-full text-sm min-w-[860px]">
-                        <thead>
-                            <tr className="border-b border-gray-100">
-                                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-20">ID</th>
-                                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400">Model Name</th>
-                                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-28">Model No</th>
-                                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400">Articles</th>
-                                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-32">Photo</th>
-                                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-32">Int. Audit</th>
-                                <th className="text-right py-2 text-xs font-medium text-gray-400 w-32"></th>
+            )}
+
+            {activeTab === 'MODELS' && (
+            <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[1080px]">
+                        <thead className="bg-gray-50/90 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            <tr>
+                                <th className="text-left py-3 px-4 w-16">ID</th>
+                                <th className="text-left py-3 px-4 min-w-[160px]">Model Name</th>
+                                <th className="text-left py-3 px-4 w-28">Model No</th>
+                                <th className="text-left py-3 px-4 min-w-[240px]">Articles</th>
+                                <th className="text-left py-3 px-4 w-32">Photo</th>
+                                <th className="text-left py-3 px-4 w-32">Int. Audit</th>
+                                <th className="text-right py-3 px-4 w-[250px] sticky right-0 bg-gray-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Aksi</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-gray-100">
                             {models.map(m => (
-                                <tr key={m.setupModelId} className="border-b border-gray-50 hover:bg-gray-50 transition-colors group">
-                                    <td className="py-2.5 pr-4 text-gray-400 font-mono text-xs">{m.setupModelId}</td>
+                                <tr key={m.setupModelId} className={`transition-colors group ${editingModelId === m.setupModelId ? 'bg-blue-50/40' : 'hover:bg-gray-50/80'}`}>
+                                    <td className="py-2.5 px-4 text-gray-500 font-mono text-xs">{m.setupModelId}</td>
                                     {editingModelId === m.setupModelId ? (
-                                        <td colSpan={3} className="py-2.5 pr-4 text-gray-800">
+                                        <td colSpan={3} className="py-2.5 px-4 text-gray-800">
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <input
                                                     type="text"
@@ -284,32 +319,41 @@ export default function SetupCtqPage() {
                                         </td>
                                     ) : (
                                         <>
-                                            <td className="py-2.5 pr-4 text-gray-800">
-                                                <div className="flex items-center gap-2">
-                                                    <span>{m.modelName}</span>
-                                                    <button
-                                                        onClick={() => startEdit(m)}
-                                                        className="text-xs text-gray-400 hover:text-blue-600 underline md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                </div>
-                                            </td>
-                                            <td className="py-2.5 pr-4 font-mono text-xs">
+                                            <td className="py-2.5 px-4 font-medium text-gray-900">{m.modelName}</td>
+                                            <td className="py-2.5 px-4 font-mono text-xs">
                                                 {m.modelNo
                                                     ? <span className="text-gray-800 font-semibold">{m.modelNo}</span>
                                                     : <span className="text-gray-400">-</span>}
                                             </td>
-                                            <td className="py-2.5 pr-4 font-mono text-xs text-gray-600">
-                                                {(m.articles || []).length > 0
-                                                    ? m.articles.map((a: any) => a.article).join(', ')
-                                                    : <span className={nameCounts[m.modelName] > 1 ? 'text-amber-600' : 'text-gray-400'}>
+                                            <td className="py-2.5 px-4">
+                                                {(m.articles || []).length > 0 ? (() => {
+                                                    const all = m.articles.map((a: any) => a.article);
+                                                    const open = expandedArticles.has(m.setupModelId);
+                                                    const shown = open ? all : all.slice(0, ARTICLES_FOLDED);
+                                                    return (
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {shown.map((a: string) => (
+                                                                <span key={a} className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono text-[11px]">{a}</span>
+                                                            ))}
+                                                            {all.length > ARTICLES_FOLDED && (
+                                                                <button
+                                                                    onClick={() => toggleArticles(m.setupModelId)}
+                                                                    className="px-1.5 py-0.5 rounded text-[11px] text-blue-600 hover:bg-blue-50"
+                                                                >
+                                                                    {open ? 'Ringkas' : `+${all.length - ARTICLES_FOLDED} lagi`}
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })() : (
+                                                    <span className={`font-mono text-xs ${nameCounts[m.modelName] > 1 ? 'text-amber-600' : 'text-gray-400'}`}>
                                                         {nameCounts[m.modelName] > 1 ? 'Add articles: name is shared' : '-'}
-                                                    </span>}
+                                                    </span>
+                                                )}
                                             </td>
                                         </>
                                     )}
-                                    <td className="py-2.5 pr-4 text-gray-800">
+                                    <td className="py-2.5 px-4 text-gray-800">
                                         {m.picture ? (
                                             <div className="flex items-center gap-2">
                                                 <img src={m.picture} alt="model" className="w-10 h-10 object-contain rounded border" />
@@ -325,7 +369,7 @@ export default function SetupCtqPage() {
                                             </label>
                                         )}
                                     </td>
-                                    <td className="py-2.5 pr-4 text-gray-800">
+                                    <td className="py-2.5 px-4 text-gray-800">
                                         {m.internalAuditFile ? (
                                             <div className="flex items-center gap-2">
                                                 <button onClick={() => handleViewFile(m.internalAuditFile)} className="text-xs text-blue-800 hover:underline font-semibold bg-gray-100 border border-gray-200 px-2.5 py-1 rounded">
@@ -339,13 +383,36 @@ export default function SetupCtqPage() {
                                             <span className="text-xs text-gray-400">-</span>
                                         )}
                                     </td>
-                                    <td className="py-2.5 text-right">
-                                        <button
-                                            onClick={() => router.push(`/admin/setup/tree/${m.setupModelId}`)}
-                                            className="px-2.5 py-1 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                        >
-                                            Configure &rarr;
-                                        </button>
+                                    <td className={`py-2.5 px-4 text-right sticky right-0 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)] transition-colors ${editingModelId === m.setupModelId ? 'bg-blue-50' : 'bg-white group-hover:bg-gray-50'}`}>
+                                        {/* Same action buttons as the Master Data lists; the column stays in view
+                                            when a narrow screen scrolls the table sideways */}
+                                        <div className="inline-flex gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                                            <button
+                                                onClick={() => router.push(`/admin/setup/tree/${m.setupModelId}`)}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-transparent hover:border-gray-200 rounded transition-colors"
+                                                title={`Atur Area / Process / Defect ${modelLabel(m)}`}
+                                            >
+                                                <Settings2 className="w-3 h-3" />
+                                                Configure
+                                            </button>
+                                            <button
+                                                onClick={() => startEdit(m)}
+                                                disabled={editingModelId === m.setupModelId}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                                title={`Edit ${modelLabel(m)}`}
+                                            >
+                                                <Edit2 className="w-3 h-3" />
+                                                Edit
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteModel(m)}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-400 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 rounded transition-colors"
+                                                title={`Hapus ${modelLabel(m)}`}
+                                            >
+                                                <Trash2 className="w-3 h-3" />
+                                                Hapus
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

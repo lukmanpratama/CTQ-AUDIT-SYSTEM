@@ -67,6 +67,11 @@ export class CtqSetupController {
         return this.ctqSetupService.updateModel(modelId, body);
     }
 
+    @Delete('models/:modelId')
+    async deleteModel(@Param('modelId') modelId: string) {
+        return this.ctqSetupService.deleteModel(modelId);
+    }
+
     @Post('models/:modelId/areas')
     async linkArea(@Param('modelId') modelId: string, @Body() body: LinkAreaDto) {
         return this.ctqSetupService.linkAreaToModel(modelId, body.areaId);

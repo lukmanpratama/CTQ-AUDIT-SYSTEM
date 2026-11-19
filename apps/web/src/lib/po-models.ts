@@ -36,7 +36,12 @@ export async function searchPoModels(search: string, signal?: AbortSignal) {
         entry.poCount += o.count;
         byName.set(name, entry);
     }
-    return { models: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)), truncated };
+    // Exact name first, then names starting with the search, then the rest A-Z: Enter picks the
+    // top one, and "DURAMO SL2 W WIDE" must not lose to "DURAMO SL2 M WIDE" (W matches WIDE)
+    const q = normalizePoName(search);
+    const rank = (name: string) => (!q ? 0 : name === q ? 0 : name.startsWith(q) ? 1 : 2);
+    const models = [...byName.values()].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+    return { models, truncated };
 }
 
 /** Articles found in the POs of these model spellings, with their PO counts. */

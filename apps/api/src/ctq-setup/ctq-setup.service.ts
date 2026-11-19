@@ -331,6 +331,47 @@ export class CtqSetupService {
         return this.prisma.setupDefect.delete({ where: { setupDefectId: BigInt(setupDefectId) } });
     }
 
+    /**
+     * Deletes a model with its own setup (areas / processes / defects, USPs, PO mappings, articles).
+     * Refused once inspections exist for it: those reports point at the model and its setup.
+     */
+    async deleteModel(modelId: string) {
+        const id = BigInt(modelId);
+        const model = await this.prisma.setupModel.findUnique({
+            where: { setupModelId: id },
+            select: { modelName: true, modelNo: true, _count: { select: { rqcHeaders: true } } },
+        });
+        if (!model) throw new NotFoundException('Model not found.');
+        if (model._count.rqcHeaders > 0) {
+            throw new ConflictException(
+                `${modelLabel(model)} cannot be deleted: it has ${model._count.rqcHeaders} inspection report(s).`,
+            );
+        }
+
+        try {
+            await this.prisma.$transaction(async (tx) => {
+                const areas = await tx.setupArea.findMany({ where: { setupModelId: id }, select: { setupAreaId: true } });
+                const areaIds = areas.map(a => a.setupAreaId);
+                const processes = await tx.setupProcess.findMany({ where: { setupAreaId: { in: areaIds } }, select: { setupProcessId: true } });
+                const processIds = processes.map(p => p.setupProcessId);
+
+                await tx.setupDefect.deleteMany({ where: { setupProcessId: { in: processIds } } });
+                await tx.setupProcess.deleteMany({ where: { setupProcessId: { in: processIds } } });
+                await tx.setupArea.deleteMany({ where: { setupModelId: id } });
+                await tx.masterUsp.deleteMany({ where: { setupModelId: id } });
+                await tx.modelPoMapping.deleteMany({ where: { setupModelId: id } });
+                // Articles go with the model (onDelete: Cascade)
+                await tx.setupModel.delete({ where: { setupModelId: id } });
+            });
+        } catch (e) {
+            if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+                throw new ConflictException(`${modelLabel(model)} cannot be deleted: other records still refer to it.`);
+            }
+            throw e;
+        }
+        return { deleted: true, setupModelId: modelId };
+    }
+
     // Utility to serialize BigInts to string for JSON responses
     private serializeBigInt(obj: any): any {
         return JSON.parse(
