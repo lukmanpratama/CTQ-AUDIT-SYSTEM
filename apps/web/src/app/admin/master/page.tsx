@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { Search, X, ArrowUpDown, Plus, Edit2, Trash2, RotateCcw, Filter } from 'lucide-react';
+import UsersPanel from '../../../components/admin/UsersPanel';
 
-type MasterTab = 'AREAS' | 'PROCESSES' | 'DEFECTS';
+type MasterTab = 'AREAS' | 'PROCESSES' | 'DEFECTS' | 'USERS';
+const TABS: MasterTab[] = ['AREAS', 'PROCESSES', 'DEFECTS', 'USERS'];
 type SortOption = 'id-asc' | 'id-desc' | 'name-asc' | 'name-desc';
 
 export default function MasterDataPage() {
@@ -11,6 +13,7 @@ export default function MasterDataPage() {
     const [areas, setAreas] = useState<any[]>([]);
     const [processes, setProcesses] = useState<any[]>([]);
     const [defects, setDefects] = useState<any[]>([]);
+    const [users, setUsers] = useState<any[]>([]);
     const [newItem, setNewItem] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -20,10 +23,19 @@ export default function MasterDataPage() {
     const [sortBy, setSortBy] = useState<SortOption>('id-asc');
     const [selectedLetter, setSelectedLetter] = useState<string>('ALL');
 
-    // Fetch all 3 collections on mount to show counts on tabs immediately
+    // Fetch all collections on mount to show counts on tabs immediately.
+    // ?tab=users opens a tab directly (the old /admin/users page redirects there).
     useEffect(() => {
+        const tab = new URLSearchParams(window.location.search).get('tab')?.toUpperCase();
+        if (tab && TABS.includes(tab as MasterTab)) setActiveTab(tab as MasterTab);
         fetchAllMasterData();
     }, []);
+
+    const selectTab = (tab: MasterTab) => {
+        setActiveTab(tab);
+        // Keep the tab in the URL so a reload or a shared link opens the same tab
+        window.history.replaceState(null, '', tab === 'AREAS' ? window.location.pathname : `?tab=${tab.toLowerCase()}`);
+    };
 
     // Reset local filters when switching tab
     useEffect(() => {
@@ -35,14 +47,16 @@ export default function MasterDataPage() {
 
     const fetchAllMasterData = async () => {
         try {
-            const [areasData, processesData, defectsData] = await Promise.all([
+            const [areasData, processesData, defectsData, usersData] = await Promise.all([
                 fetch('/api/master/areas').then(r => r.json()).catch(() => []),
                 fetch('/api/master/processes').then(r => r.json()).catch(() => []),
                 fetch('/api/master/defects').then(r => r.json()).catch(() => []),
+                fetch('/api/master/users').then(r => r.json()).catch(() => []),
             ]);
             setAreas(Array.isArray(areasData) ? areasData : []);
             setProcesses(Array.isArray(processesData) ? processesData : []);
             setDefects(Array.isArray(defectsData) ? defectsData : []);
+            setUsers(Array.isArray(usersData) ? usersData : []);
         } catch (e) {
             console.error('Error fetching master data:', e);
         }
@@ -57,6 +71,7 @@ export default function MasterDataPage() {
             if (activeTab === 'AREAS') setAreas(arr);
             else if (activeTab === 'PROCESSES') setProcesses(arr);
             else if (activeTab === 'DEFECTS') setDefects(arr);
+            else if (activeTab === 'USERS') setUsers(arr);
         } catch (e) {
             console.error('Error fetching active data', e);
         }
@@ -130,8 +145,11 @@ export default function MasterDataPage() {
         }
     };
 
-    const tabLabel = activeTab === 'AREAS' ? 'Area' : activeTab === 'PROCESSES' ? 'Process' : 'Defect';
-    const currentData = activeTab === 'AREAS' ? areas : activeTab === 'PROCESSES' ? processes : defects;
+    const tabLabel = activeTab === 'AREAS' ? 'Area' : activeTab === 'PROCESSES' ? 'Process' : activeTab === 'DEFECTS' ? 'Defect' : 'User';
+    const tabCounts: Record<MasterTab, number> = { AREAS: areas.length, PROCESSES: processes.length, DEFECTS: defects.length, USERS: users.length };
+    // The Users tab has its own panel; the generic list below only serves Areas / Processes / Defects
+    const isUsersTab = activeTab === 'USERS';
+    const currentData = activeTab === 'AREAS' ? areas : activeTab === 'PROCESSES' ? processes : activeTab === 'DEFECTS' ? defects : [];
 
     const getRow = (item: any) => {
         if (activeTab === 'AREAS') return { id: item.areaId, name: item.area || '' };
@@ -211,20 +229,20 @@ export default function MasterDataPage() {
                             </span>
                         </h1>
                         <p className="text-xs text-gray-500 mt-0.5">
-                            Manage Areas, Processes, and Defect definitions.
+                            Manage Areas, Processes, Defect definitions, and Users.
                         </p>
                     </div>
 
                     {/* Tabs Switcher with Item Badges */}
-                    <div className="inline-flex p-1 bg-gray-200/80 rounded-lg self-start md:self-auto">
-                        {(['AREAS', 'PROCESSES', 'DEFECTS'] as MasterTab[]).map(tab => {
-                            const count = tab === 'AREAS' ? areas.length : tab === 'PROCESSES' ? processes.length : defects.length;
+                    <div className="inline-flex flex-wrap p-1 bg-gray-200/80 rounded-lg self-start md:self-auto">
+                        {TABS.map(tab => {
+                            const count = tabCounts[tab];
                             const isActive = activeTab === tab;
                             return (
                                 <button
                                     key={tab}
-                                    onClick={() => setActiveTab(tab)}
-                                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+                                    onClick={() => selectTab(tab)}
+                                    className={`flex items-center gap-2 px-3 sm:px-3.5 py-1.5 rounded-md text-xs font-medium transition-all ${
                                         isActive
                                             ? 'bg-white text-gray-950 shadow-sm font-semibold'
                                             : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'
@@ -246,6 +264,7 @@ export default function MasterDataPage() {
                     </div>
                 </div>
 
+                {!isUsersTab && (<>
                 {/* Second Row: Search, Filter, Sort & Add Toolbar */}
                 <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
                     {/* Left: Search & Sort Controls */}
@@ -358,8 +377,12 @@ export default function MasterDataPage() {
                         )}
                     </div>
                 </div>
+                </>)}
             </div>
 
+            {isUsersTab && <UsersPanel users={users} onChanged={fetchActiveData} />}
+
+            {!isUsersTab && (<>
             {/* Error Message Notification */}
             {errorMsg && (
                 <div className="px-4 py-2.5 bg-red-50 border border-red-200 text-red-700 rounded-md text-xs flex items-center justify-between">
@@ -441,6 +464,7 @@ export default function MasterDataPage() {
                     </table>
                 </div>
             </div>
+            </>)}
         </div>
     );
 }
