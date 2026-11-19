@@ -3,20 +3,24 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { compressImage } from '../../../lib/compress-image';
+import { fetchPoArticlesForModelName } from '../../../lib/po-models';
+import PoModelPicker from '../../../components/admin/PoModelPicker';
+import UspPanel from '../../../components/admin/UspPanel';
+
+type SetupTab = 'MODELS' | 'USP';
 
 export default function SetupCtqPage() {
     const router = useRouter();
+    const [activeTab, setActiveTab] = useState<SetupTab>('MODELS');
     const [models, setModels] = useState<any[]>([]);
-    const [newModel, setNewModel] = useState('');
-    const [newModelNo, setNewModelNo] = useState('');
-    const [newArticles, setNewArticles] = useState('');
-    const [createError, setCreateError] = useState('');
     const [loadError, setLoadError] = useState('');
     const [editingModelId, setEditingModelId] = useState<string | null>(null);
     const [editingModelName, setEditingModelName] = useState('');
     const [editingModelNo, setEditingModelNo] = useState('');
     const [editingArticles, setEditingArticles] = useState('');
     const [editError, setEditError] = useState('');
+    const [editNote, setEditNote] = useState('');
+    const [poArticlesLoading, setPoArticlesLoading] = useState(false);
 
     const handleViewFile = (base64Str: string) => {
         // The model list now sends a file URL (served by the API) instead of the base64 data
@@ -42,7 +46,16 @@ export default function SetupCtqPage() {
         }
     };
 
-    useEffect(() => { fetchModels(); }, []);
+    // ?tab=usp opens the USP tab directly (the old Master USP page redirects there)
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get('tab')?.toLowerCase() === 'usp') setActiveTab('USP');
+        fetchModels();
+    }, []);
+
+    const selectTab = (tab: SetupTab) => {
+        setActiveTab(tab);
+        window.history.replaceState(null, '', tab === 'USP' ? '?tab=usp' : window.location.pathname);
+    };
 
     const fetchModels = async () => {
         try {
@@ -69,28 +82,6 @@ export default function SetupCtqPage() {
         const data = await res.json().catch(() => null);
         const msg = data?.message;
         return Array.isArray(msg) ? msg.join(', ') : (msg || `Request failed (${res.status}).`);
-    };
-
-    const handleCreateModel = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setCreateError('');
-        const res = await fetch('/api/ctq-setup/models', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                modelName: newModel.trim().toUpperCase(),
-                modelNo: newModelNo.trim().toUpperCase(),
-                articles: parseArticles(newArticles)
-            })
-        });
-        if (!res.ok) {
-            setCreateError(await readError(res));
-            return;
-        }
-        setNewModel('');
-        setNewModelNo('');
-        setNewArticles('');
-        fetchModels();
     };
 
     const handleUploadPicture = async (modelId: string, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -127,6 +118,36 @@ export default function SetupCtqPage() {
         setEditingModelNo(m.modelNo || '');
         setEditingArticles((m.articles || []).map((a: any) => a.article).join(', '));
         setEditError('');
+        setEditNote('');
+    };
+
+    // Adds the articles found in the POs of this model name that no other model owns yet
+    const addArticlesFromPo = async (modelId: string) => {
+        setEditError('');
+        setEditNote('');
+        setPoArticlesLoading(true);
+        try {
+            const { articles, found } = await fetchPoArticlesForModelName(editingModelName);
+            if (!found) {
+                setEditNote(`Model "${editingModelName.trim().toUpperCase()}" tidak ditemukan di Purchase Orders.`);
+                return;
+            }
+            const ownedElsewhere = new Set(models
+                .filter(m => m.setupModelId !== modelId)
+                .flatMap(m => (m.articles || []).map((a: any) => String(a.article).toUpperCase())));
+            const current = parseArticles(editingArticles);
+            const added = articles.map(a => a.article).filter(a => !current.includes(a) && !ownedElsewhere.has(a));
+            if (added.length === 0) {
+                setEditNote('Tidak ada artikel baru di PO untuk model ini.');
+                return;
+            }
+            setEditingArticles([...current, ...added].join(', '));
+            setEditNote(`${added.length} artikel ditambahkan dari PO: ${added.join(', ')}. Klik Save untuk menyimpan.`);
+        } catch (e: any) {
+            setEditError(e.message);
+        } finally {
+            setPoArticlesLoading(false);
+        }
     };
 
     const handleSaveModel = async (modelId: string) => {
@@ -156,57 +177,58 @@ export default function SetupCtqPage() {
 
     return (
         <div className="space-y-5">
-            {/* Title and the Add Model form stay at the top while the model list scrolls */}
+            {/* Title, tabs and the Add Model form stay at the top while the list scrolls */}
             <div className="admin-sticky-head space-y-3">
-                <div>
-                    <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
-                    <p className="text-sm text-gray-500 mt-0.5">Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.</p>
-                </div>
-                <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-                    <form onSubmit={handleCreateModel}>
-                        <div className="flex flex-col md:flex-row gap-2">
-                            <input
-                                value={newModel}
-                                onChange={e => setNewModel(e.target.value)}
-                                required type="text"
-                                placeholder="Model name (e.g. TAEKWONDO MEI BALLET W)"
-                                className="flex-1 border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400 transition-colors"
-                            />
-                            <input
-                                value={newModelNo}
-                                onChange={e => setNewModelNo(e.target.value)}
-                                type="text"
-                                placeholder="Model No (optional)"
-                                className="md:w-44 border border-gray-200 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-gray-400 transition-colors"
-                            />
-                            <input
-                                value={newArticles}
-                                onChange={e => setNewArticles(e.target.value)}
-                                type="text"
-                                placeholder="Articles (optional, e.g. LA0398, LA0399)"
-                                className="md:w-64 border border-gray-200 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-gray-400 transition-colors"
-                            />
-                            <button type="submit" className="bg-gray-900 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-gray-800 transition-colors">
-                                Add Model
-                            </button>
-                        </div>
-                        <p className="mt-1.5 text-xs text-gray-400">
-                            Model No and Articles are optional. Fill them in when several models share one name: each Model No can be added under the same name, and Articles link POs and TQC data to the right one.
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div>
+                        <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                            {activeTab === 'MODELS'
+                                ? <>Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.</>
+                                : 'Manage Unique Selling Points (USP) mapped to specific Models.'}
                         </p>
-                        {createError && <p className="mt-1.5 text-xs text-red-600">{createError}</p>}
-                    </form>
-                    {loadError && (
-                        <div className="px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
-                    )}
+                    </div>
+                    <div className="inline-flex p-1 bg-gray-200/80 rounded-lg self-start md:self-auto">
+                        {([['MODELS', 'Models'], ['USP', 'USP']] as [SetupTab, string][]).map(([tab, label]) => {
+                            const isActive = activeTab === tab;
+                            return (
+                                <button
+                                    key={tab}
+                                    onClick={() => selectTab(tab)}
+                                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-all ${isActive
+                                        ? 'bg-white text-gray-950 shadow-sm font-semibold'
+                                        : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'}`}
+                                >
+                                    <span>{label}</span>
+                                    {tab === 'MODELS' && (
+                                        <span className={`px-1.5 rounded-full text-[10px] font-mono ${isActive ? 'bg-gray-900 text-white' : 'bg-gray-300 text-gray-700'}`}>
+                                            {models.length}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
+                {activeTab === 'MODELS' && (
+                    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+                        <PoModelPicker models={models} onCreated={fetchModels} />
+                        {loadError && (
+                            <div className="px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
+                        )}
+                    </div>
+                )}
             </div>
 
+            {activeTab === 'USP' && <UspPanel models={models} />}
+
+            {activeTab === 'MODELS' && (
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100">
                     <h2 className="text-sm font-medium text-gray-800">Models</h2>
                 </div>
-                <div className="p-4">
-                    <table className="w-full text-sm">
+                <div className="p-4 overflow-x-auto">
+                    <table className="w-full text-sm min-w-[860px]">
                         <thead>
                             <tr className="border-b border-gray-100">
                                 <th className="text-left py-2 pr-4 text-xs font-medium text-gray-400 w-20">ID</th>
@@ -246,9 +268,18 @@ export default function SetupCtqPage() {
                                                     placeholder="Articles, comma separated"
                                                     className="flex-1 min-w-[180px] border border-gray-200 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-blue-500"
                                                 />
+                                                <button
+                                                    onClick={() => addArticlesFromPo(m.setupModelId)}
+                                                    disabled={poArticlesLoading}
+                                                    title="Tambahkan artikel dari Purchase Orders dengan nama model ini"
+                                                    className="text-xs text-gray-700 border border-gray-200 bg-white px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50"
+                                                >
+                                                    {poArticlesLoading ? 'Memuat...' : 'Ambil dari PO'}
+                                                </button>
                                                 <button onClick={() => handleSaveModel(m.setupModelId)} className="text-xs text-white bg-blue-600 px-2 py-1 rounded hover:bg-blue-700">Save</button>
                                                 <button onClick={() => setEditingModelId(null)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
                                             </div>
+                                            {editNote && <p className="mt-1 text-xs text-emerald-700">{editNote}</p>}
                                             {editError && <p className="mt-1 text-xs text-red-600">{editError}</p>}
                                         </td>
                                     ) : (
@@ -258,7 +289,7 @@ export default function SetupCtqPage() {
                                                     <span>{m.modelName}</span>
                                                     <button
                                                         onClick={() => startEdit(m)}
-                                                        className="text-xs text-gray-400 hover:text-blue-600 underline opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        className="text-xs text-gray-400 hover:text-blue-600 underline md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                                                     >
                                                         Edit
                                                     </button>
@@ -327,6 +358,7 @@ export default function SetupCtqPage() {
                     </table>
                 </div>
             </div>
+            )}
         </div>
     );
 }
