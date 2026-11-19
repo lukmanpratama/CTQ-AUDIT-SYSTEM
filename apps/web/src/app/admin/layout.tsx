@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { clearSession } from '../../lib/session';
@@ -28,6 +28,10 @@ const COLLAPSED_KEY = 'ctq_admin_sidebar_collapsed';
 // it over the page (closing on navigation) instead of squeezing a phone-width screen.
 const PHONE_QUERY = '(max-width: 767px)';
 
+// Delay before a mouse resting on the mini sidebar expands it, so passing over the left edge
+// on the way to something else doesn't flash it open.
+const HOVER_OPEN_DELAY_MS = 150;
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -36,9 +40,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     const [collapsed, setCollapsed] = useState(false);
     const [isPhone, setIsPhone] = useState(false);
     const [phoneOpen, setPhoneOpen] = useState(false);
-    // Label shown next to a mini sidebar icon on hover / keyboard focus. Rendered fixed:
-    // the scrolling nav would clip anything that sticks out of it.
-    const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
+    // Mini sidebar opened by the mouse resting on it: lays over the page until the mouse leaves
+    const [hoverOpen, setHoverOpen] = useState(false);
+    const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         const role = localStorage.getItem('role');
@@ -54,14 +58,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     useEffect(() => {
         try { setCollapsed(localStorage.getItem(COLLAPSED_KEY) === '1'); } catch { /* storage blocked: start expanded */ }
         const mq = window.matchMedia(PHONE_QUERY);
-        const sync = () => { setIsPhone(mq.matches); setPhoneOpen(false); };
+        const sync = () => { setIsPhone(mq.matches); setPhoneOpen(false); setHoverOpen(false); };
         sync();
         mq.addEventListener('change', sync);
         return () => mq.removeEventListener('change', sync);
     }, []);
 
     // A tap on a menu item closes the expanded phone sidebar
-    useEffect(() => { setPhoneOpen(false); setTip(null); }, [pathname]);
+    useEffect(() => { setPhoneOpen(false); }, [pathname]);
 
     useEffect(() => {
         if (!phoneOpen) return;
@@ -70,11 +74,31 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         return () => window.removeEventListener('keydown', onKey);
     }, [phoneOpen]);
 
-    const mini = isPhone ? !phoneOpen : collapsed;
-    const overlay = isPhone && phoneOpen;
+    useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, []);
+
+    const mini = isPhone ? !phoneOpen : collapsed && !hoverOpen;
+    // Expanded on top of the page rather than beside it
+    const floating = isPhone ? phoneOpen : collapsed && hoverOpen;
+
+    const cancelHoverTimer = () => {
+        if (hoverTimer.current) clearTimeout(hoverTimer.current);
+        hoverTimer.current = null;
+    };
+
+    // Mouse only: a touch "hover" would open the sidebar under the finger on every tap
+    const onPointerEnter = (e: React.PointerEvent) => {
+        if (isPhone || !collapsed || e.pointerType !== 'mouse') return;
+        cancelHoverTimer();
+        hoverTimer.current = setTimeout(() => setHoverOpen(true), HOVER_OPEN_DELAY_MS);
+    };
+    const onPointerLeave = () => {
+        cancelHoverTimer();
+        setHoverOpen(false);
+    };
 
     const toggleSidebar = () => {
-        setTip(null);
+        cancelHoverTimer();
+        setHoverOpen(false);
         if (isPhone) { setPhoneOpen(o => !o); return; }
         setCollapsed(c => {
             const next = !c;
@@ -82,14 +106,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             return next;
         });
     };
-
-    const showTip = (label: string) => (e: React.SyntheticEvent<HTMLElement>) => {
-        if (!mini || isPhone) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        setTip({ label, top: r.top + r.height / 2 });
-    };
-    const hideTip = () => setTip(null);
-    const tipProps = (label: string) => ({ onMouseEnter: showTip(label), onMouseLeave: hideTip, onFocus: showTip(label), onBlur: hideTip });
 
     const handleLogout = () => {
         clearSession();
@@ -100,32 +116,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         return null;
     }
 
+    // On a phone the button opens / closes the overlay; on a wider screen it pins the sidebar
+    // open or back to mini (also while the mouse holds it open)
+    const pinned = isPhone ? phoneOpen : !collapsed;
+    const toggleLabel = isPhone
+        ? (phoneOpen ? 'Tutup sidebar' : 'Buka sidebar')
+        : (collapsed ? 'Kunci sidebar terbuka' : 'Ciutkan sidebar');
+
     return (
         // fixed inset-0: the admin shell fills the window and scrolls only inside <main>.
         // As an in-flow h-screen box under the root layout's bottom padding, the whole page
         // scrolled too, which showed two scrollbars.
         <div className="fixed inset-0 flex bg-gray-100 overflow-hidden">
-            {/* Holds the sidebar's place in the row. On a phone it stays mini-width, so the expanded
-                sidebar lays over the page instead of pushing it aside. */}
+            {/* Holds the sidebar's place in the row. While mini it stays mini-width, so a sidebar
+                expanded by hover (or on a phone) lays over the page instead of pushing it aside. */}
             <div className={`relative flex-shrink-0 transition-[width] duration-200 ${isPhone || collapsed ? 'w-14' : 'w-56'}`}>
                 <aside
-                    className={`absolute inset-y-0 left-0 z-40 bg-white border-r border-gray-200 flex flex-col overflow-hidden transition-[width,box-shadow] duration-200 ${mini ? 'w-14' : 'w-56'} ${overlay ? 'shadow-xl' : ''}`}
+                    onPointerEnter={onPointerEnter}
+                    onPointerLeave={onPointerLeave}
+                    className={`absolute inset-y-0 left-0 z-40 bg-white border-r border-gray-200 flex flex-col overflow-hidden transition-[width,box-shadow] duration-200 ${mini ? 'w-14' : 'w-56'} ${floating ? 'shadow-xl' : ''}`}
                 >
                     <div className={`h-14 flex-shrink-0 flex items-center border-b border-gray-200 ${mini ? 'justify-center' : 'justify-between pl-5 pr-2'}`}>
                         {!mini && <span className="text-sm font-semibold text-gray-900 tracking-tight whitespace-nowrap">CTQ Audit System</span>}
                         <button
                             type="button"
                             onClick={toggleSidebar}
-                            {...tipProps('Perluas sidebar')}
-                            aria-label={mini ? 'Perluas sidebar' : 'Ciutkan sidebar'}
+                            aria-label={toggleLabel}
+                            title={toggleLabel}
                             aria-expanded={!mini}
                             className="p-1.5 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
                         >
-                            {mini ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+                            {pinned ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
                         </button>
                     </div>
 
-                    <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2" onScroll={hideTip}>
+                    <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2">
                         {NAV.map(item => {
                             const active = isActive(pathname, item);
                             return (
@@ -133,8 +158,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                                     key={item.path}
                                     href={item.path}
                                     aria-label={mini ? item.name : undefined}
+                                    title={mini ? item.name : undefined}
                                     aria-current={active ? 'page' : undefined}
-                                    {...tipProps(item.name)}
                                     className={`flex items-center gap-2.5 px-3 py-2 mb-0.5 rounded-md text-[13px] whitespace-nowrap transition-colors ${active
                                         ? 'bg-gray-900 text-white font-medium'
                                         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
@@ -150,7 +175,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     </nav>
 
                     <div className="p-2 border-t border-gray-200 flex-shrink-0">
-                        <div className={`flex items-center gap-2.5 mb-1.5 ${mini ? 'justify-center' : 'px-2'}`} {...tipProps(`${nik} · Administrator`)}>
+                        <div className={`flex items-center gap-2.5 mb-1.5 ${mini ? 'justify-center' : 'px-2'}`} title={mini ? `${nik} · Administrator` : undefined}>
                             <div className="w-7 h-7 flex-shrink-0 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-600">
                                 {nik.charAt(0).toUpperCase()}
                             </div>
@@ -163,8 +188,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                         </div>
                         <button
                             onClick={handleLogout}
-                            {...tipProps('Sign out')}
                             aria-label="Sign out"
+                            title={mini ? 'Sign out' : undefined}
                             className={`w-full flex items-center gap-2 py-1.5 text-xs text-gray-500 hover:text-red-600 hover:bg-gray-50 rounded transition-colors ${mini ? 'justify-center' : 'px-3'}`}
                         >
                             <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
@@ -174,18 +199,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </aside>
             </div>
 
-            {overlay && (
+            {isPhone && phoneOpen && (
                 <div className="fixed inset-0 z-30 bg-black/30" onClick={() => setPhoneOpen(false)} aria-hidden="true" />
-            )}
-
-            {tip && (
-                <div
-                    role="tooltip"
-                    className="fixed z-50 left-16 -translate-y-1/2 px-2 py-1 rounded-md bg-gray-900 text-white text-xs font-medium whitespace-nowrap shadow-lg pointer-events-none"
-                    style={{ top: tip.top }}
-                >
-                    {tip.label}
-                </div>
             )}
 
             <main className="flex-1 min-w-0 flex flex-col bg-gray-50">
