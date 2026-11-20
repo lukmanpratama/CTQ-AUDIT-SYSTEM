@@ -30,6 +30,12 @@ function parseUspNames(names: string[]) {
     return out;
 }
 
+/** New master_usp rows for these names. Codes are unique per model and nothing shows them, so they only need to differ. */
+function newUspRows(names: string[]) {
+    const stamp = Date.now();
+    return names.map((uspName, i) => ({ uspName, uspCode: `USP-${stamp}-${i + 1}`, isActive: true }));
+}
+
 const FILE_EXTENSIONS: Record<string, string> = {
     'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
     'application/pdf': '.pdf',
@@ -157,12 +163,13 @@ export class CtqSetupService {
     }
 
     // Builder CRUD methods
-    async createModel(data: { modelName: string; modelNo?: string; articles?: string[]; isActive?: boolean }) {
+    async createModel(data: { modelName: string; modelNo?: string; articles?: string[]; usps?: string[]; isActive?: boolean }) {
         const modelName = data.modelName.trim().toUpperCase();
-        // Model No and articles are optional; an empty Model No is stored as NULL
+        // Model No, articles and USPs are optional; an empty Model No is stored as NULL
         const modelNo = (data.modelNo ?? '').trim().toUpperCase() || null;
         if (!modelName) throw new BadRequestException('Model Name is required.');
         const articles = parseArticles(data.articles);
+        const usps = parseUspNames(data.usps ?? []);
 
         if (modelNo) await this.assertModelNoFree(modelNo);
         await this.assertArticlesFree(articles);
@@ -173,8 +180,9 @@ export class CtqSetupService {
                 modelNo,
                 isActive: data.isActive ?? true,
                 articles: { create: articles.map(article => ({ article })) },
+                masterUsps: { create: newUspRows(usps) },
             },
-            include: { articles: true },
+            include: { articles: true, masterUsps: true },
         });
         return this.serializeBigInt(model);
     }
@@ -226,11 +234,7 @@ export class CtqSetupService {
 
         const add = names.filter(n => !have.has(n.toUpperCase()));
         if (add.length > 0) {
-            // Codes are unique per model and nothing shows them, so they only need to differ
-            const stamp = Date.now();
-            await tx.masterUsp.createMany({
-                data: add.map((uspName, i) => ({ setupModelId, uspName, uspCode: `USP-${stamp}-${i + 1}`, isActive: true })),
-            });
+            await tx.masterUsp.createMany({ data: newUspRows(add).map(row => ({ ...row, setupModelId })) });
         }
     }
 

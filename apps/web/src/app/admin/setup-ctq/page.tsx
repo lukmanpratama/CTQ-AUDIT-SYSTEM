@@ -7,16 +7,12 @@ import { compressImage } from '../../../lib/compress-image';
 import { modelLabel } from '../../../lib/model-label';
 import { fetchPoArticlesForModelName } from '../../../lib/po-models';
 import PoModelPicker from '../../../components/admin/PoModelPicker';
+import UspTagsInput from '../../../components/admin/UspTagsInput';
+import { mergeUspNames, sameUspName, splitUspNames } from '../../../lib/usp-names';
 
 // Long lists show this many chips until expanded
 const ARTICLES_FOLDED = 8;
 const USPS_FOLDED = 4;
-
-// Names typed or pasted into the USP box: one per line (a column copied from Excel), or the whole text
-const splitUspNames = (text: string) =>
-    text.split(/\r?\n|\t/).map(n => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
-
-const sameName = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
 
 export default function SetupCtqPage() {
     const router = useRouter();
@@ -138,16 +134,6 @@ export default function SetupCtqPage() {
         setEditNote('');
     };
 
-    const addUsps = (names: string[]) => setEditingUsps(prev => {
-        const next = [...prev];
-        for (const n of names) if (!next.some(x => sameName(x, n))) next.push(n);
-        return next;
-    });
-    const commitUspDraft = () => {
-        addUsps(splitUspNames(uspDraft));
-        setUspDraft('');
-    };
-
     // Adds the articles found in the POs of this model name that no other model owns yet
     const addArticlesFromPo = async (modelId: string) => {
         setEditError('');
@@ -180,11 +166,10 @@ export default function SetupCtqPage() {
     const handleSaveModel = async (m: any) => {
         if (!editingModelName.trim()) return setEditError('Model Name is required.');
         // A name still in the box counts too, so Save doesn't drop what was typed without Enter
-        const usps = [...editingUsps];
-        for (const n of splitUspNames(uspDraft)) if (!usps.some(x => sameName(x, n))) usps.push(n);
+        const usps = mergeUspNames(editingUsps, splitUspNames(uspDraft));
         const removed = (m.masterUsps || [])
             .map((u: any) => u.uspName as string)
-            .filter((name: string) => !usps.some(n => sameName(n, name)));
+            .filter((name: string) => !usps.some(n => sameUspName(n, name)));
         if (removed.length > 0 && !window.confirm(
             `Hapus USP: ${removed.join(', ')}?\nProcess yang dikelompokkan ke USP ini jadi tanpa USP grouping.`,
         )) return;
@@ -302,42 +287,12 @@ export default function SetupCtqPage() {
                                                         />
                                                     </td>
                                                     <td className="py-2.5 px-4">
-                                                        {editingUsps.length > 0 && (
-                                                            <div className="flex flex-wrap gap-1 mb-1.5">
-                                                                {editingUsps.map(name => (
-                                                                    <span key={name.toUpperCase()} className="inline-flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded border border-blue-100 bg-blue-50 text-blue-800 text-[11px] font-medium">
-                                                                        {name}
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => setEditingUsps(prev => prev.filter(n => n !== name))}
-                                                                            className="p-0.5 rounded text-blue-400 hover:text-red-600 hover:bg-red-50"
-                                                                            aria-label={`Hapus USP ${name}`}
-                                                                        >
-                                                                            <X className="w-3 h-3" />
-                                                                        </button>
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                        <input
-                                                            type="text"
-                                                            value={uspDraft}
-                                                            onChange={e => setUspDraft(e.target.value)}
-                                                            onKeyDown={e => {
-                                                                if (e.key === 'Enter') {
-                                                                    e.preventDefault();
-                                                                    commitUspDraft();
-                                                                }
-                                                            }}
-                                                            onPaste={e => {
-                                                                // A pasted column (one name per line) becomes one chip per name
-                                                                const names = splitUspNames(e.clipboardData.getData('text'));
-                                                                if (names.length < 2) return;
-                                                                e.preventDefault();
-                                                                addUsps(names);
-                                                            }}
-                                                            placeholder="Ketik nama USP, Enter"
-                                                            className={`w-full min-w-[170px] text-xs ${inputClass}`}
+                                                        <UspTagsInput
+                                                            names={editingUsps}
+                                                            onNamesChange={setEditingUsps}
+                                                            draft={uspDraft}
+                                                            onDraftChange={setUspDraft}
+                                                            className="min-w-[190px]"
                                                         />
                                                     </td>
                                                     <td className="py-2.5 px-4">

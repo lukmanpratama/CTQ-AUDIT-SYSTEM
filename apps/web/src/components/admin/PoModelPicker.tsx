@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Loader2, Search, X } from 'lucide-react';
 import { modelLabel } from '../../lib/model-label';
 import { fetchPoArticles, searchPoModels, type PoArticleOption, type PoModelOption } from '../../lib/po-models';
+import { mergeUspNames, splitUspNames } from '../../lib/usp-names';
+import UspTagsInput from './UspTagsInput';
 
 // "Add Model" form of Setup CTQ: the model name and its articles come from the Purchase Orders,
-// so they match the PO / TQC data exactly. Only the Model No (not in the POs) is typed.
+// so they match the PO / TQC data exactly. The USPs and the Model No (not in the POs) are typed.
 export default function PoModelPicker({ models, onCreated }: { models: any[]; onCreated: () => void }) {
     const [query, setQuery] = useState('');
     const [open, setOpen] = useState(false);
@@ -23,6 +25,8 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
     const [checked, setChecked] = useState<Set<string>>(new Set());
 
     const [modelNo, setModelNo] = useState('');
+    const [usps, setUsps] = useState<string[]>([]);
+    const [uspDraft, setUspDraft] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
 
@@ -103,6 +107,8 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
         setArticles([]);
         setChecked(new Set());
         setModelNo('');
+        setUsps([]);
+        setUspDraft('');
         setError('');
     };
 
@@ -151,6 +157,8 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
                     modelName: selected.name,
                     modelNo: modelNo.trim().toUpperCase(),
                     articles: [...checked],
+                    // A name still in the box counts too, so Add Model doesn't drop what was typed without Enter
+                    usps: mergeUspNames(usps, splitUspNames(uspDraft)),
                 }),
             });
             if (!res.ok) {
@@ -171,7 +179,8 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
 
     return (
         <form onSubmit={handleSubmit} className="space-y-2.5">
-            <div className="flex flex-col md:flex-row gap-2">
+            {/* Same order as the models table: name, USP, Model No. Top-aligned so the USP box can grow */}
+            <div className="flex flex-col md:flex-row md:items-start gap-2">
                 {/* Model name: searchable list of the model names found in the Purchase Orders */}
                 <div ref={wrapRef} className="relative flex-1 min-w-0">
                     <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -244,6 +253,14 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
                         </div>
                     )}
                 </div>
+                <UspTagsInput
+                    names={usps}
+                    onNamesChange={setUsps}
+                    draft={uspDraft}
+                    onDraftChange={setUspDraft}
+                    placeholder="USP (opsional), Enter untuk tambah"
+                    className="flex-1 min-w-0 min-h-[34px] px-2"
+                />
                 <input
                     value={modelNo}
                     onChange={e => setModelNo(e.target.value)}
@@ -320,7 +337,7 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
                 </p>
             )}
             <p className="text-xs text-gray-400">
-                Nama model dan artikel diambil dari Purchase Orders. Artikel yang dicentang menautkan PO dan TQC ke model ini; artikel baru di PO berikutnya bisa ditambahkan lewat Edit &rarr; Ambil dari PO. Tanpa artikel, PO dicocokkan berdasarkan nama model.
+                Nama model dan artikel diambil dari Purchase Orders. USP bisa lebih dari satu: ketik lalu Enter, atau tempel daftar (satu nama per baris). Artikel yang dicentang menautkan PO dan TQC ke model ini; artikel baru di PO berikutnya bisa ditambahkan lewat Edit &rarr; Ambil dari PO. Tanpa artikel, PO dicocokkan berdasarkan nama model.
             </p>
             {error && <p className="text-xs text-red-600">{error}</p>}
         </form>
