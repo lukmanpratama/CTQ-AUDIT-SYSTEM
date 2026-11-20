@@ -17,6 +17,12 @@ export class CreateModelDto {
     @IsOptional()
     articles?: string[];
 
+    /** USP names of this model; more than one is fine */
+    @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    usps?: string[];
+
     @IsBoolean()
     @IsOptional()
     isActive?: boolean;
