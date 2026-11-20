@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, use } from 'react';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { useDataRefresh } from '../../../../lib/use-data-refresh';
+import ColumnFilter, { ClearColumnFilters } from '../../../../components/admin/ColumnFilter';
+import { useColumnFilters } from '../../../../lib/column-filters';
 
 const parseCustomDateString = (dateStr: any): string | null => {
     if (!dateStr) return null;
@@ -118,9 +120,31 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
     const [page, setPage] = useState(1);
     const rowsPerPage = 10;
 
-    const [selectedModels, setSelectedModels] = useState<string[]>([]);
-    const [colFilters, setColFilters] = useState<Record<string, string>>({});
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    // Header filters, one per column, on the values as the table shows them
+    const cf = useColumnFilters(data, {
+        date: { get: r => (r.date ? String(r.date).slice(0, 10) : ''), format: formatDateForDisplay },
+        time: { get: r => r.time },
+        building: { get: r => r.building },
+        cell: { get: r => r.cell },
+        model: { get: r => r.model },
+        article: { get: r => r.article },
+        orderNo: { get: r => r.orderNo },
+        pwiNo: { get: r => r.pwiNo },
+        seq: { get: r => r.seq },
+        qtyProduction: { get: r => (isSewingFormat ? (typeof r.qtyProduction === 'number' ? r.qtyProduction : '') : (r.qtyProduction || r.qty)) },
+        qtyChecking: { get: r => (isSewingFormat ? r.qty : (r.qtyChecking ?? DEFAULT_QTY_CHECKING)) },
+        qtyDefect: { get: r => r.qtyDefect },
+        destination: { get: r => r.destination },
+        category: { get: r => r.category },
+        type: { get: r => r.type },
+        ctqType: { get: r => r.ctqType },
+        defectName: { get: r => r.defectName },
+        uspClassification: { get: r => r.uspClassification },
+    }, () => setPage(1));
+    const F = (key: string, title: string) => <ColumnFilter {...cf.bind(key, title)} />;
+
+    // Another module starts without filters
+    useEffect(() => { cf.clearAll(); }, [moduleType]);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [setupDefectNames, setSetupDefectNames] = useState<string[]>([]);
@@ -407,7 +431,7 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
             const response = await fetch(`/api/tqc/bulk/${moduleType}`, { method: 'DELETE' });
             if (response.ok) {
                 fetchData();
-                setSelectedModels([]);
+                cf.clearAll();
                 setPage(1);
                 alert(`All ${moduleType} data has been cleared.`);
             } else {
@@ -419,40 +443,10 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
         }
     };
 
-    const uniqueModels = Array.from(new Set(data.map(item => item.model))).filter(Boolean).sort() as string[];
-
-    const filteredData = data.filter(item => {
-        if (selectedModels.length > 0 && !selectedModels.includes(item.model)) return false;
-
-        for (const [key, value] of Object.entries(colFilters)) {
-            if (!value) continue;
-            const itemVal = String(item[key] || '');
-            if (itemVal !== value) return false;
-        }
-        return true;
-    });
+    const filteredData = cf.filtered;
 
     const paginatedData = filteredData.slice((page - 1) * rowsPerPage, page * rowsPerPage);
     const totalPages = Math.ceil(filteredData.length / rowsPerPage) || 1;
-
-    const renderExcelFilter = (fieldKey: string, label: string) => {
-        const uniqueValues = Array.from(new Set(data.map(item => String(item[fieldKey] || '')).filter(Boolean))).sort();
-        return (
-            <select
-                className="w-full text-xs border border-gray-300 rounded px-1 py-1 font-normal text-gray-700 bg-white"
-                value={colFilters[fieldKey] || ''}
-                onChange={e => {
-                    setColFilters(prev => ({ ...prev, [fieldKey]: e.target.value }));
-                    setPage(1);
-                }}
-            >
-                <option value="">{label}</option>
-                {uniqueValues.map(val => (
-                    <option key={val} value={val}>{val.length > 20 ? val.substring(0, 20) + '...' : val}</option>
-                ))}
-            </select>
-        );
-    };
 
     const handleDownloadFormat = () => {
         let headers = [];
@@ -490,64 +484,8 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <button
-                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                            className="bg-white border border-gray-300 text-gray-700 text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 flex items-center justify-between px-3 py-2 w-48 shadow-sm"
-                        >
-                            <span className="truncate text-left">
-                                {selectedModels.length === 0
-                                    ? 'All Models'
-                                    : `${selectedModels.length} Model(s) Selected`}
-                            </span>
-                            <svg className="w-4 h-4 ml-2 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                        </button>
-
-                        {isDropdownOpen && (
-                            <>
-                                <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
-                                <div className="absolute left-0 z-20 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-hidden flex flex-col">
-                                    <div className="p-2 border-b border-gray-100 flex justify-between items-center bg-gray-50 flex-shrink-0">
-                                        <button
-                                            onClick={() => { setSelectedModels([]); setPage(1); }}
-                                            className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1"
-                                        >
-                                            Clear All
-                                        </button>
-                                        <button
-                                            onClick={() => { setSelectedModels([...uniqueModels]); setPage(1); }}
-                                            className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1"
-                                        >
-                                            Select All
-                                        </button>
-                                    </div>
-                                    <div className="p-2 space-y-1 overflow-y-auto">
-                                        {uniqueModels.map(m => (
-                                            <label key={m} className="flex items-center space-x-2 p-1.5 hover:bg-gray-50 rounded cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedModels.includes(m)}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            setSelectedModels([...selectedModels, m]);
-                                                        } else {
-                                                            setSelectedModels(selectedModels.filter(x => x !== m));
-                                                        }
-                                                        setPage(1);
-                                                    }}
-                                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 w-4 h-4"
-                                                />
-                                                <span className="text-sm text-gray-700 truncate">{m}</span>
-                                            </label>
-                                        ))}
-                                        {uniqueModels.length === 0 && (
-                                            <div className="text-sm text-gray-500 p-2 text-center">No models found</div>
-                                        )}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
+                    {/* Models (and every other column) are filtered from the table headers */}
+                    <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
 
                     <button
                         onClick={handleDownloadFormat}
@@ -593,87 +531,54 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                     <table className="w-full text-sm text-left whitespace-nowrap">
                         <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
                             {isSewingFormat ? (
-                                <>
-                                    <tr>
-                                        <th className="px-5 py-3 font-semibold">DATE</th>
-                                        <th className="px-5 py-3 font-semibold">BUILDING</th>
-                                        <th className="px-5 py-3 font-semibold">CELL</th>
-                                        <th className="px-5 py-3 font-semibold">PO</th>
-                                        <th className="px-5 py-3 font-semibold">ARTICLE</th>
-                                        <th className="px-5 py-3 font-semibold">MODEL NAME</th>
-                                        <th className="px-5 py-3 font-semibold">DEFECT NAME</th>
-                                        <th className="px-5 py-3 font-semibold">QTY PRODUCTION</th>
-                                        <th className="px-5 py-3 font-semibold">QTY DEFECT</th>
-                                        <th className="px-5 py-3 font-semibold">QTY CHECKING</th>
-                                        <th className="px-5 py-3 font-semibold text-right">Action</th>
-                                    </tr>
-                                    <tr>
-                                        <th className="px-2 pb-2">{renderExcelFilter('date', 'All Dates')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('building', 'All Bld')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('cell', 'All Cell')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('orderNo', 'All PO')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('article', 'All Art')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('model', 'All Models')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('defectName', 'All Defects')}</th>
-                                        <th className="px-2 pb-2"></th>
-                                        <th className="px-2 pb-2"></th>
-                                        <th className="px-2 pb-2"></th>
-                                        <th className="px-2 pb-2"></th>
-                                    </tr>
-                                </>
+                                <tr>
+                                    <th className="px-5 py-3 font-semibold">{F('date', 'Date')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('building', 'Building')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('cell', 'Cell')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('orderNo', 'PO')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('article', 'Article')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('model', 'Model Name')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('defectName', 'Defect Name')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('qtyProduction', 'Qty Production')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('qtyDefect', 'Qty Defect')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('qtyChecking', 'Qty Checking')}</th>
+                                    <th className="px-5 py-3 font-semibold text-right">Action</th>
+                                </tr>
                             ) : (
-                                <>
-                                    <tr>
-                                        <th className="px-5 py-3 font-semibold">{moduleType === 'ASSEMBLY' ? 'Date' : 'DATE'}</th>
-                                        {moduleType === 'ASSEMBLY' && <th className="px-5 py-3 font-semibold">Time</th>}
-                                        <th className="px-5 py-3 font-semibold">{moduleType === 'ASSEMBLY' ? 'Building/Cell' : 'BUILDING / CELL'}</th>
-                                        <th className="px-5 py-3 font-semibold">{moduleType === 'ASSEMBLY' ? 'Model' : 'MODEL NAME'}</th>
-                                        <th className="px-5 py-3 font-semibold">{moduleType === 'ASSEMBLY' ? 'Article' : 'ARTICLE'}</th>
-                                        <th className="px-5 py-3 font-semibold">
-                                            {moduleType === 'ASSEMBLY' ? 'Order No / PWI' : 'PO'}
-                                        </th>
-                                        {moduleType === 'ASSEMBLY' && <th className="px-5 py-3 font-semibold">Seq</th>}
-                                        <th className="px-5 py-3 font-semibold">QTY PRODUCTION</th>
-                                        <th className="px-5 py-3 font-semibold">QTY CHECKING</th>
-                                        <th className="px-5 py-3 font-semibold">QTY DEFECT</th>
-                                        {moduleType === 'ASSEMBLY' && <th className="px-5 py-3 font-semibold">Destination</th>}
-                                        {!isSewingFormat && <th className="px-5 py-3 font-semibold">{moduleType === 'ASSEMBLY' ? 'Category' : 'CATEGORY'}</th>}
-                                        {!isSewingFormat && <th className="px-5 py-3 font-semibold">{moduleType === 'ASSEMBLY' ? 'Type' : 'TYPE'}</th>}
-                                        <th className="px-5 py-3 font-semibold">CTQ {moduleType === 'ASSEMBLY' ? 'Type' : 'TYPE'}</th>
-                                        <th className="px-5 py-3 font-semibold">DEFECT NAME</th>
-                                        <th className="px-5 py-3 font-semibold">USP CLASSIFICATION</th>
-                                        <th className="px-5 py-3 font-semibold text-right">Action</th>
-                                    </tr>
-                                    <tr>
-                                        <th className="px-2 pb-2">{renderExcelFilter('date', 'All Dates')}</th>
-                                        {moduleType === 'ASSEMBLY' && <th className="px-2 pb-2">{renderExcelFilter('time', 'All Times')}</th>}
-                                        <th className="px-2 pb-2">
-                                            <div className="flex gap-1">
-                                                {renderExcelFilter('building', 'All Bld/F')}
-                                                {renderExcelFilter('cell', 'All Cell')}
-                                            </div>
-                                        </th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('model', 'All Models')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('article', 'All Articles')}</th>
-                                        <th className="px-2 pb-2">
-                                            <div className="flex flex-col gap-1">
-                                                {renderExcelFilter('orderNo', 'All Order No')}
-                                                {moduleType === 'ASSEMBLY' && renderExcelFilter('pwiNo', 'All PWI')}
-                                            </div>
-                                        </th>
-                                        {moduleType === 'ASSEMBLY' && <th className="px-2 pb-2">{renderExcelFilter('seq', 'All Seq')}</th>}
-                                        <th className="px-2 pb-2"></th>
-                                        <th className="px-2 pb-2"></th>
-                                        <th className="px-2 pb-2"></th>
-                                        {moduleType === 'ASSEMBLY' && <th className="px-2 pb-2">{renderExcelFilter('destination', 'All Dest')}</th>}
-                                        {!isSewingFormat && <th className="px-2 pb-2">{renderExcelFilter('category', 'All Cat')}</th>}
-                                        {!isSewingFormat && <th className="px-2 pb-2">{renderExcelFilter('type', 'All Types')}</th>}
-                                        <th className="px-2 pb-2">{renderExcelFilter('ctqType', 'All CTQ')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('defectName', 'All Defects')}</th>
-                                        <th className="px-2 pb-2">{renderExcelFilter('uspClassification', 'All USP')}</th>
-                                        <th className="px-2 pb-2"></th>
-                                    </tr>
-                                </>
+                                <tr>
+                                    <th className="px-5 py-3 font-semibold">{F('date', 'Date')}</th>
+                                    {moduleType === 'ASSEMBLY' && <th className="px-5 py-3 font-semibold">{F('time', 'Time')}</th>}
+                                    <th className="px-5 py-3 font-semibold">
+                                        {/* One column, two filters */}
+                                        <span className="inline-flex items-center gap-1.5">
+                                            {F('building', 'Building')}
+                                            <span className="text-gray-300">/</span>
+                                            {F('cell', 'Cell')}
+                                        </span>
+                                    </th>
+                                    <th className="px-5 py-3 font-semibold">{F('model', moduleType === 'ASSEMBLY' ? 'Model' : 'Model Name')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('article', 'Article')}</th>
+                                    <th className="px-5 py-3 font-semibold">
+                                        {moduleType === 'ASSEMBLY' ? (
+                                            <span className="inline-flex items-center gap-1.5">
+                                                {F('orderNo', 'Order No')}
+                                                <span className="text-gray-300">/</span>
+                                                {F('pwiNo', 'PWI')}
+                                            </span>
+                                        ) : F('orderNo', 'PO')}
+                                    </th>
+                                    {moduleType === 'ASSEMBLY' && <th className="px-5 py-3 font-semibold">{F('seq', 'Seq')}</th>}
+                                    <th className="px-5 py-3 font-semibold">{F('qtyProduction', 'Qty Production')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('qtyChecking', 'Qty Checking')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('qtyDefect', 'Qty Defect')}</th>
+                                    {moduleType === 'ASSEMBLY' && <th className="px-5 py-3 font-semibold">{F('destination', 'Destination')}</th>}
+                                    <th className="px-5 py-3 font-semibold">{F('category', 'Category')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('type', 'Type')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('ctqType', 'CTQ Type')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('defectName', 'Defect Name')}</th>
+                                    <th className="px-5 py-3 font-semibold">{F('uspClassification', 'USP Classification')}</th>
+                                    <th className="px-5 py-3 font-semibold text-right">Action</th>
+                                </tr>
                             )}
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -685,6 +590,12 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                                 <tr>
                                     <td colSpan={14} className="px-5 py-16 text-center text-gray-500">
                                         No datatables records found for {moduleType}. Please import an Excel file.
+                                    </td>
+                                </tr>
+                            ) : filteredData.length === 0 ? (
+                                <tr>
+                                    <td colSpan={14} className="px-5 py-16 text-center text-gray-500">
+                                        Tidak ada baris yang cocok dengan filter kolom.
                                     </td>
                                 </tr>
                             ) : (
@@ -868,10 +779,11 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                 </div>
 
                 {/* Pagination Controls */}
-                {!loading && data.length > 0 && (
+                {!loading && filteredData.length > 0 && (
                     <div className="bg-gray-50 border-t border-gray-200 px-5 py-3 flex items-center justify-between">
                         <div className="text-sm text-gray-500">
-                            Showing <span className="font-medium text-gray-900">{(page - 1) * rowsPerPage + 1}</span> to <span className="font-medium text-gray-900">{Math.min(page * rowsPerPage, data.length)}</span> of <span className="font-medium text-gray-900">{data.length}</span> results
+                            Showing <span className="font-medium text-gray-900">{(page - 1) * rowsPerPage + 1}</span> to <span className="font-medium text-gray-900">{Math.min(page * rowsPerPage, filteredData.length)}</span> of <span className="font-medium text-gray-900">{filteredData.length}</span> results
+                            {filteredData.length !== data.length && ` (filtered from ${data.length})`}
                         </div>
                         <div className="flex gap-2">
                             <button

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { RqcImportButton } from '../../../features/rqc/components/RqcImportButton';
 import { useDataRefresh } from '../../../lib/use-data-refresh';
+import ColumnFilter, { ClearColumnFilters } from '../../../components/admin/ColumnFilter';
+import { EMPTY_LABEL, columnFiltersParam, type ColumnFilters, type ColumnFilterSel, type FilterOptionsResult } from '../../../lib/column-filters';
 
 const PAGE_SIZE = 10;
 
@@ -31,37 +33,54 @@ export default function AdminInspectionsPage() {
     const [pageLoading, setPageLoading] = useState<Record<string, boolean>>({});
     const latestRequest = useRef(0);
 
-    // Filters
+    // Filters: date range and model search above the tables; the columns filter from their headers
+    // (Excel style, the same for every model's table; the server filters, see the API's common/column-filters)
     const [filterModel, setFilterModel] = useState('');
-    const [filterInspector, setFilterInspector] = useState('');
-    const [filterCheckingTime, setFilterCheckingTime] = useState('');
     const [filterStartDate, setFilterStartDate] = useState('');
     const [filterEndDate, setFilterEndDate] = useState('');
-    const [filterFactoryId, setFilterFactoryId] = useState('');
-    const [filterCell, setFilterCell] = useState('');
-
-    const [filterOptions, setFilterOptions] = useState({
-        factories: [] as any[],
-        cells: [] as string[]
-    });
+    const [cols, setCols] = useState<ColumnFilters>({});
 
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
     const debouncedModel = useDebounced(filterModel);
-    const debouncedInspector = useDebounced(filterInspector);
 
-    const filterParams = () => {
-        const params = new URLSearchParams({ pageSize: String(PAGE_SIZE) });
+    /** Date range, model search and header filters as query params */
+    const listParams = (params = new URLSearchParams()) => {
         if (debouncedModel) params.append('model', debouncedModel);
-        if (debouncedInspector) params.append('inspector', debouncedInspector);
-        if (filterCheckingTime) params.append('checkingTime', filterCheckingTime);
         if (filterStartDate) params.append('startDate', filterStartDate);
         if (filterEndDate) params.append('endDate', filterEndDate);
-        if (filterFactoryId) params.append('factoryId', filterFactoryId);
-        if (filterCell) params.append('cell', filterCell);
+        const colsParam = columnFiltersParam(cols);
+        if (colsParam) params.append('cols', colsParam);
         return params;
     };
+    const filterParams = () => listParams(new URLSearchParams({ pageSize: String(PAGE_SIZE) }));
+
+    const setColumnFilter = (key: string, sel: ColumnFilterSel | null) => setCols(prev => {
+        const next = { ...prev };
+        if (sel) next[key] = sel; else delete next[key];
+        return next;
+    });
+
+    // One column's values (with report counts) under the other filters
+    const loadOptions = (field: string) => async (search: string): Promise<FilterOptionsResult> => {
+        const params = listParams(new URLSearchParams({ field }));
+        if (search) params.set('search', search);
+        const res = await fetch(`/api/rqc/headers/filter-options?${params.toString()}`);
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !Array.isArray(body?.options)) throw new Error(body?.message || `Gagal memuat nilai (${res.status}).`);
+        return {
+            options: body.options.map((o: { value: string; label?: string; count: number }) => ({
+                value: o.value,
+                label: o.value === '' ? EMPTY_LABEL : field === 'date' ? formatDate(o.value) : (o.label || o.value),
+                count: o.count,
+            })),
+            truncated: !!body.truncated,
+        };
+    };
+    const F = (key: string, title: string) => (
+        <ColumnFilter title={title} sel={cols[key]} serverSearch loadOptions={loadOptions(key)} onApply={sel => setColumnFilter(key, sel)} />
+    );
 
     const fetchGroups = async (params: URLSearchParams): Promise<ModelGroup[]> => {
         const res = await fetch(`/api/rqc/headers/by-model?${params.toString()}`);
@@ -108,16 +127,8 @@ export default function AdminInspectionsPage() {
     };
 
     useEffect(() => {
-        // Load filter options (factory, cell)
-        fetch('/api/rqc/filters')
-            .then(res => res.json())
-            .then(data => setFilterOptions(data))
-            .catch(console.error);
-    }, []);
-
-    useEffect(() => {
         loadHeaders();
-    }, [debouncedModel, debouncedInspector, filterCheckingTime, filterStartDate, filterEndDate, filterFactoryId, filterCell]);
+    }, [debouncedModel, filterStartDate, filterEndDate, cols]);
 
     // Someone added / changed data: reload quietly (no loading screen), keeping each
     // model's table on the page it shows and picking up new models / new totals
@@ -255,53 +266,9 @@ export default function AdminInspectionsPage() {
                             className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
                         />
                     </div>
-                    <div className="flex-1 min-w-[150px]">
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Inspector Name</label>
-                        <input
-                            type="text"
-                            placeholder="Inspector..."
-                            value={filterInspector}
-                            onChange={(e) => setFilterInspector(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                        />
-                    </div>
-                    <div className="flex-1 min-w-[150px]">
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Checking Time</label>
-                        <select
-                            value={filterCheckingTime}
-                            onChange={(e) => setFilterCheckingTime(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
-                        >
-                            <option value="">All Times</option>
-                            <option value="Morning">Morning</option>
-                            <option value="Afternoon">Afternoon</option>
-                        </select>
-                    </div>
-                    <div className="flex-1 min-w-[150px]">
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Factory</label>
-                        <select
-                            value={filterFactoryId}
-                            onChange={(e) => setFilterFactoryId(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
-                        >
-                            <option value="">All Factories</option>
-                            {filterOptions.factories?.map(f => (
-                                <option key={f.factoryId} value={f.factoryId}>{f.factory}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="flex-1 min-w-[150px]">
-                        <label className="block text-xs font-semibold text-gray-600 mb-1">Cell</label>
-                        <select
-                            value={filterCell}
-                            onChange={(e) => setFilterCell(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-md text-sm focus:ring-1 focus:ring-blue-500 outline-none bg-white"
-                        >
-                            <option value="">All Cells</option>
-                            {filterOptions.cells?.map(c => (
-                                <option key={c} value={c}>{c}</option>
-                            ))}
-                        </select>
+                    <div className="flex-[2] min-w-[200px] pb-2 text-xs text-gray-400">
+                        Time, factory, cell, PO dan inspector difilter dari header kolom tabel.
+                        <div className="mt-1"><ClearColumnFilters count={Object.keys(cols).length} onClear={() => setCols({})} /></div>
                     </div>
                 </div>
 
@@ -322,7 +289,11 @@ export default function AdminInspectionsPage() {
             {loading ? (
                 <div className="py-20 text-center text-gray-400 font-medium animate-pulse">Loading inspection results...</div>
             ) : groups.length === 0 ? (
-                <div className="py-20 text-center text-gray-400">Belum ada inspeksi yang tercatat.</div>
+                <div className="py-20 text-center text-gray-400">
+                    {Object.keys(cols).length > 0 || filterModel || filterStartDate || filterEndDate
+                        ? 'Tidak ada report yang cocok dengan filter.'
+                        : 'Belum ada inspeksi yang tercatat.'}
+                </div>
             ) : (
                 <div className="space-y-8">
                     {groups.map(group => {
@@ -348,12 +319,12 @@ export default function AdminInspectionsPage() {
                                                     onChange={() => toggleSelectAll(modelHeaders)}
                                                 />
                                             </th>
-                                            <th className="px-5 py-3 font-semibold">Date</th>
-                                            <th className="px-5 py-3 font-semibold">Time</th>
-                                            <th className="px-5 py-3 font-semibold">Factory</th>
-                                            <th className="px-5 py-3 font-semibold">Cell</th>
-                                            <th className="px-5 py-3 font-semibold">PO Number</th>
-                                            <th className="px-5 py-3 font-semibold">Inspector</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('date', 'Date')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('checkingTime', 'Time')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('factory', 'Factory')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('cell', 'Cell')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('po', 'PO Number')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('inspector', 'Inspector')}</th>
                                             <th className="px-5 py-3 font-semibold">Checks</th>
                                             <th className="px-5 py-3 font-semibold">Defects</th>
                                             <th className="px-5 py-3 font-semibold">Pass Rate</th>

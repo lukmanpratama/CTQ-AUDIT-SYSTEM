@@ -8,11 +8,32 @@ import { MODEL_MATCH_SELECT } from '../common/model-match';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
 import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, isCtqTqcDefect, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
+import { columnFilterWhere, parseColumnFilters, searchWords, type ColumnFilterSel } from '../common/column-filters';
 
 // TQC defects count on the CTQ dashboards only when the row has a USP Classification
 const hasUspClassification = (tqc: { uspClassification?: string | null }) => !!tqc.uspClassification?.trim();
 
 type HeaderListFilters = { model?: string; modelId?: string; startDate?: string; endDate?: string; checkingTime?: string; inspector?: string; factoryId?: string; cell?: string };
+
+// Inspection Report columns with a header filter (the `cols` param). Inspector filters by NIK.
+const HEADER_FILTER_COLUMNS = ['date', 'checkingTime', 'factory', 'cell', 'po', 'inspector'] as const;
+type HeaderFilterColumn = typeof HEADER_FILTER_COLUMNS[number];
+
+const parseDay = (v: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException(`Date filter values are YYYY-MM-DD, got "${v}".`);
+    return new Date(`${v}T00:00:00.000Z`);
+};
+
+/** Prisma condition for one Inspection Report header filter */
+function headerColumnWhere(field: HeaderFilterColumn, sel: ColumnFilterSel) {
+    switch (field) {
+        case 'date': return columnFilterWhere(sel, values => ({ date: { in: values.map(parseDay) } }));
+        case 'factory': return columnFilterWhere(sel, values => ({ factory: { factory: { in: values } } }));
+        case 'inspector': return columnFilterWhere(sel, values => ({ nik: { in: values } }));
+        case 'cell': return columnFilterWhere(sel, values => ({ cell: { in: values } }), { OR: [{ cell: null }, { cell: '' }] });
+        default: return columnFilterWhere(sel, values => ({ [field]: { in: values } }), { [field]: '' });
+    }
+}
 
 @Injectable()
 export class RqcService {
@@ -423,8 +444,8 @@ export class RqcService {
      * area → process → inspection tree. Without `groupModelId` every model comes back with
      * its first page; with it, only that model at `page`.
      */
-    async getHeadersByModel(filters: HeaderListFilters & { groupModelId?: string; page?: string; pageSize?: string }) {
-        const where = this.buildHeaderWhere(filters);
+    async getHeadersByModel(filters: HeaderListFilters & { groupModelId?: string; page?: string; pageSize?: string; cols?: string }) {
+        const where = this.headerListWhere(filters);
         const pageSize = Math.min(Math.max(Number(filters.pageSize) || 10, 1), 100);
         const onlyModelId = filters.groupModelId ? BigInt(filters.groupModelId) : undefined;
 
@@ -486,6 +507,74 @@ export class RqcService {
                 }),
             })),
         });
+    }
+
+    /** The list filters plus the Inspection Report's header filters; `except` leaves one column's filter out. */
+    private headerListWhere(filters: HeaderListFilters & { cols?: string }, except?: HeaderFilterColumn) {
+        const cols = parseColumnFilters(filters.cols, HEADER_FILTER_COLUMNS);
+        const and: any[] = [this.buildHeaderWhere(filters)];
+        for (const field of HEADER_FILTER_COLUMNS) {
+            const sel = cols[field];
+            if (sel && field !== except) and.push(headerColumnWhere(field, sel));
+        }
+        return { AND: and };
+    }
+
+    /**
+     * Values of one Inspection Report column for its header filter, with report counts, under the
+     * date range / model search and the other header filters. At most 200 values; `search` narrows them.
+     */
+    async getHeaderFilterOptions(field: string, search: string | undefined, filters: HeaderListFilters & { cols?: string }) {
+        if (!HEADER_FILTER_COLUMNS.includes(field as HeaderFilterColumn)) throw new BadRequestException(`Unknown filter field "${field}".`);
+        const col = field as HeaderFilterColumn;
+        const and: any[] = [this.headerListWhere(filters, col)];
+        const words = searchWords(search);
+        const contains = (w: string) => ({ contains: w, mode: 'insensitive' as const });
+        const LIMIT = 200;
+        const groupBy = (by: string, order: 'asc' | 'desc') => (this.prisma.rqcHeader.groupBy as any)({
+            by: [by], where: { AND: and }, _count: { _all: true }, orderBy: { [by]: order }, take: LIMIT + 1,
+        }) as Promise<any[]>;
+        const result = (groups: any[], toOption: (g: any) => { value: string; label?: string; count: number }) => ({
+            options: groups.slice(0, LIMIT).map(toOption),
+            truncated: groups.length > LIMIT,
+        });
+
+        if (col === 'date') {
+            // Newest first; the panel searches the dates as it shows them
+            const groups = await groupBy('date', 'desc');
+            return result(groups, g => ({ value: (g.date as Date).toISOString().slice(0, 10), count: g._count._all }));
+        }
+        if (col === 'factory') {
+            for (const w of words) and.push({ factory: { factory: contains(w) } });
+            const groups = await groupBy('factoryId', 'asc');
+            const factories = await this.prisma.masterFactory.findMany({
+                where: { factoryId: { in: groups.map(g => g.factoryId) } }, select: { factoryId: true, factory: true },
+            });
+            const nameById = new Map(factories.map(f => [String(f.factoryId), f.factory]));
+            // Same name twice (two ids) shows once
+            const counts = new Map<string, number>();
+            for (const g of groups.slice(0, LIMIT)) {
+                const name = nameById.get(String(g.factoryId)) ?? String(g.factoryId);
+                counts.set(name, (counts.get(name) ?? 0) + g._count._all);
+            }
+            return {
+                options: [...counts.entries()].sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true })).map(([value, count]) => ({ value, count })),
+                truncated: groups.length > LIMIT,
+            };
+        }
+        if (col === 'inspector') {
+            for (const w of words) and.push({ OR: [{ nik: contains(w) }, { inspector: { namaUser: contains(w) } }] });
+            const groups = await groupBy('nik', 'asc');
+            const users = await this.prisma.masterUser.findMany({ where: { nik: { in: groups.map(g => g.nik) } }, select: { nik: true, namaUser: true } });
+            const nameByNik = new Map(users.map(u => [u.nik, u.namaUser]));
+            const r = result(groups, g => ({ value: g.nik, label: nameByNik.get(g.nik) || g.nik, count: g._count._all }));
+            r.options.sort((a, b) => (a.label ?? '').localeCompare(b.label ?? ''));
+            return r;
+        }
+        // checkingTime, cell, po
+        for (const w of words) and.push({ [col]: contains(w) });
+        const groups = await groupBy(col, col === 'po' ? 'desc' : 'asc');
+        return result(groups, g => ({ value: g[col] ?? '', count: g._count._all }));
     }
 
     /** Dashboards used to download every header (with its whole inspection tree) only to list its cells. */

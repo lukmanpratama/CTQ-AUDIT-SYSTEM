@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import * as XLSX from 'xlsx';
+import ColumnFilter, { ClearColumnFilters } from '../../../components/admin/ColumnFilter';
+import { useColumnFilters } from '../../../lib/column-filters';
 
 const PAGE_SIZES = [10, 25, 50, 100, 0]; // 0 = All
 
@@ -21,15 +23,18 @@ function pageNumbers(current: number, total: number): (number | 'gap')[] {
     return pages;
 }
 
-/** Column header that sorts the table on click; the arrow shows the active direction. */
-function SortableTh({ label, field, sort, onSort }: { label: string; field: SortField; sort: SortState; onSort: (field: SortField) => void }) {
+/** Column header that sorts the table on click (the arrow shows the direction), plus its filter */
+function SortableTh({ label, field, sort, onSort, filter }: { label: string; field: SortField; sort: SortState; onSort: (field: SortField) => void; filter?: ReactNode }) {
     const active = sort.field === field;
     return (
         <th className="px-5 py-3 font-semibold">
-            <button type="button" onClick={() => onSort(field)} className="inline-flex items-center gap-1 uppercase hover:text-gray-900">
-                {label}
-                <span className={active ? 'text-gray-900' : 'text-gray-300'}>{active && sort.dir === 'desc' ? '▼' : '▲'}</span>
-            </button>
+            <span className="inline-flex items-center gap-1.5">
+                <button type="button" onClick={() => onSort(field)} className="inline-flex items-center gap-1 uppercase hover:text-gray-900">
+                    {label}
+                    <span className={active ? 'text-gray-900' : 'text-gray-300'}>{active && sort.dir === 'desc' ? '▼' : '▲'}</span>
+                </button>
+                {filter}
+            </span>
         </th>
     );
 }
@@ -66,7 +71,6 @@ export default function SetupDefectTqcPage() {
 
     // Data table state (all client-side: the mapping list is small)
     const [search, setSearch] = useState('');
-    const [filterCtqType, setFilterCtqType] = useState('');
     const [sort, setSort] = useState<SortState>({ field: 'defectName', dir: 'asc' });
     const [pageSize, setPageSize] = useState(25);
     const [page, setPage] = useState(1);
@@ -74,23 +78,22 @@ export default function SetupDefectTqcPage() {
     const toggleSort = (field: SortField) =>
         setSort(prev => ({ field, dir: prev.field === field && prev.dir === 'asc' ? 'desc' : 'asc' }));
 
-    const countByType = useMemo(() => {
-        const counts: Record<string, number> = {};
-        for (const item of data) counts[item.ctqType] = (counts[item.ctqType] || 0) + 1;
-        return counts;
-    }, [data]);
+    // Header filters (the CTQ Type filter used to be a dropdown above the table)
+    const cf = useColumnFilters(data, {
+        defectName: { get: d => d.defectName },
+        ctqType: { get: d => d.ctqType },
+    }, () => setPage(1));
 
     const filtered = useMemo(() => {
         const words = search.toLowerCase().split(/\s+/).filter(Boolean);
-        return data
-            .filter(item => !filterCtqType || item.ctqType === filterCtqType)
+        return cf.filtered
             .filter(item => words.every(w => item.defectName.toLowerCase().includes(w)))
             .sort((a, b) => {
                 const cmp = a[sort.field].localeCompare(b[sort.field], undefined, { sensitivity: 'base' })
                     || a.defectName.localeCompare(b.defectName, undefined, { sensitivity: 'base' });
                 return sort.dir === 'asc' ? cmp : -cmp;
             });
-    }, [data, search, filterCtqType, sort]);
+    }, [cf.filtered, search, sort]);
 
     const effectivePageSize = pageSize === 0 ? Math.max(filtered.length, 1) : pageSize;
     const totalPages = Math.max(Math.ceil(filtered.length / effectivePageSize), 1);
@@ -334,16 +337,7 @@ export default function SetupDefectTqcPage() {
                         entries
                     </label>
                     <div className="flex flex-wrap items-center gap-2">
-                        <select
-                            value={filterCtqType}
-                            onChange={(e) => { setFilterCtqType(e.target.value); setPage(1); }}
-                            className="h-8 px-2 border border-gray-300 rounded-md text-xs bg-white"
-                        >
-                            <option value="">All CTQ Types</option>
-                            {CTQ_TYPES.map(type => (
-                                <option key={type} value={type}>{type} ({countByType[type] || 0})</option>
-                            ))}
-                        </select>
+                        <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
                         <input
                             type="search"
                             value={search}
@@ -359,8 +353,10 @@ export default function SetupDefectTqcPage() {
                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
                         <tr>
                             <th className="px-5 py-3 font-semibold w-14">No</th>
-                            <SortableTh label="Defect Name (From TQC)" field="defectName" sort={sort} onSort={toggleSort} />
-                            <SortableTh label="CTQ Type Classification" field="ctqType" sort={sort} onSort={toggleSort} />
+                            <SortableTh label="Defect Name (From TQC)" field="defectName" sort={sort} onSort={toggleSort}
+                                filter={<ColumnFilter iconOnly {...cf.bind('defectName', 'Defect Name')} />} />
+                            <SortableTh label="CTQ Type Classification" field="ctqType" sort={sort} onSort={toggleSort}
+                                filter={<ColumnFilter iconOnly {...cf.bind('ctqType', 'CTQ Type')} />} />
                             <th className="px-5 py-3 font-semibold w-24 text-right">Actions</th>
                         </tr>
                     </thead>

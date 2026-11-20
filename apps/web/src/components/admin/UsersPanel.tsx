@@ -2,6 +2,8 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { Search, X, Edit2, Trash2, RotateCcw } from 'lucide-react';
+import ColumnFilter from './ColumnFilter';
+import { useColumnFilters } from '../../lib/column-filters';
 
 // User management, shown as the "Users" tab of Master Data (it used to be its own /admin/users page).
 // The parent owns the list so the tab badge shows the user count.
@@ -15,8 +17,15 @@ export default function UsersPanel({ users, onChanged }: { users: any[]; onChang
     const [error, setError] = useState('');
     const [editingNik, setEditingNik] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
-    const [roleFilter, setRoleFilter] = useState('ALL');
     const formRef = useRef<HTMLDivElement>(null);
+
+    // Header filters (the role filter used to be a separate dropdown)
+    const cf = useColumnFilters(users, {
+        nik: { get: u => u.nik },
+        namaUser: { get: u => u.namaUser },
+        role: { get: u => u.role },
+        status: { get: u => (u.isActive ? 'Active' : 'Inactive') },
+    });
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -69,14 +78,13 @@ export default function UsersPanel({ users, onChanged }: { users: any[]; onChang
 
     const filtered = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
-        return users.filter(u => {
-            if (roleFilter !== 'ALL' && u.role !== roleFilter) return false;
+        return cf.filtered.filter(u => {
             if (!q) return true;
             return String(u.nik || '').toLowerCase().includes(q) || String(u.namaUser || '').toLowerCase().includes(q);
         });
-    }, [users, searchQuery, roleFilter]);
+    }, [cf.filtered, searchQuery]);
 
-    const isFiltered = searchQuery.trim() !== '' || roleFilter !== 'ALL';
+    const isFiltered = searchQuery.trim() !== '' || cf.activeCount > 0;
     const inputCls = 'w-full border border-gray-200 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors';
 
     return (
@@ -154,18 +162,13 @@ export default function UsersPanel({ users, onChanged }: { users: any[]; onChang
                             </button>
                         )}
                     </div>
-                    <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="border border-gray-200 rounded-md px-2.5 py-1.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-gray-900 cursor-pointer">
-                        <option value="ALL">Semua role</option>
-                        <option value="ADMIN">ADMIN</option>
-                        <option value="RQC">RQC</option>
-                    </select>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-500">
                     <span>
                         Menampilkan <strong className="text-gray-900 font-semibold">{filtered.length}</strong> dari {users.length} user
                     </span>
                     {isFiltered && (
-                        <button onClick={() => { setSearchQuery(''); setRoleFilter('ALL'); }} className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                        <button onClick={() => { setSearchQuery(''); cf.clearAll(); }} className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 hover:underline font-medium">
                             <RotateCcw className="w-3 h-3" />
                             Reset
                         </button>
@@ -179,10 +182,10 @@ export default function UsersPanel({ users, onChanged }: { users: any[]; onChang
                     <table className="w-full text-sm min-w-[560px]">
                         <thead className="bg-gray-50/90 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                             <tr>
-                                <th className="text-left py-3 px-4 w-32">NIK</th>
-                                <th className="text-left py-3 px-4">Nama</th>
-                                <th className="text-left py-3 px-4 w-24">Role</th>
-                                <th className="text-left py-3 px-4 w-24">Status</th>
+                                <th className="text-left py-3 px-4 w-32"><ColumnFilter {...cf.bind('nik', 'NIK')} /></th>
+                                <th className="text-left py-3 px-4"><ColumnFilter {...cf.bind('namaUser', 'Nama')} /></th>
+                                <th className="text-left py-3 px-4 w-24"><ColumnFilter {...cf.bind('role', 'Role')} /></th>
+                                <th className="text-left py-3 px-4 w-24"><ColumnFilter {...cf.bind('status', 'Status')} /></th>
                                 <th className="text-right py-3 px-4 w-36">Aksi</th>
                             </tr>
                         </thead>

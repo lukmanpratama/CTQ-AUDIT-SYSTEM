@@ -2,6 +2,24 @@ import { Injectable, BadRequestException, ConflictException, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
 import { modelNameContainsWhere, poWhereForModel } from '../common/model-match';
+import { columnFilterWhere, parseColumnFilters } from '../common/column-filters';
+
+type PoFilters = { q?: string; po?: string; article?: string; model?: string; destination?: string; cols?: string };
+
+// Purchase Orders columns with a header filter (the `cols` param)
+const PO_FILTER_COLUMNS = ['po', 'article', 'model', 'destination', 'qtyOrder'] as const;
+type PoFilterColumn = typeof PO_FILTER_COLUMNS[number];
+
+/** Prisma condition for one Purchase Orders header filter */
+function poColumnWhere(field: PoFilterColumn, sel: { values: string[]; exclude: boolean }) {
+    if (field === 'qtyOrder') {
+        return columnFilterWhere(sel, values => ({ qtyOrder: { in: values.map(Number).filter(Number.isFinite) } }));
+    }
+    if (field === 'destination') {
+        return columnFilterWhere(sel, values => ({ destination: { in: values } }), { OR: [{ destination: null }, { destination: '' }] });
+    }
+    return columnFilterWhere(sel, values => ({ [field]: { in: values } }), { [field]: '' });
+}
 
 @Injectable()
 export class MasterService {
@@ -87,10 +105,11 @@ export class MasterService {
 
     /**
      * q: every word must appear in at least one of PO, article, model or destination.
-     * po / article / model / destination: column dropdown filters, exact value.
-     * `except` leaves one column filter out (used to build that column's own dropdown options).
+     * po / article / model / destination: one exact value (Add Model's PO lookups).
+     * cols: the table's header filters, several values per column (see common/column-filters).
+     * `except` leaves one column's filters out (used to build that column's own value list).
      */
-    private buildPoWhere(filters: { q?: string; po?: string; article?: string; model?: string; destination?: string }, except?: string) {
+    private buildPoWhere(filters: PoFilters, except?: string) {
         const and: any[] = [];
         for (const word of this.searchWords(filters.q)) {
             and.push({
@@ -102,6 +121,11 @@ export class MasterService {
         for (const field of ['po', 'article', 'model', 'destination'] as const) {
             if (field !== except && filters[field]) and.push({ [field]: filters[field] });
         }
+        const cols = parseColumnFilters(filters.cols, PO_FILTER_COLUMNS);
+        for (const field of PO_FILTER_COLUMNS) {
+            const sel = cols[field];
+            if (sel && field !== except) and.push(poColumnWhere(field, sel));
+        }
         return and.length ? { AND: and } : undefined;
     }
 
@@ -109,15 +133,20 @@ export class MasterService {
      * Values for a column dropdown filter (DataTables style): distinct values with row counts,
      * narrowed by the search box and the other column filters, optionally searched within.
      */
-    async findPoFilterOptions(field: string, search: string | undefined, filters: { q?: string; po?: string; article?: string; model?: string; destination?: string }) {
-        const allowed = ['po', 'article', 'model', 'destination'] as const;
-        if (!allowed.includes(field as any)) throw new BadRequestException(`Unknown filter field "${field}".`);
-        const col = field as typeof allowed[number];
+    async findPoFilterOptions(field: string, search: string | undefined, filters: PoFilters) {
+        if (!PO_FILTER_COLUMNS.includes(field as any)) throw new BadRequestException(`Unknown filter field "${field}".`);
+        const col = field as PoFilterColumn;
         const and: any[] = [];
         const base = this.buildPoWhere(filters, col);
         if (base) and.push(base);
-        if (col === 'destination') and.push({ destination: { not: null } }); // the only nullable column
-        for (const word of this.searchWords(search)) and.push({ [col]: { contains: word, mode: 'insensitive' as const } });
+        const words = this.searchWords(search);
+        if (col === 'qtyOrder') {
+            // A number column: the search is a number to look for
+            const n = Number(search?.trim());
+            if (words.length && Number.isFinite(n)) and.push({ qtyOrder: n });
+        } else {
+            for (const word of words) and.push({ [col]: { contains: word, mode: 'insensitive' as const } });
+        }
 
         const LIMIT = 200; // PO has ~36k distinct values; the in-dropdown search narrows the rest
         const groups: any[] = await (this.prisma.masterPo.groupBy as any)({
@@ -128,12 +157,13 @@ export class MasterService {
             take: LIMIT + 1,
         });
         return {
-            options: groups.slice(0, LIMIT).map(g => ({ value: g[col], count: g._count._all })),
+            // An empty destination (NULL) comes back as '', the filter's "(Kosong)"
+            options: groups.slice(0, LIMIT).map(g => ({ value: g[col] === null ? '' : String(g[col]), count: g._count._all })),
             truncated: groups.length > LIMIT,
         };
     }
 
-    async findPosPaged(page = 1, limit = 100, filters: { q?: string; po?: string; article?: string; model?: string; destination?: string } = {}) {
+    async findPosPaged(page = 1, limit = 100, filters: PoFilters = {}) {
         const take = Math.min(Math.max(limit || 100, 1), 500);
         const currentPage = Math.max(page || 1, 1);
         const where = this.buildPoWhere(filters);

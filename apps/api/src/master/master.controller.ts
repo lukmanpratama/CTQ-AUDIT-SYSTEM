@@ -63,9 +63,10 @@ export class MasterController {
         @Query('po') po?: string,
         @Query('article') article?: string,
         @Query('model') model?: string,
-        @Query('destination') destination?: string
+        @Query('destination') destination?: string,
+        @Query('cols') cols?: string
     ) {
-        return this.masterService.findPoFilterOptions(field, search, { q, po, article, model, destination });
+        return this.masterService.findPoFilterOptions(field, search, { q, po, article, model, destination, cols });
     }
 
     @Get('pos/paged')
@@ -76,9 +77,10 @@ export class MasterController {
         @Query('po') po?: string,
         @Query('article') article?: string,
         @Query('model') model?: string,
-        @Query('destination') destination?: string
+        @Query('destination') destination?: string,
+        @Query('cols') cols?: string
     ) {
-        return this.masterService.findPosPaged(parseInt(page || '1', 10), parseInt(limit || '100', 10), { q, po, article, model, destination });
+        return this.masterService.findPosPaged(parseInt(page || '1', 10), parseInt(limit || '100', 10), { q, po, article, model, destination, cols });
     }
 
     @Post('pos')

@@ -180,8 +180,23 @@ export class RqcController {
         @Query('groupModelId') groupModelId?: string,
         @Query('page') page?: string,
         @Query('pageSize') pageSize?: string,
+        /** Header filters of the table, see common/column-filters */
+        @Query('cols') cols?: string,
     ) {
-        return this.rqcService.getHeadersByModel({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell, groupModelId, page, pageSize });
+        return this.rqcService.getHeadersByModel({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell, groupModelId, page, pageSize, cols });
+    }
+
+    /** Inspection Report header filter: one column's values with report counts, under the other filters */
+    @Get('headers/filter-options')
+    async getHeaderFilterOptions(
+        @Query('field') field: string,
+        @Query('search') search?: string,
+        @Query('model') model?: string,
+        @Query('startDate') startDate?: string,
+        @Query('endDate') endDate?: string,
+        @Query('cols') cols?: string,
+    ) {
+        return this.rqcService.getHeaderFilterOptions(field, search, { model, startDate, endDate, cols });
     }
 
     @Put('headers/:headerId')
