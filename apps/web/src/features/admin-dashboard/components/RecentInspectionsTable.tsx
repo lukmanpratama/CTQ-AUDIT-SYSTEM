@@ -2,8 +2,12 @@ import React, { useState } from 'react';
 import { missingFollowUp } from '../../../lib/followup';
 
 import { processImageUrl } from '../../../lib/image-url';
+import ColumnFilter, { ClearColumnFilters } from '../../../components/admin/ColumnFilter';
+import { useColumnFilters } from '../../../lib/column-filters';
+
+const NO_ROWS: any[] = [];
+
 export function RecentInspectionsTable({ data }: { data?: any[] }) {
-    const displayData = data || [];
     const [selectedRow, setSelectedRow] = useState<any>(null);
     // What the selected finding still lacks (status here is the display text "CAP" / "Immediate Action")
     const missing = selectedRow
@@ -16,33 +20,54 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
         return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     };
 
+    // Header filters on the rows the dashboard loaded
+    const cf = useColumnFilters(data || NO_ROWS, {
+        date: { get: r => (r.date ? String(r.date).slice(0, 10) : ''), format: formatDate },
+        namaRqc: { get: r => r.namaRqc },
+        factoryCell: { get: r => r.factoryCell },
+        model: { get: r => r.model },
+        area: { get: r => r.area },
+        process: { get: r => r.process },
+        defectName: { get: r => r.defectName },
+        qtyChecking: { get: r => r.qtyChecking },
+        qtyDefect: { get: r => r.qtyDefect },
+        status: { get: r => r.status },
+        submitted: { get: r => r.submitted },
+        defectRate: { get: r => (r.defectRate !== null && r.defectRate !== undefined ? `${r.defectRate}%` : '') },
+    });
+    const displayData = cf.filtered;
+    const F = (key: string, title: string) => <ColumnFilter {...cf.bind(key, title)} />;
+
     return (
         <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex-1">
-            <div className="p-5 border-b border-gray-100">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-3">
                 <h2 className="text-sm font-bold text-gray-900 tracking-wide uppercase">Recent Inspection / Findings</h2>
+                <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
             </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                     <thead>
                         <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">
-                            <th className="p-4 font-semibold tracking-wider">Date</th>
-                            <th className="p-4 font-semibold tracking-wider">Nama RQC</th>
-                            <th className="p-4 font-semibold tracking-wider">Factory / Cell</th>
-                            <th className="p-4 font-semibold tracking-wider">Model</th>
-                            <th className="p-4 font-semibold tracking-wider">Area</th>
-                            <th className="p-4 font-semibold tracking-wider">Process Name</th>
-                            <th className="p-4 font-semibold tracking-wider">Defect Name</th>
-                            <th className="p-4 font-semibold tracking-wider text-center">Qty Checking</th>
-                            <th className="p-4 font-semibold tracking-wider text-center">Qty Defect</th>
-                            <th className="p-4 font-semibold tracking-wider">Status</th>
-                            <th className="p-4 font-semibold tracking-wider">Submitted</th>
-                            <th className="p-4 font-semibold tracking-wider text-center">Defect Rate</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('date', 'Date')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('namaRqc', 'Nama RQC')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('factoryCell', 'Factory / Cell')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('model', 'Model')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('area', 'Area')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('process', 'Process Name')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('defectName', 'Defect Name')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap text-center">{F('qtyChecking', 'Qty Checking')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap text-center">{F('qtyDefect', 'Qty Defect')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('status', 'Status')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap">{F('submitted', 'Submitted')}</th>
+                            <th className="p-4 font-semibold tracking-wider whitespace-nowrap text-center">{F('defectRate', 'Defect Rate')}</th>
                         </tr>
                     </thead>
                     <tbody className="text-xs text-gray-700 font-medium">
                         {displayData.length === 0 ? (
                             <tr>
-                                <td colSpan={10} className="p-8 text-center text-gray-400">No inspection findings found</td>
+                                <td colSpan={12} className="p-8 text-center text-gray-400">
+                                    {cf.activeCount > 0 ? 'Tidak ada temuan yang cocok dengan filter kolom.' : 'No inspection findings found'}
+                                </td>
                             </tr>
                         ) : (
                             displayData.map((row: any) => (

@@ -8,6 +8,8 @@ import { modelLabel } from '../../../lib/model-label';
 import { fetchPoArticlesForModelName } from '../../../lib/po-models';
 import PoModelPicker from '../../../components/admin/PoModelPicker';
 import UspTagsInput from '../../../components/admin/UspTagsInput';
+import ColumnFilter, { ClearColumnFilters } from '../../../components/admin/ColumnFilter';
+import { useColumnFilters } from '../../../lib/column-filters';
 import { mergeUspNames, sameUspName, splitUspNames } from '../../../lib/usp-names';
 
 // Long lists show this many chips until expanded
@@ -36,6 +38,17 @@ export default function SetupCtqPage() {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key); else next.add(key);
         return next;
+    });
+
+    // Header filters; a model matches the USP / Articles filter when one of its values is ticked
+    const cf = useColumnFilters(models, {
+        id: { get: m => m.setupModelId },
+        modelName: { get: m => m.modelName },
+        usp: { get: m => (m.masterUsps || []).map((u: any) => u.uspName) },
+        modelNo: { get: m => m.modelNo },
+        articles: { get: m => (m.articles || []).map((a: any) => a.article) },
+        photo: { get: m => (m.picture ? 'Ada' : 'Tidak ada') },
+        audit: { get: m => (m.internalAuditFile ? 'Ada' : 'Tidak ada') },
     });
 
     const handleViewFile = (base64Str: string) => {
@@ -253,23 +266,30 @@ export default function SetupCtqPage() {
                 </div>
             )}
 
+            {cf.activeCount > 0 && (
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span>Menampilkan <strong className="text-gray-900 font-semibold">{cf.filtered.length}</strong> dari {models.length} model</span>
+                    <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
+                </div>
+            )}
+
             <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[1280px]">
                         <thead className="bg-gray-50/90 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                             <tr>
-                                <th className="text-left py-3 px-4 w-16">ID</th>
-                                <th className="text-left py-3 px-4 min-w-[160px]">Model Name</th>
-                                <th className="text-left py-3 px-4 min-w-[200px]">USP</th>
-                                <th className="text-left py-3 px-4 w-28">Model No</th>
-                                <th className="text-left py-3 px-4 min-w-[240px]">Articles</th>
-                                <th className="text-left py-3 px-4 w-32">Photo</th>
-                                <th className="text-left py-3 px-4 w-32">Int. Audit</th>
+                                <th className="text-left py-3 px-4 w-16"><ColumnFilter {...cf.bind('id', 'ID')} /></th>
+                                <th className="text-left py-3 px-4 min-w-[160px]"><ColumnFilter {...cf.bind('modelName', 'Model Name')} /></th>
+                                <th className="text-left py-3 px-4 min-w-[200px]"><ColumnFilter {...cf.bind('usp', 'USP')} /></th>
+                                <th className="text-left py-3 px-4 w-28"><ColumnFilter {...cf.bind('modelNo', 'Model No')} /></th>
+                                <th className="text-left py-3 px-4 min-w-[240px]"><ColumnFilter {...cf.bind('articles', 'Articles')} /></th>
+                                <th className="text-left py-3 px-4 w-32"><ColumnFilter {...cf.bind('photo', 'Photo')} /></th>
+                                <th className="text-left py-3 px-4 w-32"><ColumnFilter {...cf.bind('audit', 'Int. Audit')} /></th>
                                 <th className="text-right py-3 px-4 w-[250px] sticky right-0 bg-gray-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Aksi</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {models.map(m => {
+                            {cf.filtered.map(m => {
                                 const isEditing = editingModelId === m.setupModelId;
                                 return (
                                     <Fragment key={m.setupModelId}>
@@ -482,6 +502,11 @@ export default function SetupCtqPage() {
                             {models.length === 0 && (
                                 <tr>
                                     <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">No models configured yet.</td>
+                                </tr>
+                            )}
+                            {models.length > 0 && cf.filtered.length === 0 && (
+                                <tr>
+                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">Tidak ada model yang cocok dengan filter kolom.</td>
                                 </tr>
                             )}
                         </tbody>

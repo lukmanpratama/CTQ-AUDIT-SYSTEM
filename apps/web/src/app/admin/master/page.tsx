@@ -3,6 +3,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Search, X, ArrowUpDown, Plus, Edit2, Trash2, RotateCcw, Filter } from 'lucide-react';
 import UsersPanel from '../../../components/admin/UsersPanel';
+import ColumnFilter from '../../../components/admin/ColumnFilter';
+import { useColumnFilters } from '../../../lib/column-filters';
 
 type MasterTab = 'AREAS' | 'PROCESSES' | 'DEFECTS' | 'USERS';
 const TABS: MasterTab[] = ['AREAS', 'PROCESSES', 'DEFECTS', 'USERS'];
@@ -157,6 +159,13 @@ export default function MasterDataPage() {
         return { id: item.defectId, name: item.defect || '' };
     };
 
+    // Header filters (ID, name); each tab starts without them
+    const cf = useColumnFilters(currentData, {
+        id: { get: item => getRow(item).id },
+        name: { get: item => getRow(item).name },
+    });
+    useEffect(() => { cf.clearAll(); }, [activeTab]);
+
     // Extract unique initial letters for quick filter
     const availableLetters = useMemo(() => {
         const letters = new Set<string>();
@@ -172,7 +181,7 @@ export default function MasterDataPage() {
 
     // Filter and Sort Data
     const filteredAndSorted = useMemo(() => {
-        let list = currentData.map(item => ({
+        let list = cf.filtered.map(item => ({
             raw: item,
             row: getRow(item),
         }));
@@ -205,14 +214,15 @@ export default function MasterDataPage() {
         });
 
         return list;
-    }, [currentData, activeTab, searchQuery, selectedLetter, sortBy]);
+    }, [cf.filtered, activeTab, searchQuery, selectedLetter, sortBy]);
 
-    const isFiltered = searchQuery.trim() !== '' || selectedLetter !== 'ALL' || sortBy !== 'id-asc';
+    const isFiltered = searchQuery.trim() !== '' || selectedLetter !== 'ALL' || sortBy !== 'id-asc' || cf.activeCount > 0;
 
     const handleResetFilter = () => {
         setSearchQuery('');
         setSelectedLetter('ALL');
         setSortBy('id-asc');
+        cf.clearAll();
     };
 
     return (
@@ -399,8 +409,8 @@ export default function MasterDataPage() {
                     <table className="w-full text-sm">
                         <thead className="bg-gray-50/90 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                             <tr>
-                                <th className="text-left py-3 px-4 w-24">ID</th>
-                                <th className="text-left py-3 px-4">Nama {tabLabel}</th>
+                                <th className="text-left py-3 px-4 w-24"><ColumnFilter {...cf.bind('id', 'ID')} /></th>
+                                <th className="text-left py-3 px-4"><ColumnFilter {...cf.bind('name', `Nama ${tabLabel}`)} /></th>
                                 <th className="text-right py-3 px-4 w-36">Aksi</th>
                             </tr>
                         </thead>
