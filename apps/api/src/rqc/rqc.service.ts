@@ -814,7 +814,8 @@ export class RqcService {
         const ctqMap = new Map<string, { total: number, defects: number }>();
 
         for (const rp of allProcesses) {
-            let ctq = rp.setupProcess?.masterProcess?.ctq;
+            // CTQ is set per model on the setup process
+            let ctq = rp.setupProcess?.ctq;
             if (!ctq || ctq.trim() === '') {
                 // If it's empty, we might choose to group it into "OTHER" or skip
                 ctq = 'OTHER';
@@ -1364,7 +1365,7 @@ export class RqcService {
                     qtyCheckingAfternoon: 0,
                     qtyDefectMorning: 0,
                     qtyDefectAfternoon: 0,
-                    ctq: rp.setupProcess?.masterProcess?.ctq || null,
+                    ctq: rp.setupProcess?.ctq || null,
                     // USP name only: the code is an auto number (USP-1792053029691)
                     usp: rp.setupProcess?.masterUsp?.uspName || null,
                 });
@@ -1923,9 +1924,7 @@ export class RqcService {
             where: {
                 rqcArea: { rqcHeader: headerConditions },
                 setupProcess: {
-                    masterProcess: {
-                        ctq: { equals: filters.ctqType, mode: 'insensitive' }
-                    }
+                    ctq: { equals: filters.ctqType, mode: 'insensitive' }
                 }
             },
             include: {
@@ -1952,7 +1951,7 @@ export class RqcService {
         const setupProcesses = await this.prisma.setupProcess.findMany({
             where: {
                 setupArea: { setupModelId: BigInt(filters.modelId) },
-                masterProcess: { ctq: { equals: filters.ctqType, mode: 'insensitive' } }
+                ctq: { equals: filters.ctqType, mode: 'insensitive' }
             },
             include: {
                 masterProcess: true,

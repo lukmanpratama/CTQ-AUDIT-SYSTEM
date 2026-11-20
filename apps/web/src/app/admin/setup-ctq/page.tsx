@@ -1,36 +1,44 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { Edit2, Settings2, Trash2, X } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
+import { Check, Edit2, Settings2, Trash2, X } from 'lucide-react';
 import { compressImage } from '../../../lib/compress-image';
 import { modelLabel } from '../../../lib/model-label';
 import { fetchPoArticlesForModelName } from '../../../lib/po-models';
 import PoModelPicker from '../../../components/admin/PoModelPicker';
-import UspPanel from '../../../components/admin/UspPanel';
 
-type SetupTab = 'MODELS' | 'USP';
-// Long article lists show this many chips until expanded
+// Long lists show this many chips until expanded
 const ARTICLES_FOLDED = 8;
+const USPS_FOLDED = 4;
+
+// Names typed or pasted into the USP box: one per line (a column copied from Excel), or the whole text
+const splitUspNames = (text: string) =>
+    text.split(/\r?\n|\t/).map(n => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+const sameName = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
 
 export default function SetupCtqPage() {
     const router = useRouter();
-    const [activeTab, setActiveTab] = useState<SetupTab>('MODELS');
     const [models, setModels] = useState<any[]>([]);
     const [loadError, setLoadError] = useState('');
     const [editingModelId, setEditingModelId] = useState<string | null>(null);
     const [editingModelName, setEditingModelName] = useState('');
     const [editingModelNo, setEditingModelNo] = useState('');
     const [editingArticles, setEditingArticles] = useState('');
+    // USP names of the model being edited; saved with the row (added / removed on Save)
+    const [editingUsps, setEditingUsps] = useState<string[]>([]);
+    const [uspDraft, setUspDraft] = useState('');
     const [editError, setEditError] = useState('');
     const [editNote, setEditNote] = useState('');
+    const [saving, setSaving] = useState(false);
     const [poArticlesLoading, setPoArticlesLoading] = useState(false);
     const [actionError, setActionError] = useState('');
-    // Models whose full article list is shown (long lists start folded)
-    const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
-    const toggleArticles = (id: string) => setExpandedArticles(prev => {
+    // Article / USP lists shown in full ("a:<id>", "u:<id>"); long lists start folded
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const toggleExpanded = (key: string) => setExpanded(prev => {
         const next = new Set(prev);
-        if (next.has(id)) next.delete(id); else next.add(id);
+        if (next.has(key)) next.delete(key); else next.add(key);
         return next;
     });
 
@@ -58,16 +66,11 @@ export default function SetupCtqPage() {
         }
     };
 
-    // ?tab=usp opens the USP tab directly (the old Master USP page redirects there)
     useEffect(() => {
-        if (new URLSearchParams(window.location.search).get('tab')?.toLowerCase() === 'usp') setActiveTab('USP');
+        // The USP tab became the USP column; drop a leftover ?tab=usp from old links
+        if (window.location.search) window.history.replaceState(null, '', window.location.pathname);
         fetchModels();
     }, []);
-
-    const selectTab = (tab: SetupTab) => {
-        setActiveTab(tab);
-        window.history.replaceState(null, '', tab === 'USP' ? '?tab=usp' : window.location.pathname);
-    };
 
     const fetchModels = async () => {
         try {
@@ -129,8 +132,20 @@ export default function SetupCtqPage() {
         setEditingModelName(m.modelName);
         setEditingModelNo(m.modelNo || '');
         setEditingArticles((m.articles || []).map((a: any) => a.article).join(', '));
+        setEditingUsps((m.masterUsps || []).map((u: any) => u.uspName));
+        setUspDraft('');
         setEditError('');
         setEditNote('');
+    };
+
+    const addUsps = (names: string[]) => setEditingUsps(prev => {
+        const next = [...prev];
+        for (const n of names) if (!next.some(x => sameName(x, n))) next.push(n);
+        return next;
+    });
+    const commitUspDraft = () => {
+        addUsps(splitUspNames(uspDraft));
+        setUspDraft('');
     };
 
     // Adds the articles found in the POs of this model name that no other model owns yet
@@ -162,23 +177,42 @@ export default function SetupCtqPage() {
         }
     };
 
-    const handleSaveModel = async (modelId: string) => {
+    const handleSaveModel = async (m: any) => {
         if (!editingModelName.trim()) return setEditError('Model Name is required.');
-        const res = await fetch(`/api/ctq-setup/models/${modelId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                modelName: editingModelName.trim().toUpperCase(),
-                modelNo: editingModelNo.trim().toUpperCase(),
-                articles: parseArticles(editingArticles)
-            })
-        });
-        if (!res.ok) {
-            setEditError(await readError(res));
-            return;
+        // A name still in the box counts too, so Save doesn't drop what was typed without Enter
+        const usps = [...editingUsps];
+        for (const n of splitUspNames(uspDraft)) if (!usps.some(x => sameName(x, n))) usps.push(n);
+        const removed = (m.masterUsps || [])
+            .map((u: any) => u.uspName as string)
+            .filter((name: string) => !usps.some(n => sameName(n, name)));
+        if (removed.length > 0 && !window.confirm(
+            `Hapus USP: ${removed.join(', ')}?\nProcess yang dikelompokkan ke USP ini jadi tanpa USP grouping.`,
+        )) return;
+
+        setSaving(true);
+        setEditError('');
+        try {
+            const res = await fetch(`/api/ctq-setup/models/${m.setupModelId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    modelName: editingModelName.trim().toUpperCase(),
+                    modelNo: editingModelNo.trim().toUpperCase(),
+                    articles: parseArticles(editingArticles),
+                    usps,
+                })
+            });
+            if (!res.ok) {
+                setEditError(await readError(res));
+                return;
+            }
+            setEditingModelId(null);
+            fetchModels();
+        } catch (e: any) {
+            setEditError(e.message || 'Gagal menyimpan model.');
+        } finally {
+            setSaving(false);
         }
-        setEditingModelId(null);
-        fetchModels();
     };
 
     const handleDeleteModel = async (m: any) => {
@@ -204,54 +238,28 @@ export default function SetupCtqPage() {
         return acc;
     }, {});
 
+    const inputClass = 'border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500 bg-white';
+
     return (
         <div className="space-y-5">
-            {/* Title, tabs and the Add Model form stay at the top while the list scrolls */}
+            {/* Title and the Add Model form stay at the top while the list scrolls */}
             <div className="admin-sticky-head space-y-3">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div>
-                        <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
-                        <p className="text-sm text-gray-500 mt-0.5">
-                            {activeTab === 'MODELS'
-                                ? <>Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.</>
-                                : 'Manage Unique Selling Points (USP) mapped to specific Models.'}
-                        </p>
-                    </div>
-                    <div className="inline-flex p-1 bg-gray-200/80 rounded-lg self-start md:self-auto">
-                        {([['MODELS', 'Models'], ['USP', 'USP']] as [SetupTab, string][]).map(([tab, label]) => {
-                            const isActive = activeTab === tab;
-                            return (
-                                <button
-                                    key={tab}
-                                    onClick={() => selectTab(tab)}
-                                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-all ${isActive
-                                        ? 'bg-white text-gray-950 shadow-sm font-semibold'
-                                        : 'text-gray-600 hover:text-gray-900 hover:bg-white/50'}`}
-                                >
-                                    <span>{label}</span>
-                                    {tab === 'MODELS' && (
-                                        <span className={`px-1.5 rounded-full text-[10px] font-mono ${isActive ? 'bg-gray-900 text-white' : 'bg-gray-300 text-gray-700'}`}>
-                                            {models.length}
-                                        </span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
+                <div>
+                    <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                        Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.
+                        <span className="ml-2 px-1.5 rounded-full text-[10px] font-mono bg-gray-200 text-gray-700 align-middle">{models.length} model</span>
+                    </p>
                 </div>
-                {activeTab === 'MODELS' && (
-                    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-                        <PoModelPicker models={models} onCreated={fetchModels} />
-                        {loadError && (
-                            <div className="px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
-                        )}
-                    </div>
-                )}
+                <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+                    <PoModelPicker models={models} onCreated={fetchModels} />
+                    {loadError && (
+                        <div className="px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
+                    )}
+                </div>
             </div>
 
-            {activeTab === 'USP' && <UspPanel models={models} />}
-
-            {activeTab === 'MODELS' && actionError && (
+            {actionError && (
                 <div className="px-4 py-2.5 bg-red-50 border border-red-200 text-red-700 rounded-md text-xs flex items-center justify-between">
                     <span>{actionError}</span>
                     <button onClick={() => setActionError('')} className="text-red-400 hover:text-red-700 p-0.5" aria-label="Tutup">
@@ -260,14 +268,14 @@ export default function SetupCtqPage() {
                 </div>
             )}
 
-            {activeTab === 'MODELS' && (
             <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[1080px]">
+                    <table className="w-full text-sm min-w-[1280px]">
                         <thead className="bg-gray-50/90 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                             <tr>
                                 <th className="text-left py-3 px-4 w-16">ID</th>
                                 <th className="text-left py-3 px-4 min-w-[160px]">Model Name</th>
+                                <th className="text-left py-3 px-4 min-w-[200px]">USP</th>
                                 <th className="text-left py-3 px-4 w-28">Model No</th>
                                 <th className="text-left py-3 px-4 min-w-[240px]">Articles</th>
                                 <th className="text-left py-3 px-4 w-32">Photo</th>
@@ -276,156 +284,255 @@ export default function SetupCtqPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {models.map(m => (
-                                <tr key={m.setupModelId} className={`transition-colors group ${editingModelId === m.setupModelId ? 'bg-blue-50/40' : 'hover:bg-gray-50/80'}`}>
-                                    <td className="py-2.5 px-4 text-gray-500 font-mono text-xs">{m.setupModelId}</td>
-                                    {editingModelId === m.setupModelId ? (
-                                        <td colSpan={3} className="py-2.5 px-4 text-gray-800">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={editingModelName}
-                                                    onChange={e => setEditingModelName(e.target.value)}
-                                                    placeholder="Model name"
-                                                    className="flex-1 min-w-[180px] border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500"
-                                                />
-                                                <input
-                                                    type="text"
-                                                    value={editingModelNo}
-                                                    onChange={e => setEditingModelNo(e.target.value)}
-                                                    placeholder="Model No"
-                                                    className="w-28 border border-gray-200 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-blue-500"
-                                                />
-                                                <input
-                                                    type="text"
-                                                    value={editingArticles}
-                                                    onChange={e => setEditingArticles(e.target.value)}
-                                                    placeholder="Articles, comma separated"
-                                                    className="flex-1 min-w-[180px] border border-gray-200 rounded px-2 py-1 text-sm font-mono focus:outline-none focus:border-blue-500"
-                                                />
-                                                <button
-                                                    onClick={() => addArticlesFromPo(m.setupModelId)}
-                                                    disabled={poArticlesLoading}
-                                                    title="Tambahkan artikel dari Purchase Orders dengan nama model ini"
-                                                    className="text-xs text-gray-700 border border-gray-200 bg-white px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50"
-                                                >
-                                                    {poArticlesLoading ? 'Memuat...' : 'Ambil dari PO'}
-                                                </button>
-                                                <button onClick={() => handleSaveModel(m.setupModelId)} className="text-xs text-white bg-blue-600 px-2 py-1 rounded hover:bg-blue-700">Save</button>
-                                                <button onClick={() => setEditingModelId(null)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
-                                            </div>
-                                            {editNote && <p className="mt-1 text-xs text-emerald-700">{editNote}</p>}
-                                            {editError && <p className="mt-1 text-xs text-red-600">{editError}</p>}
-                                        </td>
-                                    ) : (
-                                        <>
-                                            <td className="py-2.5 px-4 font-medium text-gray-900">{m.modelName}</td>
-                                            <td className="py-2.5 px-4 font-mono text-xs">
-                                                {m.modelNo
-                                                    ? <span className="text-gray-800 font-semibold">{m.modelNo}</span>
-                                                    : <span className="text-gray-400">-</span>}
-                                            </td>
-                                            <td className="py-2.5 px-4">
-                                                {(m.articles || []).length > 0 ? (() => {
-                                                    const all = m.articles.map((a: any) => a.article);
-                                                    const open = expandedArticles.has(m.setupModelId);
-                                                    const shown = open ? all : all.slice(0, ARTICLES_FOLDED);
-                                                    return (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {shown.map((a: string) => (
-                                                                <span key={a} className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono text-[11px]">{a}</span>
-                                                            ))}
-                                                            {all.length > ARTICLES_FOLDED && (
-                                                                <button
-                                                                    onClick={() => toggleArticles(m.setupModelId)}
-                                                                    className="px-1.5 py-0.5 rounded text-[11px] text-blue-600 hover:bg-blue-50"
-                                                                >
-                                                                    {open ? 'Ringkas' : `+${all.length - ARTICLES_FOLDED} lagi`}
-                                                                </button>
-                                                            )}
+                            {models.map(m => {
+                                const isEditing = editingModelId === m.setupModelId;
+                                return (
+                                    <Fragment key={m.setupModelId}>
+                                        <tr className={`transition-colors group ${isEditing ? 'bg-blue-50/40 align-top' : 'hover:bg-gray-50/80'}`}>
+                                            <td className="py-2.5 px-4 text-gray-500 font-mono text-xs">{m.setupModelId}</td>
+                                            {isEditing ? (
+                                                <>
+                                                    <td className="py-2.5 px-4">
+                                                        <input
+                                                            type="text"
+                                                            value={editingModelName}
+                                                            onChange={e => setEditingModelName(e.target.value)}
+                                                            placeholder="Model name"
+                                                            className={`w-full min-w-[150px] ${inputClass}`}
+                                                        />
+                                                    </td>
+                                                    <td className="py-2.5 px-4">
+                                                        {editingUsps.length > 0 && (
+                                                            <div className="flex flex-wrap gap-1 mb-1.5">
+                                                                {editingUsps.map(name => (
+                                                                    <span key={name.toUpperCase()} className="inline-flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded border border-blue-100 bg-blue-50 text-blue-800 text-[11px] font-medium">
+                                                                        {name}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setEditingUsps(prev => prev.filter(n => n !== name))}
+                                                                            className="p-0.5 rounded text-blue-400 hover:text-red-600 hover:bg-red-50"
+                                                                            aria-label={`Hapus USP ${name}`}
+                                                                        >
+                                                                            <X className="w-3 h-3" />
+                                                                        </button>
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        <input
+                                                            type="text"
+                                                            value={uspDraft}
+                                                            onChange={e => setUspDraft(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') {
+                                                                    e.preventDefault();
+                                                                    commitUspDraft();
+                                                                }
+                                                            }}
+                                                            onPaste={e => {
+                                                                // A pasted column (one name per line) becomes one chip per name
+                                                                const names = splitUspNames(e.clipboardData.getData('text'));
+                                                                if (names.length < 2) return;
+                                                                e.preventDefault();
+                                                                addUsps(names);
+                                                            }}
+                                                            placeholder="Ketik nama USP, Enter"
+                                                            className={`w-full min-w-[170px] text-xs ${inputClass}`}
+                                                        />
+                                                    </td>
+                                                    <td className="py-2.5 px-4">
+                                                        <input
+                                                            type="text"
+                                                            value={editingModelNo}
+                                                            onChange={e => setEditingModelNo(e.target.value)}
+                                                            placeholder="Model No"
+                                                            className={`w-24 font-mono ${inputClass}`}
+                                                        />
+                                                    </td>
+                                                    <td className="py-2.5 px-4">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <input
+                                                                type="text"
+                                                                value={editingArticles}
+                                                                onChange={e => setEditingArticles(e.target.value)}
+                                                                placeholder="Articles, comma separated"
+                                                                className={`flex-1 min-w-[180px] font-mono ${inputClass}`}
+                                                            />
+                                                            <button
+                                                                onClick={() => addArticlesFromPo(m.setupModelId)}
+                                                                disabled={poArticlesLoading}
+                                                                title="Tambahkan artikel dari Purchase Orders dengan nama model ini"
+                                                                className="text-xs text-gray-700 border border-gray-200 bg-white px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50"
+                                                            >
+                                                                {poArticlesLoading ? 'Memuat...' : 'Ambil dari PO'}
+                                                            </button>
                                                         </div>
-                                                    );
-                                                })() : (
-                                                    <span className={`font-mono text-xs ${nameCounts[m.modelName] > 1 ? 'text-amber-600' : 'text-gray-400'}`}>
-                                                        {nameCounts[m.modelName] > 1 ? 'Add articles: name is shared' : '-'}
-                                                    </span>
+                                                    </td>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <td className="py-2.5 px-4 font-medium text-gray-900">{m.modelName}</td>
+                                                    <td className="py-2.5 px-4">
+                                                        {(m.masterUsps || []).length > 0 ? (() => {
+                                                            const all: any[] = m.masterUsps;
+                                                            const key = `u:${m.setupModelId}`;
+                                                            const open = expanded.has(key);
+                                                            const shown = open ? all : all.slice(0, USPS_FOLDED);
+                                                            return (
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {shown.map(u => (
+                                                                        <span
+                                                                            key={u.uspId}
+                                                                            title={u.isActive ? u.uspName : `${u.uspName} (nonaktif)`}
+                                                                            className={`px-1.5 py-0.5 rounded border text-[11px] font-medium ${u.isActive
+                                                                                ? 'border-blue-100 bg-blue-50 text-blue-800'
+                                                                                : 'border-gray-200 bg-gray-50 text-gray-400 line-through'}`}
+                                                                        >
+                                                                            {u.uspName}
+                                                                        </span>
+                                                                    ))}
+                                                                    {all.length > USPS_FOLDED && (
+                                                                        <button onClick={() => toggleExpanded(key)} className="px-1.5 py-0.5 rounded text-[11px] text-blue-600 hover:bg-blue-50">
+                                                                            {open ? 'Ringkas' : `+${all.length - USPS_FOLDED} lagi`}
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })() : <span className="text-xs text-gray-400">-</span>}
+                                                    </td>
+                                                    <td className="py-2.5 px-4 font-mono text-xs">
+                                                        {m.modelNo
+                                                            ? <span className="text-gray-800 font-semibold">{m.modelNo}</span>
+                                                            : <span className="text-gray-400">-</span>}
+                                                    </td>
+                                                    <td className="py-2.5 px-4">
+                                                        {(m.articles || []).length > 0 ? (() => {
+                                                            const all = m.articles.map((a: any) => a.article);
+                                                            const key = `a:${m.setupModelId}`;
+                                                            const open = expanded.has(key);
+                                                            const shown = open ? all : all.slice(0, ARTICLES_FOLDED);
+                                                            return (
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {shown.map((a: string) => (
+                                                                        <span key={a} className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono text-[11px]">{a}</span>
+                                                                    ))}
+                                                                    {all.length > ARTICLES_FOLDED && (
+                                                                        <button onClick={() => toggleExpanded(key)} className="px-1.5 py-0.5 rounded text-[11px] text-blue-600 hover:bg-blue-50">
+                                                                            {open ? 'Ringkas' : `+${all.length - ARTICLES_FOLDED} lagi`}
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })() : (
+                                                            <span className={`font-mono text-xs ${nameCounts[m.modelName] > 1 ? 'text-amber-600' : 'text-gray-400'}`}>
+                                                                {nameCounts[m.modelName] > 1 ? 'Add articles: name is shared' : '-'}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                </>
+                                            )}
+                                            <td className="py-2.5 px-4 text-gray-800">
+                                                {m.picture ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <img src={m.picture} alt="model" className="w-10 h-10 object-contain rounded border" />
+                                                        <label className="text-xs text-blue-600 cursor-pointer hover:underline">
+                                                            Change
+                                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUploadPicture(m.setupModelId, e)} />
+                                                        </label>
+                                                    </div>
+                                                ) : (
+                                                    <label className="text-xs text-blue-600 cursor-pointer hover:underline">
+                                                        + Upload Photo
+                                                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUploadPicture(m.setupModelId, e)} />
+                                                    </label>
                                                 )}
                                             </td>
-                                        </>
-                                    )}
-                                    <td className="py-2.5 px-4 text-gray-800">
-                                        {m.picture ? (
-                                            <div className="flex items-center gap-2">
-                                                <img src={m.picture} alt="model" className="w-10 h-10 object-contain rounded border" />
-                                                <label className="text-xs text-blue-600 cursor-pointer hover:underline">
-                                                    Change
-                                                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUploadPicture(m.setupModelId, e)} />
-                                                </label>
-                                            </div>
-                                        ) : (
-                                            <label className="text-xs text-blue-600 cursor-pointer hover:underline">
-                                                + Upload Photo
-                                                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUploadPicture(m.setupModelId, e)} />
-                                            </label>
+                                            <td className="py-2.5 px-4 text-gray-800">
+                                                {m.internalAuditFile ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <button onClick={() => handleViewFile(m.internalAuditFile)} className="text-xs text-blue-800 hover:underline font-semibold bg-gray-100 border border-gray-200 px-2.5 py-1 rounded">
+                                                            👁 View
+                                                        </button>
+                                                        <a href={m.internalAuditFile} download={`Audit_${m.modelName}${m.modelNo ? `_${m.modelNo}` : ''}`} className="text-xs text-blue-800 hover:underline font-semibold bg-blue-50 border border-blue-100 px-2.5 py-1 rounded">
+                                                            ↓ Download
+                                                        </a>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                )}
+                                            </td>
+                                            <td className={`py-2.5 px-4 text-right sticky right-0 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)] transition-colors ${isEditing ? 'bg-blue-50' : 'bg-white group-hover:bg-gray-50'}`}>
+                                                {isEditing ? (
+                                                    <div className="inline-flex gap-1.5">
+                                                        <button
+                                                            onClick={() => handleSaveModel(m)}
+                                                            disabled={saving}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-50"
+                                                        >
+                                                            <Check className="w-3 h-3" />
+                                                            {saving ? 'Menyimpan...' : 'Save'}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setEditingModelId(null)}
+                                                            disabled={saving}
+                                                            className="px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-transparent hover:border-gray-200 rounded transition-colors"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    /* Same action buttons as the Master Data lists; the column stays in view
+                                                       when a narrow screen scrolls the table sideways */
+                                                    <div className="inline-flex gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={() => router.push(`/admin/setup/tree/${m.setupModelId}`)}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-transparent hover:border-gray-200 rounded transition-colors"
+                                                            title={`Atur Area / Process / Defect ${modelLabel(m)}`}
+                                                        >
+                                                            <Settings2 className="w-3 h-3" />
+                                                            Configure
+                                                        </button>
+                                                        <button
+                                                            onClick={() => startEdit(m)}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded transition-colors"
+                                                            title={`Edit ${modelLabel(m)}`}
+                                                        >
+                                                            <Edit2 className="w-3 h-3" />
+                                                            Edit
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteModel(m)}
+                                                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-400 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 rounded transition-colors"
+                                                            title={`Hapus ${modelLabel(m)}`}
+                                                        >
+                                                            <Trash2 className="w-3 h-3" />
+                                                            Hapus
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </td>
+                                        </tr>
+                                        {isEditing && (editNote || editError) && (
+                                            <tr className="bg-blue-50/40">
+                                                <td />
+                                                <td colSpan={7} className="pb-2.5 px-4 -mt-1">
+                                                    {editNote && <p className="text-xs text-emerald-700">{editNote}</p>}
+                                                    {editError && <p className="text-xs text-red-600">{editError}</p>}
+                                                </td>
+                                            </tr>
                                         )}
-                                    </td>
-                                    <td className="py-2.5 px-4 text-gray-800">
-                                        {m.internalAuditFile ? (
-                                            <div className="flex items-center gap-2">
-                                                <button onClick={() => handleViewFile(m.internalAuditFile)} className="text-xs text-blue-800 hover:underline font-semibold bg-gray-100 border border-gray-200 px-2.5 py-1 rounded">
-                                                    👁 View
-                                                </button>
-                                                <a href={m.internalAuditFile} download={`Audit_${m.modelName}${m.modelNo ? `_${m.modelNo}` : ''}`} className="text-xs text-blue-800 hover:underline font-semibold bg-blue-50 border border-blue-100 px-2.5 py-1 rounded">
-                                                    ↓ Download
-                                                </a>
-                                            </div>
-                                        ) : (
-                                            <span className="text-xs text-gray-400">-</span>
-                                        )}
-                                    </td>
-                                    <td className={`py-2.5 px-4 text-right sticky right-0 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)] transition-colors ${editingModelId === m.setupModelId ? 'bg-blue-50' : 'bg-white group-hover:bg-gray-50'}`}>
-                                        {/* Same action buttons as the Master Data lists; the column stays in view
-                                            when a narrow screen scrolls the table sideways */}
-                                        <div className="inline-flex gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
-                                            <button
-                                                onClick={() => router.push(`/admin/setup/tree/${m.setupModelId}`)}
-                                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-transparent hover:border-gray-200 rounded transition-colors"
-                                                title={`Atur Area / Process / Defect ${modelLabel(m)}`}
-                                            >
-                                                <Settings2 className="w-3 h-3" />
-                                                Configure
-                                            </button>
-                                            <button
-                                                onClick={() => startEdit(m)}
-                                                disabled={editingModelId === m.setupModelId}
-                                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded transition-colors disabled:opacity-40 disabled:pointer-events-none"
-                                                title={`Edit ${modelLabel(m)}`}
-                                            >
-                                                <Edit2 className="w-3 h-3" />
-                                                Edit
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteModel(m)}
-                                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-gray-400 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 rounded transition-colors"
-                                                title={`Hapus ${modelLabel(m)}`}
-                                            >
-                                                <Trash2 className="w-3 h-3" />
-                                                Hapus
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
+                                    </Fragment>
+                                );
+                            })}
                             {models.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="py-8 text-center text-gray-400 text-sm">No models configured yet.</td>
+                                    <td colSpan={8} className="py-8 text-center text-gray-400 text-sm">No models configured yet.</td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
                 </div>
             </div>
-            )}
         </div>
     );
 }

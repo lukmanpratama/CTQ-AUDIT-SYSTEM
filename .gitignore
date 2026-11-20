@@ -18,3 +18,8 @@ prisma/migrations/*.sql.bak
 apps/web/public/sw.js
 apps/web/public/sw.js.map
 apps/web/public/swe-worker-*.js
+
+# Real employee data for the RQC user seeder (packages/database/prisma/seed-rqc-users.ts).
+# The repo is public, so only the example file is committed
+packages/database/prisma/data/*.json
+!packages/database/prisma/data/*.example.json

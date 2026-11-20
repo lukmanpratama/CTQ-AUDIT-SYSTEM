@@ -8,6 +8,7 @@ import { inspectorSummaryUrl, useAuditNav } from '../../../../features/rqc/audit
 import { missingFollowUp } from '../../../../lib/followup';
 import { OfflineUnavailableError, deleteProcess, getHeader, getJson, savePhoto, saveProcess } from '../../../../lib/offline/inspection-repository';
 import { compressImage } from '../../../../lib/compress-image';
+import { riskTone } from '../../../../lib/ctq-options';
 import { ShellBack } from '../../../../components/shell/InspectorShell';
 import { useListBack } from '../../../../lib/nav-origin';
 
@@ -473,21 +474,20 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
                                                     {/* Badges */}
                                                     <div className="flex flex-wrap gap-2 mt-2">
                                                         {(() => {
-                                                            const riskClasses = proc.masterProcess.riskLevel?.toLowerCase() === 'critical' ? 'bg-red-50 text-red-700 border-red-200' :
-                                                                proc.masterProcess.riskLevel?.toLowerCase() === 'medium' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                                                                    'bg-green-50 text-green-700 border-green-200';
+                                                            // CTQ and risk level are set per model on the setup process
+                                                            const riskClasses = riskTone(proc.riskLevel) || 'bg-green-50 text-green-700 border-green-200';
                                                             return (
                                                                 <>
-                                                                    {proc.masterProcess.ctq && (
+                                                                    {proc.ctq && (
                                                                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest border ${riskClasses}`}>
                                                                             <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                                                            {proc.masterProcess.ctq}
+                                                                            {proc.ctq}
                                                                         </span>
                                                                     )}
-                                                                    {proc.masterProcess.riskLevel && (
+                                                                    {proc.riskLevel && (
                                                                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest border ${riskClasses}`}>
                                                                             <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                                                                            Risk: {proc.masterProcess.riskLevel}
+                                                                            Risk: {proc.riskLevel}
                                                                         </span>
                                                                     )}
                                                                     {proc.masterProcess.sellingPoint && (

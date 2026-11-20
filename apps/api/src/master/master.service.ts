@@ -18,8 +18,8 @@ export class MasterService {
 
     // --- PROCESSES ---
     async findAllProcesses() { return this.prisma.masterProcess.findMany({ orderBy: { processId: 'asc' } }); }
-    async createProcess(data: { process: string; ctq?: string; riskLevel?: string }) { return this.prisma.masterProcess.create({ data }); }
-    async updateProcess(processId: bigint, data: { process?: string; ctq?: string; riskLevel?: string; sellingPoint?: string }) { return this.prisma.masterProcess.update({ where: { processId }, data }); }
+    async createProcess(data: { process: string }) { return this.prisma.masterProcess.create({ data }); }
+    async updateProcess(processId: bigint, data: { process?: string; sellingPoint?: string }) { return this.prisma.masterProcess.update({ where: { processId }, data }); }
     async deleteProcess(processId: bigint) {
         try { return await this.prisma.masterProcess.delete({ where: { processId } }); }
         catch (e) { throw new BadRequestException('Cannot delete process; it might be in use.'); }
