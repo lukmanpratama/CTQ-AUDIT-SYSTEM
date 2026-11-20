@@ -3,22 +3,7 @@
 import { useRouter, useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { modelLabel } from '../../../../../lib/model-label';
-
-const CTQ_CATEGORIES = [
-    'External Compliance',
-    'Safety',
-    'Function',
-    'Durability',
-    'Appearance',
-    'Color',
-    'Fit & Comfort'
-];
-
-const RISK_LEVELS = [
-    { label: 'Low', val: 'Low', color: 'text-green-700 bg-green-50' },
-    { label: 'Medium', val: 'Medium', color: 'text-yellow-700 bg-yellow-50' },
-    { label: 'Critical', val: 'Critical', color: 'text-red-700 bg-red-50' }
-];
+import { CTQ_CATEGORIES, RISK_LEVELS, riskTone } from '../../../../../lib/ctq-options';
 
 export default function SetupTreePage() {
     const router = useRouter();
@@ -122,16 +107,7 @@ export default function SetupTreePage() {
         fetchTree();
     };
 
-    // --- MasterProcess Updates ---
-    const updateMasterProcess = async (processId: string, payload: any) => {
-        await fetch(`/api/master/processes/${processId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        fetchTree();
-    };
-
+    // CTQ, risk level, selling point and USP all belong to this model's setup process
     const updateSetupProcess = async (setupProcessId: string, payload: any) => {
         await fetch(`/api/ctq-setup/processes/${setupProcessId}`, {
             method: 'PATCH',
@@ -256,32 +232,29 @@ export default function SetupTreePage() {
                                             {/* Configuration Panel */}
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-gray-50 p-4 rounded-lg border border-gray-100">
 
-                                                {/* CTQ Selector */}
+                                                {/* CTQ Selector: per model, other models using this process keep their own */}
                                                 <div>
                                                     <label className="block text-xs font-bold text-gray-500 mb-1 tracking-wide">CTQ CATEGORY</label>
                                                     <select
                                                         className="w-full text-sm border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none truncate"
-                                                        value={mProc.ctq || ''}
-                                                        onChange={(e) => updateMasterProcess(mProc.processId, { ctq: e.target.value })}
+                                                        value={proc.ctq || ''}
+                                                        onChange={(e) => updateSetupProcess(proc.setupProcessId, { ctq: e.target.value || null })}
                                                     >
-                                                        <option value="" disabled>-- Not Assigned --</option>
+                                                        <option value="">-- Not Assigned --</option>
                                                         {CTQ_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                                                     </select>
                                                 </div>
 
-                                                {/* Risk Level Selector */}
+                                                {/* Risk Level Selector: per model, like CTQ */}
                                                 <div>
                                                     <label className="block text-xs font-bold text-gray-500 mb-1 tracking-wide">RISK LEVEL</label>
                                                     <select
-                                                        className={`w-full text-sm border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none font-semibold ${mProc.riskLevel === 'Critical' ? 'text-red-700 bg-red-50' :
-                                                            mProc.riskLevel === 'Medium' ? 'text-yellow-700 bg-yellow-50' :
-                                                                mProc.riskLevel === 'Low' ? 'text-green-700 bg-green-50' : ''
-                                                            }`}
-                                                        value={mProc.riskLevel || ''}
-                                                        onChange={(e) => updateMasterProcess(mProc.processId, { riskLevel: e.target.value })}
+                                                        className={`w-full text-sm border-gray-300 rounded px-2 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none font-semibold ${riskTone(proc.riskLevel)}`}
+                                                        value={proc.riskLevel || ''}
+                                                        onChange={(e) => updateSetupProcess(proc.setupProcessId, { riskLevel: e.target.value || null })}
                                                     >
-                                                        <option value="" disabled>-- Not Assigned --</option>
-                                                        {RISK_LEVELS.map(r => <option key={r.val} value={r.val} className="text-gray-900 bg-white">{r.label}</option>)}
+                                                        <option value="" className="text-gray-900 bg-white">-- Not Assigned --</option>
+                                                        {RISK_LEVELS.map(r => <option key={r} value={r} className="text-gray-900 bg-white">{r}</option>)}
                                                     </select>
                                                 </div>
 

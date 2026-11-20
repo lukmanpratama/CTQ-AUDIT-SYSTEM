@@ -8,7 +8,7 @@ import { clearSession } from '../../lib/session';
 
 type NavItem = { name: string; path: string; icon: string; /** other path prefixes that belong to this item */ also?: string[] };
 
-// Users is a tab of Master Data and Master USP a tab of Setup CTQ; their old URLs redirect there.
+// Users is a tab of Master Data and USPs a column of the Setup CTQ models table; their old URLs redirect there.
 const NAV: NavItem[] = [
     { name: 'Dashboard Monitoring', path: '/admin/dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1' },
     { name: 'Master Data', path: '/admin/master', also: ['/admin/users'], icon: 'M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M4 7c0-2 1-3 3-3h10c2 0 3 1 3 3M4 7h16M9 11h.01M15 11h.01M9 15h.01M15 15h.01' },

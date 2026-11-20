@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsBoolean, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsBoolean, IsOptional, IsArray, IsIn } from 'class-validator';
+import { CTQ_CATEGORIES, RISK_LEVELS } from '../ctq-options';
 
 export class CreateModelDto {
     @IsString()
@@ -67,6 +68,12 @@ export class UpdateModelDto {
     @IsString({ each: true })
     @IsOptional()
     articles?: string[];
+
+    /** USP names of this model when given: missing ones are added, unlisted ones deleted */
+    @IsArray()
+    @IsString({ each: true })
+    @IsOptional()
+    usps?: string[];
 }
 
 export class UpdateSetupProcessDto {
@@ -77,4 +84,14 @@ export class UpdateSetupProcessDto {
     @IsBoolean()
     @IsOptional()
     isSellingPoint?: boolean;
+
+    /** null clears it (IsOptional skips null as well as undefined) */
+    @IsIn(CTQ_CATEGORIES)
+    @IsOptional()
+    ctq?: string | null;
+
+    /** null clears it */
+    @IsIn(RISK_LEVELS)
+    @IsOptional()
+    riskLevel?: string | null;
 }

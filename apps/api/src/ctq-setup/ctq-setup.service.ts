@@ -10,7 +10,25 @@ const MODEL_LIST_SELECT = {
     modelNo: true,
     isActive: true,
     articles: { select: { article: true }, orderBy: { article: 'asc' } },
+    // Shown and edited in the USP column of the Setup CTQ models table
+    masterUsps: { select: { uspId: true, uspName: true, isActive: true }, orderBy: { uspId: 'asc' } },
 } satisfies Prisma.SetupModelSelect;
+
+/** USP names as typed: trimmed, inner spaces collapsed, blanks and repeats (any case) dropped. */
+function parseUspNames(names: string[]) {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of names) {
+        const name = String(raw ?? '').replace(/\s+/g, ' ').trim();
+        if (!name) continue;
+        if (name.length > 150) throw new BadRequestException(`USP name is too long (max 150): ${name.slice(0, 40)}...`);
+        const key = name.toUpperCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(name);
+    }
+    return out;
+}
 
 const FILE_EXTENSIONS: Record<string, string> = {
     'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
@@ -161,7 +179,7 @@ export class CtqSetupService {
         return this.serializeBigInt(model);
     }
 
-    async updateModel(modelId: string, data: { modelName?: string; modelNo?: string; articles?: string[] }) {
+    async updateModel(modelId: string, data: { modelName?: string; modelNo?: string; articles?: string[]; usps?: string[] }) {
         const id = BigInt(modelId);
         const update: { modelName?: string; modelNo?: string | null } = {};
         if (data.modelName !== undefined) {
@@ -175,6 +193,7 @@ export class CtqSetupService {
         }
         const articles = data.articles !== undefined ? parseArticles(data.articles) : undefined;
         if (articles) await this.assertArticlesFree(articles, id);
+        const usps = data.usps !== undefined ? parseUspNames(data.usps) : undefined;
 
         const model = await this.prisma.$transaction(async (tx) => {
             if (articles) {
@@ -183,9 +202,36 @@ export class CtqSetupService {
                     await tx.setupModelArticle.createMany({ data: articles.map(article => ({ setupModelId: id, article })) });
                 }
             }
+            if (usps) await this.syncUsps(tx, id, usps);
             return tx.setupModel.update({ where: { setupModelId: id }, data: update, select: MODEL_LIST_SELECT });
         });
         return this.serializeBigInt(model);
+    }
+
+    /**
+     * Makes the model's USPs match `names` (compared without case): adds the missing ones and
+     * deletes the rest. Processes grouped under a deleted USP lose that grouping. Existing USPs
+     * keep their id, code and active status, so a name that stays listed is left untouched.
+     */
+    private async syncUsps(tx: Prisma.TransactionClient, setupModelId: bigint, names: string[]) {
+        const existing = await tx.masterUsp.findMany({ where: { setupModelId }, select: { uspId: true, uspName: true } });
+        const wanted = new Set(names.map(n => n.toUpperCase()));
+        const have = new Set(existing.map(u => u.uspName.trim().toUpperCase()));
+
+        const removeIds = existing.filter(u => !wanted.has(u.uspName.trim().toUpperCase())).map(u => u.uspId);
+        if (removeIds.length > 0) {
+            await tx.setupProcess.updateMany({ where: { uspId: { in: removeIds } }, data: { uspId: null } });
+            await tx.masterUsp.deleteMany({ where: { uspId: { in: removeIds } } });
+        }
+
+        const add = names.filter(n => !have.has(n.toUpperCase()));
+        if (add.length > 0) {
+            // Codes are unique per model and nothing shows them, so they only need to differ
+            const stamp = Date.now();
+            await tx.masterUsp.createMany({
+                data: add.map((uspName, i) => ({ setupModelId, uspName, uspCode: `USP-${stamp}-${i + 1}`, isActive: true })),
+            });
+        }
     }
 
     private async assertModelNoFree(modelNo: string, exceptModelId?: bigint) {
@@ -256,7 +302,7 @@ export class CtqSetupService {
         return this.serializeBigInt(setupDefect);
     }
 
-    async updateSetupProcess(setupProcessId: string, data: { uspId?: string | null; isSellingPoint?: boolean }) {
+    async updateSetupProcess(setupProcessId: string, data: { uspId?: string | null; isSellingPoint?: boolean; ctq?: string | null; riskLevel?: string | null }) {
         const id = BigInt(setupProcessId);
 
         if (data.uspId) {
@@ -284,6 +330,9 @@ export class CtqSetupService {
         if (data.isSellingPoint !== undefined) {
             updateData.isSellingPoint = data.isSellingPoint;
         }
+        // Per model: the same master process can have another CTQ / risk level in another model
+        if (data.ctq !== undefined) updateData.ctq = data.ctq || null;
+        if (data.riskLevel !== undefined) updateData.riskLevel = data.riskLevel || null;
 
         const updated = await this.prisma.setupProcess.update({
             where: { setupProcessId: id },

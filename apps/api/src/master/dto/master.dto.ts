@@ -3,15 +3,12 @@ import { IsString, IsNotEmpty, IsOptional, IsNumber, IsBoolean } from 'class-val
 export class CreateAreaDto { @IsString() @IsNotEmpty() area!: string; }
 export class UpdateAreaDto { @IsString() @IsNotEmpty() area!: string; }
 
+// CTQ category and risk level are set per model on the setup process (ctq-setup), not here
 export class CreateProcessDto {
     @IsString() @IsNotEmpty() process!: string;
-    @IsString() @IsOptional() ctq?: string;
-    @IsString() @IsOptional() riskLevel?: string;
 }
 export class UpdateProcessDto {
     @IsString() @IsOptional() process?: string;
-    @IsString() @IsOptional() ctq?: string;
-    @IsString() @IsOptional() riskLevel?: string;
     @IsString() @IsOptional() sellingPoint?: string;
 }
 

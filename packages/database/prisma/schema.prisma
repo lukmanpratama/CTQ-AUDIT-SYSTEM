@@ -22,6 +22,8 @@ model MasterArea {
 model MasterProcess {
   processId      BigInt         @id @default(autoincrement()) @map("process_id")
   process        String         @unique @db.VarChar(150)
+  /// Legacy: CTQ and risk level are set per model on setup_process. Kept so old values stay
+  /// readable; nothing writes or reads these any more.
   ctq            String?
   riskLevel      String?        @map("risk_level") @db.VarChar(30)
   sellingPoint   String?        @map("selling_point")
@@ -161,6 +163,10 @@ model SetupProcess {
   processId      BigInt        @map("process_id")
   uspId          BigInt?       @map("usp_id")
   isSellingPoint Boolean       @default(false) @map("is_selling_point_usp")
+  /// CTQ category of this process in this model (e.g. Appearance), set on the Configure page
+  ctq            String?
+  /// Low / Medium / Critical, per model like ctq
+  riskLevel      String?       @map("risk_level") @db.VarChar(30)
   rqcProcesses   RqcProcess[]
   setupDefects   SetupDefect[]
   masterProcess  MasterProcess @relation(fields: [processId], references: [processId])
