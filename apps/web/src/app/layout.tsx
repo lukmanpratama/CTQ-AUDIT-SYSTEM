@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { CapAlertCenter } from '../components/CapAlertCenter';
 import { OfflineSyncStatus } from '../components/OfflineSyncStatus';
+import { DatePickerOnClick } from '../components/DatePickerOnClick';
 
 // Browser bar colour on phones, matching the navy of the app icon
 export const viewport: Viewport = {
@@ -38,6 +39,8 @@ export default function RootLayout({
           <CapAlertCenter />
           {/* Offline / not-yet-sent status of the audit data */}
           <OfflineSyncStatus />
+          {/* A click anywhere in a date field opens its calendar, not only the icon */}
+          <DatePickerOnClick />
         </div>
       </body>
     </html>

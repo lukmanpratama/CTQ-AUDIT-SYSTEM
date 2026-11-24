@@ -18,10 +18,98 @@
 @layer components {
   /* Table whose column headers stay visible while its rows scroll (put on the scrolling wrapper).
      The header cells carry their own background and bottom line: a sticky <th> doesn't take
-     the <tr>'s background or a collapsed border with it. */
-  .sticky-thead thead th {
+     the <tr>'s background or a collapsed border with it. :where() keeps the specificity low, so a
+     utility on a <th> (z-20 on the sticky action column, say) still wins. */
+  .sticky-thead :where(thead th) {
     @apply sticky top-0 z-10 bg-gray-50;
     box-shadow: inset 0 -1px 0 #e5e7eb;
+  }
+
+  /* ---- Admin table pages --------------------------------------------------------------
+     .admin-page   fills the admin content area (md and up): everything above the table (title,
+                   toolbar, notices) keeps its height, the table card takes the rest.
+     .admin-fill   the same, for a panel nested in a .admin-page (the Users tab).
+     .admin-table-card   card with a scroll box and a pager under it.
+     .admin-table-scroll the box that scrolls the rows (both ways); its column headers stay put.
+                   Capped at 70vh on a phone, where the page itself scrolls.
+     .admin-table-scroll-cap  for cards stacked in a list (Inspection Report): never taller than 60vh. */
+  .admin-page,
+  .admin-fill {
+    @apply flex flex-col gap-4;
+  }
+  .admin-page > *,
+  .admin-fill > * {
+    flex-shrink: 0;
+  }
+  .admin-page > .admin-table-card,
+  .admin-page > .admin-fill,
+  .admin-page > .admin-split,
+  .admin-fill > .admin-table-card {
+    flex-shrink: 1;
+    min-height: 0;
+  }
+  @media (min-width: 768px) {
+    .admin-page {
+      height: 100%;
+      min-height: 0;
+    }
+    .admin-page > .admin-fill,
+    .admin-page > .admin-split {
+      flex: 1 1 auto;
+    }
+  }
+
+  .admin-table-card {
+    @apply flex flex-col min-h-0 bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden;
+  }
+  .admin-table-scroll {
+    @apply min-h-0 flex-1 overflow-auto;
+    max-height: 70vh;
+  }
+  @media (min-width: 768px) {
+    .admin-table-scroll {
+      max-height: none;
+    }
+  }
+  .admin-table-scroll.admin-table-scroll-cap {
+    max-height: 60vh;
+  }
+  .admin-table-scroll :where(thead th) {
+    @apply sticky top-0 z-10 bg-gray-50;
+    box-shadow: inset 0 -1px 0 #e5e7eb;
+  }
+
+  /* Toolbar above a table, and the controls in it: one height (h-9), one text size and one set of
+     colours on every admin page, so a search box, a select, a date and a button line up. */
+  .admin-toolbar {
+    @apply flex flex-wrap items-end gap-3 bg-white border border-gray-200 rounded-lg shadow-sm p-3;
+  }
+  .admin-field-label {
+    @apply block text-xs font-semibold text-gray-600 mb-1;
+  }
+  .admin-input {
+    @apply h-9 w-full px-3 text-sm text-gray-900 bg-white border border-gray-300 rounded-md transition-colors
+           placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900
+           disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed;
+  }
+  .admin-btn {
+    @apply inline-flex h-9 items-center justify-center gap-1.5 px-3.5 text-sm font-medium whitespace-nowrap
+           border rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .admin-btn-primary {
+    @apply bg-gray-900 border-gray-900 text-white hover:bg-gray-800;
+  }
+  .admin-btn-secondary {
+    @apply bg-white border-gray-300 text-gray-700 hover:bg-gray-50;
+  }
+  .admin-btn-danger {
+    @apply bg-red-50 border-red-200 text-red-600 hover:bg-red-100 hover:border-red-300;
+  }
+  .admin-page-title {
+    @apply text-lg font-semibold text-gray-900;
+  }
+  .admin-page-subtitle {
+    @apply text-sm text-gray-500 mt-0.5;
   }
 
   /* Admin page header (title, actions, filters) that stays at the top while the page scrolls.

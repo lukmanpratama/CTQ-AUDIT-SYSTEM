@@ -9,6 +9,7 @@ import { fetchPoArticlesForModelName } from '../../../lib/po-models';
 import PoModelPicker from '../../../components/admin/PoModelPicker';
 import UspTagsInput from '../../../components/admin/UspTagsInput';
 import ColumnFilter, { ClearColumnFilters } from '../../../components/admin/ColumnFilter';
+import TablePager, { usePagination } from '../../../components/admin/TablePager';
 import { useColumnFilters } from '../../../lib/column-filters';
 import { mergeUspNames, sameUspName, splitUspNames } from '../../../lib/usp-names';
 
@@ -42,7 +43,7 @@ export default function SetupCtqPage() {
 
     // Header filters; a model matches the USP / Articles filter when one of its values is ticked
     const cf = useColumnFilters(models, {
-        id: { get: m => m.setupModelId },
+        id: { get: m => m.setupModelId, kind: 'number' },
         modelName: { get: m => m.modelName },
         usp: { get: m => (m.masterUsps || []).map((u: any) => u.uspName) },
         modelNo: { get: m => m.modelNo },
@@ -50,6 +51,7 @@ export default function SetupCtqPage() {
         photo: { get: m => (m.picture ? 'Ada' : 'Tidak ada') },
         audit: { get: m => (m.internalAuditFile ? 'Ada' : 'Tidak ada') },
     });
+    const pager = usePagination(cf.filtered, { initialSize: 10, resetKey: [cf.filters, cf.sort] });
 
     const handleViewFile = (base64Str: string) => {
         // The model list now sends a file URL (served by the API) instead of the base64 data
@@ -239,22 +241,20 @@ export default function SetupCtqPage() {
     const inputClass = 'border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500 bg-white';
 
     return (
-        <div className="space-y-5">
-            {/* Title and the Add Model form stay at the top while the list scrolls */}
-            <div className="admin-sticky-head space-y-3">
-                <div>
-                    <h1 className="text-lg font-semibold text-gray-900">CTQ Setup</h1>
-                    <p className="text-sm text-gray-500 mt-0.5">
-                        Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.
-                        <span className="ml-2 px-1.5 rounded-full text-[10px] font-mono bg-gray-200 text-gray-700 align-middle">{models.length} model</span>
-                    </p>
-                </div>
-                <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-                    <PoModelPicker models={models} onCreated={fetchModels} />
-                    {loadError && (
-                        <div className="px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
-                    )}
-                </div>
+        <div className="admin-page">
+            {/* Title and the Add Model form stay at the top; only the model rows scroll */}
+            <div>
+                <h1 className="admin-page-title">CTQ Setup</h1>
+                <p className="admin-page-subtitle">
+                    Define model hierarchies: Model &rarr; Area &rarr; Process &rarr; Defect.
+                    <span className="ml-2 px-1.5 rounded-full text-[10px] font-mono bg-gray-200 text-gray-700 align-middle">{models.length} model</span>
+                </p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-3 space-y-2">
+                <PoModelPicker models={models} onCreated={fetchModels} />
+                {loadError && (
+                    <div className="px-3 py-2 rounded border border-red-200 bg-red-50 text-xs text-red-700">{loadError}</div>
+                )}
             </div>
 
             {actionError && (
@@ -266,17 +266,10 @@ export default function SetupCtqPage() {
                 </div>
             )}
 
-            {cf.activeCount > 0 && (
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                    <span>Menampilkan <strong className="text-gray-900 font-semibold">{cf.filtered.length}</strong> dari {models.length} model</span>
-                    <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
-                </div>
-            )}
-
-            <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
+            <div className="admin-table-card">
+                <div className="admin-table-scroll">
                     <table className="w-full text-sm min-w-[1280px]">
-                        <thead className="bg-gray-50/90 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        <thead className="border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                             <tr>
                                 <th className="text-left py-3 px-4 w-16"><ColumnFilter {...cf.bind('id', 'ID')} /></th>
                                 <th className="text-left py-3 px-4 min-w-[160px]"><ColumnFilter {...cf.bind('modelName', 'Model Name')} /></th>
@@ -285,11 +278,11 @@ export default function SetupCtqPage() {
                                 <th className="text-left py-3 px-4 min-w-[240px]"><ColumnFilter {...cf.bind('articles', 'Articles')} /></th>
                                 <th className="text-left py-3 px-4 w-32"><ColumnFilter {...cf.bind('photo', 'Photo')} /></th>
                                 <th className="text-left py-3 px-4 w-32"><ColumnFilter {...cf.bind('audit', 'Int. Audit')} /></th>
-                                <th className="text-right py-3 px-4 w-[250px] sticky right-0 bg-gray-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Aksi</th>
+                                <th className="text-right py-3 px-4 w-[250px] sticky right-0 z-20 bg-gray-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Aksi</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {cf.filtered.map(m => {
+                            {pager.pageRows.map(m => {
                                 const isEditing = editingModelId === m.setupModelId;
                                 return (
                                     <Fragment key={m.setupModelId}>
@@ -512,6 +505,20 @@ export default function SetupCtqPage() {
                         </tbody>
                     </table>
                 </div>
+                <TablePager
+                    page={pager.page}
+                    pageSize={pager.pageSize}
+                    total={pager.total}
+                    onPage={pager.setPage}
+                    onPageSize={pager.setPageSize}
+                    noun="model"
+                    extra={cf.activeCount > 0 ? (
+                        <>
+                            <span className="text-gray-400">(difilter dari {models.length})</span>
+                            <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
+                        </>
+                    ) : undefined}
+                />
             </div>
         </div>
     );

@@ -182,8 +182,10 @@ export class RqcController {
         @Query('pageSize') pageSize?: string,
         /** Header filters of the table, see common/column-filters */
         @Query('cols') cols?: string,
+        /** "column:asc" / "column:desc", from a column header */
+        @Query('sort') sort?: string,
     ) {
-        return this.rqcService.getHeadersByModel({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell, groupModelId, page, pageSize, cols });
+        return this.rqcService.getHeadersByModel({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell, groupModelId, page, pageSize, cols, sort });
     }
 
     /** Inspection Report header filter: one column's values with report counts, under the other filters */

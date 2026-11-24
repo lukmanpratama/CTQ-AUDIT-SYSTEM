@@ -10,6 +10,15 @@ import { useMemo, useRef, useState } from 'react';
 export type ColumnFilterSel = { values: string[]; exclude?: boolean };
 export type ColumnFilters = Record<string, ColumnFilterSel>;
 
+/** Sorting from a column header: A → Z (asc) or Z → A (desc) */
+export type SortDir = 'asc' | 'desc';
+export type ColumnSort = { key: string; dir: SortDir } | null;
+/** What the column holds, for the wording of its sort buttons */
+export type SortKind = 'text' | 'number' | 'date';
+
+/** The `sort` query param of the server-side tables ("po:asc"); empty without a sort */
+export const sortParam = (sort: ColumnSort) => (sort ? `${sort.key}:${sort.dir}` : '');
+
 /** One entry of a column's value list */
 export type FilterOption = { value: string; label: string; count?: number };
 export type FilterOptionsResult = { options: FilterOption[]; truncated?: boolean };
@@ -33,6 +42,8 @@ export type FilterColumn<T> = {
     get: (row: T) => CellValue | CellValue[];
     /** How a value reads in the list, e.g. a formatted date (the raw value sorts the list) */
     format?: (value: string) => string;
+    /** Wording of the sort buttons; default text */
+    kind?: SortKind;
 };
 
 const cellValues = (v: CellValue | CellValue[]): string[] => {
@@ -41,13 +52,28 @@ const cellValues = (v: CellValue | CellValue[]): string[] => {
     return out.length ? out : [''];
 };
 
+/** Two cell texts in sort order: both numbers compare as numbers, otherwise as natural text */
+const compareCells = (a: string, b: string) => {
+    const na = Number(a);
+    const nb = Number(b);
+    if (a !== '' && b !== '' && Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return naturalCompare(a, b);
+};
+
 /**
  * Column filters for a table whose rows are all loaded in the browser. `columns` maps a filter key
  * to how its value is read. Returns the filtered rows and, per column, the props for <ColumnFilter>.
- * A row stays when one of its values is ticked in every filtered column, like Excel.
+ * A row stays when one of its values is ticked in every filtered column, like Excel. `filtered`
+ * comes sorted when a column header sorted it (a list cell sorts by its first value, empty cells last).
  */
-export function useColumnFilters<T>(rows: T[], columns: Record<string, FilterColumn<T>>, onChange?: () => void) {
+export function useColumnFilters<T>(
+    rows: T[],
+    columns: Record<string, FilterColumn<T>>,
+    onChange?: () => void,
+    options?: { initialSort?: ColumnSort },
+) {
     const [filters, setFilters] = useState<ColumnFilters>({});
+    const [sort, setSortState] = useState<ColumnSort>(options?.initialSort ?? null);
     const columnsRef = useRef(columns);
     columnsRef.current = columns;
     const onChangeRef = useRef(onChange);
@@ -64,9 +90,20 @@ export function useColumnFilters<T>(rows: T[], columns: Record<string, FilterCol
 
     const filtered = useMemo(() => {
         const active = activeList(filters);
-        return active.length ? rows.filter(row => passes(row, active)) : rows;
+        const kept = active.length ? rows.filter(row => passes(row, active)) : rows;
+        const col = sort ? columnsRef.current[sort.key] : undefined;
+        if (!sort || !col) return kept;
+        const sign = sort.dir === 'asc' ? 1 : -1;
+        const first = (row: T) => cellValues(col.get(row))[0];
+        // Array.sort is stable: rows with the same value keep the order they came in
+        return [...kept].sort((a, b) => {
+            const x = first(a);
+            const y = first(b);
+            if (x === '' || y === '') return x === y ? 0 : x === '' ? 1 : -1; // empty cells stay last either way
+            return sign * compareCells(x, y);
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows, filters]);
+    }, [rows, filters, sort]);
 
     const setFilter = (key: string, sel: ColumnFilterSel | null) => {
         setFilters(prev => {
@@ -74,6 +111,11 @@ export function useColumnFilters<T>(rows: T[], columns: Record<string, FilterCol
             if (sel) next[key] = sel; else delete next[key];
             return next;
         });
+        onChangeRef.current?.();
+    };
+
+    const setSort = (next: ColumnSort) => {
+        setSortState(next);
         onChangeRef.current?.();
     };
 
@@ -103,7 +145,10 @@ export function useColumnFilters<T>(rows: T[], columns: Record<string, FilterCol
         sel: filters[key] ?? null,
         loadOptions: () => optionsFor(key),
         onApply: (sel: ColumnFilterSel | null) => setFilter(key, sel),
+        sort: sort?.key === key ? sort.dir : null,
+        onSort: (dir: SortDir | null) => setSort(dir ? { key, dir } : null),
+        sortKind: columns[key]?.kind ?? ('text' as SortKind),
     });
 
-    return { filtered, filters, setFilter, clearAll, activeCount: Object.keys(filters).length, bind };
+    return { filtered, filters, setFilter, clearAll, activeCount: Object.keys(filters).length, sort, setSort, bind };
 }

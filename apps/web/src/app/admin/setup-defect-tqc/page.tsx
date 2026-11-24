@@ -1,43 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import ColumnFilter, { ClearColumnFilters } from '../../../components/admin/ColumnFilter';
+import SearchInput from '../../../components/admin/SearchInput';
+import TablePager, { usePagination } from '../../../components/admin/TablePager';
 import { useColumnFilters } from '../../../lib/column-filters';
-
-const PAGE_SIZES = [10, 25, 50, 100, 0]; // 0 = All
-
-type SortField = 'defectName' | 'ctqType';
-type SortState = { field: SortField; dir: 'asc' | 'desc' };
-
-const pageBtn = 'min-w-[2rem] px-2 py-1 rounded border text-xs font-medium transition-colors';
-const navBtn = `${pageBtn} bg-white border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed`;
-
-/** First, last and the pages around the current one; gaps become an ellipsis. */
-function pageNumbers(current: number, total: number): (number | 'gap')[] {
-    const pages: (number | 'gap')[] = [];
-    for (let p = 1; p <= total; p++) {
-        if (p === 1 || p === total || Math.abs(p - current) <= 1) pages.push(p);
-        else if (pages[pages.length - 1] !== 'gap') pages.push('gap');
-    }
-    return pages;
-}
-
-/** Column header that sorts the table on click (the arrow shows the direction), plus its filter */
-function SortableTh({ label, field, sort, onSort, filter }: { label: string; field: SortField; sort: SortState; onSort: (field: SortField) => void; filter?: ReactNode }) {
-    const active = sort.field === field;
-    return (
-        <th className="px-5 py-3 font-semibold">
-            <span className="inline-flex items-center gap-1.5">
-                <button type="button" onClick={() => onSort(field)} className="inline-flex items-center gap-1 uppercase hover:text-gray-900">
-                    {label}
-                    <span className={active ? 'text-gray-900' : 'text-gray-300'}>{active && sort.dir === 'desc' ? '▼' : '▲'}</span>
-                </button>
-                {filter}
-            </span>
-        </th>
-    );
-}
 
 const CTQ_TYPES = [
     'External Compliance',
@@ -71,36 +39,21 @@ export default function SetupDefectTqcPage() {
 
     // Data table state (all client-side: the mapping list is small)
     const [search, setSearch] = useState('');
-    const [sort, setSort] = useState<SortState>({ field: 'defectName', dir: 'asc' });
-    const [pageSize, setPageSize] = useState(25);
-    const [page, setPage] = useState(1);
 
-    const toggleSort = (field: SortField) =>
-        setSort(prev => ({ field, dir: prev.field === field && prev.dir === 'asc' ? 'desc' : 'asc' }));
-
-    // Header filters (the CTQ Type filter used to be a dropdown above the table)
+    // Header filters and sort (the CTQ Type filter used to be a dropdown above the table)
     const cf = useColumnFilters(data, {
         defectName: { get: d => d.defectName },
         ctqType: { get: d => d.ctqType },
-    }, () => setPage(1));
+    }, undefined, { initialSort: { key: 'defectName', dir: 'asc' } });
 
+    // The search box on top of the header filters (cf.filtered is already sorted)
     const filtered = useMemo(() => {
         const words = search.toLowerCase().split(/\s+/).filter(Boolean);
-        return cf.filtered
-            .filter(item => words.every(w => item.defectName.toLowerCase().includes(w)))
-            .sort((a, b) => {
-                const cmp = a[sort.field].localeCompare(b[sort.field], undefined, { sensitivity: 'base' })
-                    || a.defectName.localeCompare(b.defectName, undefined, { sensitivity: 'base' });
-                return sort.dir === 'asc' ? cmp : -cmp;
-            });
-    }, [cf.filtered, search, sort]);
+        return cf.filtered.filter(item => words.every(w => item.defectName.toLowerCase().includes(w)));
+    }, [cf.filtered, search]);
 
-    const effectivePageSize = pageSize === 0 ? Math.max(filtered.length, 1) : pageSize;
-    const totalPages = Math.max(Math.ceil(filtered.length / effectivePageSize), 1);
-    // Stays valid when a delete or a new filter shrinks the list
-    const currentPage = Math.min(page, totalPages);
-    const firstIndex = (currentPage - 1) * effectivePageSize;
-    const pageRows = filtered.slice(firstIndex, firstIndex + effectivePageSize);
+    const pager = usePagination(filtered, { initialSize: 25, resetKey: [search, cf.filters, cf.sort] });
+    const { pageRows, firstIndex } = pager;
 
     const fetchData = async () => {
         setLoading(true);
@@ -271,19 +224,19 @@ export default function SetupDefectTqcPage() {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="admin-page">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                    <h1 className="text-xl font-bold text-gray-900">Setup Defect TQC</h1>
-                    <p className="text-sm text-gray-500 mt-0.5">Map TQC Excel Defect Names to standardized CTQ Types.</p>
+                    <h1 className="admin-page-title">Setup Defect TQC</h1>
+                    <p className="admin-page-subtitle">Map TQC Excel Defect Names to standardized CTQ Types.</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                     <button
                         onClick={handleClearAll}
                         disabled={uploading || data.length === 0}
-                        className="flex items-center px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-md text-sm font-semibold hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="admin-btn admin-btn-danger"
                     >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         Clear All
                     </button>
                     <input
@@ -296,67 +249,39 @@ export default function SetupDefectTqcPage() {
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploading}
-                        className="flex items-center px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50"
+                        className="admin-btn admin-btn-secondary"
                     >
                         {uploading ? (
-                            <span className="flex items-center">
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <>
+                                <svg className="animate-spin h-4 w-4 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                                 Importing...
-                            </span>
+                            </>
                         ) : (
                             <>
-                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
                                 Import Excel
                             </>
                         )}
                     </button>
-                    <button
-                        onClick={handleOpenNew}
-                        className="flex items-center px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-semibold hover:bg-gray-800 transition-colors"
-                    >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                    <button onClick={handleOpenNew} className="admin-btn admin-btn-primary">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                         New Mapping
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                {/* Table controls: entries per page, CTQ Type filter, search */}
-                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-gray-200">
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                        Show
-                        <select
-                            value={pageSize}
-                            onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-                            className="h-8 px-2 border border-gray-300 rounded-md text-xs bg-white"
-                        >
-                            {PAGE_SIZES.map(size => (
-                                <option key={size} value={size}>{size === 0 ? 'All' : size}</option>
-                            ))}
-                        </select>
-                        entries
-                    </label>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
-                        <input
-                            type="search"
-                            value={search}
-                            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                            placeholder="Search defect name..."
-                            className="h-8 w-56 px-3 border border-gray-300 rounded-md text-xs focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
-                        />
-                    </div>
-                </div>
+            <div className="admin-toolbar">
+                <SearchInput value={search} onChange={setSearch} placeholder="Cari defect name..." className="flex-1 min-w-[220px] sm:max-w-md" />
+            </div>
 
-                <div className="sticky-thead overflow-auto max-h-[calc(100vh-19rem)]">
+            <div className="admin-table-card">
+                <div className="admin-table-scroll">
                 <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+                    <thead className="text-xs text-gray-500 uppercase border-b">
                         <tr>
                             <th className="px-5 py-3 font-semibold w-14">No</th>
-                            <SortableTh label="Defect Name (From TQC)" field="defectName" sort={sort} onSort={toggleSort}
-                                filter={<ColumnFilter iconOnly {...cf.bind('defectName', 'Defect Name')} />} />
-                            <SortableTh label="CTQ Type Classification" field="ctqType" sort={sort} onSort={toggleSort}
-                                filter={<ColumnFilter iconOnly {...cf.bind('ctqType', 'CTQ Type')} />} />
+                            <th className="px-5 py-3 font-semibold"><ColumnFilter {...cf.bind('defectName', 'Defect Name (From TQC)')} /></th>
+                            <th className="px-5 py-3 font-semibold"><ColumnFilter {...cf.bind('ctqType', 'CTQ Type Classification')} /></th>
                             <th className="px-5 py-3 font-semibold w-24 text-right">Actions</th>
                         </tr>
                     </thead>
@@ -400,32 +325,20 @@ export default function SetupDefectTqcPage() {
                 </table>
                 </div>
 
-                {/* Footer: entries shown and page navigation */}
-                {!loading && filtered.length > 0 && (
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-5 py-3 border-t border-gray-200 bg-gray-50">
-                        <span className="text-xs text-gray-500">
-                            Showing {firstIndex + 1}–{firstIndex + pageRows.length} of {filtered.length} entries
-                            {filtered.length !== data.length && ` (filtered from ${data.length})`}
-                        </span>
-                        {totalPages > 1 && (
-                            <div className="flex items-center gap-1">
-                                <button onClick={() => setPage(currentPage - 1)} disabled={currentPage <= 1} className={navBtn}>Prev</button>
-                                {pageNumbers(currentPage, totalPages).map((p, i) => p === 'gap' ? (
-                                    <span key={`gap-${i}`} className="px-1 text-xs text-gray-400">…</span>
-                                ) : (
-                                    <button
-                                        key={p}
-                                        onClick={() => setPage(p)}
-                                        className={`${pageBtn} ${p === currentPage ? 'bg-gray-900 border-gray-900 text-white' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-100'}`}
-                                    >
-                                        {p}
-                                    </button>
-                                ))}
-                                <button onClick={() => setPage(currentPage + 1)} disabled={currentPage >= totalPages} className={navBtn}>Next</button>
-                            </div>
-                        )}
-                    </div>
-                )}
+                <TablePager
+                    page={pager.page}
+                    pageSize={pager.pageSize}
+                    total={pager.total}
+                    onPage={pager.setPage}
+                    onPageSize={pager.setPageSize}
+                    noun="mapping"
+                    extra={filtered.length !== data.length ? (
+                        <>
+                            <span className="text-gray-400">(difilter dari {data.length})</span>
+                            <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
+                        </>
+                    ) : undefined}
+                />
             </div>
 
             {/* Modal */}

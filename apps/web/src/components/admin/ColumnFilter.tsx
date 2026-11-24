@@ -2,28 +2,41 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Filter, FilterX, Loader2, Search } from 'lucide-react';
-import type { ColumnFilterSel, FilterOptionsResult } from '../../lib/column-filters';
+import { ArrowDown, ArrowUp, ChevronDown, Filter, FilterX, Loader2, Search } from 'lucide-react';
+import type { ColumnFilterSel, FilterOptionsResult, SortDir, SortKind } from '../../lib/column-filters';
 
 const PANEL_WIDTH = 264;
-const PANEL_HEIGHT = 400; // about the panel's full height, to keep it inside the window
+const PANEL_HEIGHT = 450; // about the panel's full height, to keep it inside the window
+
+/** Wording of the two sort buttons, by what the column holds */
+const SORT_LABELS: Record<SortKind, [string, string]> = {
+    text: ['Urutkan A → Z', 'Urutkan Z → A'],
+    number: ['Terkecil → Terbesar', 'Terbesar → Terkecil'],
+    date: ['Terlama → Terbaru', 'Terbaru → Terlama'],
+};
 
 /** Ticked values while the panel is open: with `exclude`, everything except `set` */
 type Draft = { exclude: boolean; set: Set<string> };
 
 /**
- * Excel-style filter in a table header: the column name with a ▾ that opens a list of the
- * column's values to tick, with search, (Pilih semua), Bersihkan / Batal / OK. A filtered
- * column shows a blue funnel. The panel is portalled to <body> (position: fixed), so neither
- * the table's scroll box nor the header's uppercase styling reaches it.
+ * Excel-style filter in a table header: the column name with a ▾ that opens a panel with the
+ * sort buttons (A → Z / Z → A) and a list of the column's values to tick, with search,
+ * (Pilih semua), Bersihkan / Batal / OK. A filtered column shows a blue funnel, a sorted one an
+ * arrow. The panel is portalled to <body> (position: fixed), so neither the table's scroll box
+ * nor the header's uppercase styling reaches it.
  */
-export default function ColumnFilter({ title, sel, loadOptions, onApply, iconOnly = false, serverSearch = false }: {
+export default function ColumnFilter({ title, sel, loadOptions, onApply, sort = null, onSort, sortKind = 'text', iconOnly = false, serverSearch = false }: {
     title: string;
     sel: ColumnFilterSel | null | undefined;
     /** The column's values; called on open, and with serverSearch again as the search changes */
     loadOptions: (search: string) => FilterOptionsResult | Promise<FilterOptionsResult>;
     onApply: (sel: ColumnFilterSel | null) => void;
-    /** Only the ▾ / funnel, for a header whose label does something else (sorting) */
+    /** How the table is sorted by this column, if it is */
+    sort?: SortDir | null;
+    /** Sorts the table by this column (null clears the sort); without it the panel has no sort buttons */
+    onSort?: (dir: SortDir | null) => void;
+    sortKind?: SortKind;
+    /** Only the ▾ / funnel, for a header whose label does something else */
     iconOnly?: boolean;
     /** The server searches its values (its list stops at a limit); otherwise the loaded list is searched */
     serverSearch?: boolean;
@@ -163,6 +176,24 @@ export default function ColumnFilter({ title, sel, loadOptions, onApply, iconOnl
         setOpen(false);
     };
 
+    // Sorting applies at once, like Excel; clicking the active direction again removes the sort
+    const sortBy = (dir: SortDir) => {
+        onSort?.(sort === dir ? null : dir);
+        setOpen(false);
+    };
+    const [ascLabel, descLabel] = SORT_LABELS[sortKind];
+    const sortBtn = (dir: SortDir, label: string, Icon: typeof ArrowUp) => (
+        <button
+            type="button"
+            onClick={() => sortBy(dir)}
+            aria-pressed={sort === dir}
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left ${sort === dir ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-700 hover:bg-gray-100'}`}
+        >
+            <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+            {label}
+        </button>
+    );
+
     const panel = (
         <div
             ref={panelRef}
@@ -171,6 +202,12 @@ export default function ColumnFilter({ title, sel, loadOptions, onApply, iconOnl
             style={{ position: 'fixed', top: pos.top, left: pos.left, width: PANEL_WIDTH }}
             className="z-[60] bg-white border border-gray-200 rounded-lg shadow-xl text-xs text-gray-700 font-normal normal-case tracking-normal text-left"
         >
+            {onSort && (
+                <div className="p-1.5 border-b border-gray-100">
+                    {sortBtn('asc', ascLabel, ArrowUp)}
+                    {sortBtn('desc', descLabel, ArrowDown)}
+                </div>
+            )}
             <div className="px-3 pt-3 pb-2 space-y-2">
                 <p className="text-[13px] font-semibold text-gray-900 truncate">{title}</p>
                 <div className="relative">
@@ -251,10 +288,11 @@ export default function ColumnFilter({ title, sel, loadOptions, onApply, iconOnl
                 aria-haspopup="dialog"
                 aria-expanded={open}
                 aria-label={iconOnly ? `Filter ${title}` : undefined}
-                title={active ? `${title}: filter aktif` : `Filter ${title}`}
-                className={`group inline-flex items-center gap-1 rounded text-left whitespace-nowrap [text-transform:inherit] [letter-spacing:inherit] ${active ? 'text-blue-700' : 'hover:text-gray-900'}`}
+                title={[active ? `${title}: filter aktif` : `Filter ${title}`, sort ? (sort === 'asc' ? 'diurutkan naik' : 'diurutkan turun') : ''].filter(Boolean).join(', ')}
+                className={`group inline-flex items-center gap-1 rounded text-left whitespace-nowrap [text-transform:inherit] [letter-spacing:inherit] ${active || sort ? 'text-blue-700' : 'hover:text-gray-900'}`}
             >
                 {!iconOnly && <span>{title}</span>}
+                {sort && (sort === 'asc' ? <ArrowUp className="w-3 h-3 flex-shrink-0" aria-hidden /> : <ArrowDown className="w-3 h-3 flex-shrink-0" aria-hidden />)}
                 <span className={`inline-flex items-center justify-center w-4 h-4 rounded flex-shrink-0 ${active ? 'bg-blue-100 text-blue-700' : open ? 'bg-gray-200 text-gray-700' : 'text-gray-400 group-hover:bg-gray-200 group-hover:text-gray-700'}`}>
                     {active ? <Filter className="w-2.5 h-2.5 fill-current" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </span>

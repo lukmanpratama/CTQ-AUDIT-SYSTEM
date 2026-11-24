@@ -196,7 +196,7 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
                         aria-autocomplete="list"
                         autoComplete="off"
                         placeholder="Cari model dari Purchase Orders..."
-                        className={`w-full border rounded px-3 py-1.5 pl-9 pr-14 text-sm focus:outline-none transition-colors ${selected ? 'border-emerald-300 bg-emerald-50/40 font-medium text-gray-900' : 'border-gray-200 focus:border-gray-400'}`}
+                        className={`admin-input pl-9 pr-14 ${selected ? '!border-emerald-300 !bg-emerald-50/40 font-medium' : ''}`}
                     />
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                         {query && (
@@ -259,19 +259,20 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
                     draft={uspDraft}
                     onDraftChange={setUspDraft}
                     placeholder="USP (opsional), Enter untuk tambah"
-                    className="flex-1 min-w-0 min-h-[34px] px-2"
+                    className="flex-1 min-w-0"
                 />
                 <input
                     value={modelNo}
                     onChange={e => setModelNo(e.target.value)}
                     type="text"
                     placeholder="Model No (opsional)"
-                    className="md:w-44 border border-gray-200 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-gray-400 transition-colors"
+                    aria-label="Model No"
+                    className="admin-input md:w-44 font-mono"
                 />
                 <button
                     type="submit"
                     disabled={saving || !selected || articlesLoading}
-                    className="bg-gray-900 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-gray-800 disabled:opacity-40 transition-colors"
+                    className="admin-btn admin-btn-primary"
                 >
                     {saving ? 'Menyimpan...' : 'Add Model'}
                 </button>
@@ -336,8 +337,11 @@ export default function PoModelPicker({ models, onCreated }: { models: any[]; on
                     Sudah ada {existingSameName} model bernama {selected.name} di Setup CTQ. Isi Model No dan pilih artikelnya, agar PO dan TQC tertaut ke model yang benar.
                 </p>
             )}
-            <p className="text-xs text-gray-400">
-                Nama model dan artikel diambil dari Purchase Orders. USP bisa lebih dari satu: ketik lalu Enter, atau tempel daftar (satu nama per baris). Artikel yang dicentang menautkan PO dan TQC ke model ini; artikel baru di PO berikutnya bisa ditambahkan lewat Edit &rarr; Ambil dari PO. Tanpa artikel, PO dicocokkan berdasarkan nama model.
+            <p
+                className="text-xs text-gray-400 truncate"
+                title="Nama model dan artikel diambil dari Purchase Orders. USP bisa lebih dari satu: ketik lalu Enter, atau tempel daftar (satu nama per baris). Artikel yang dicentang menautkan PO dan TQC ke model ini; artikel baru di PO berikutnya bisa ditambahkan lewat Edit → Ambil dari PO. Tanpa artikel, PO dicocokkan berdasarkan nama model."
+            >
+                Nama model dan artikel diambil dari Purchase Orders. USP: ketik lalu Enter, atau tempel daftar (satu nama per baris). Arahkan kursor untuk penjelasan lengkap.
             </p>
             {error && <p className="text-xs text-red-600">{error}</p>}
         </form>
