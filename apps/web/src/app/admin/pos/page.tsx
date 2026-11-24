@@ -3,11 +3,11 @@
 import { useEffect, useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from '../../../components/admin/ColumnFilter';
-import { EMPTY_LABEL, columnFiltersParam, type ColumnFilters, type ColumnFilterSel, type FilterOptionsResult } from '../../../lib/column-filters';
+import SearchInput from '../../../components/admin/SearchInput';
+import TablePager from '../../../components/admin/TablePager';
+import { EMPTY_LABEL, columnFiltersParam, sortParam, type ColumnFilters, type ColumnFilterSel, type ColumnSort, type FilterOptionsResult, type SortDir, type SortKind } from '../../../lib/column-filters';
 
 type Po = { po: string; article: string; model: string; destination?: string; qtyOrder: number };
-
-const PAGE_SIZE = 100;
 
 // API errors come back as { message: string | string[] }
 const readError = async (res: Response, fallback: string) => {
@@ -26,6 +26,9 @@ export default function PoManagementPage() {
     const [cols, setCols] = useState<ColumnFilters>({});
     const [notice, setNotice] = useState('');
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(25);
+    // Sorted from a column header (the server sorts; newest PO number first without one)
+    const [sort, setSort] = useState<ColumnSort>(null);
     const [total, setTotal] = useState(0);
     const [form, setForm] = useState<Partial<Po>>({});
     const [editPo, setEditPo] = useState<string | null>(null);
@@ -42,7 +45,8 @@ export default function PoManagementPage() {
     const fetchPos = async () => {
         setLoading(true);
         try {
-            const params = filterParams(new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) }));
+            const params = filterParams(new URLSearchParams({ page: String(page), limit: String(pageSize) }));
+            if (sort) params.set('sort', sortParam(sort));
             const res = await fetch(`/api/master/pos/paged?${params.toString()}`);
             const result = await res.json();
             setPos(result.data || []);
@@ -63,7 +67,10 @@ export default function PoManagementPage() {
         return () => clearTimeout(t);
     }, [search]);
 
-    useEffect(() => { fetchPos(); }, [page, appliedSearch, cols]);
+    useEffect(() => { fetchPos(); }, [page, pageSize, appliedSearch, cols, sort]);
+
+    const changePageSize = (size: number) => { setPageSize(size); setPage(1); };
+    const applySort = (key: string, dir: SortDir | null) => { setSort(dir ? { key, dir } : null); setPage(1); };
 
     const setColumnFilter = (key: string, sel: ColumnFilterSel | null) => {
         setCols(prev => {
@@ -87,8 +94,17 @@ export default function PoManagementPage() {
             truncated: !!body.truncated,
         };
     };
-    const F = (key: string, title: string) => (
-        <ColumnFilter title={title} sel={cols[key]} serverSearch loadOptions={loadOptions(key)} onApply={sel => setColumnFilter(key, sel)} />
+    const F = (key: string, title: string, sortKind: SortKind = 'text') => (
+        <ColumnFilter
+            title={title}
+            sel={cols[key]}
+            serverSearch
+            loadOptions={loadOptions(key)}
+            onApply={sel => setColumnFilter(key, sel)}
+            sort={sort?.key === key ? sort.dir : null}
+            onSort={dir => applySort(key, dir)}
+            sortKind={sortKind}
+        />
     );
 
     const hasFilters = !!search.trim() || Object.keys(cols).length > 0;
@@ -100,7 +116,7 @@ export default function PoManagementPage() {
         setNotice('');
     };
 
-    const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
+    const totalPages = Math.max(Math.ceil(total / pageSize), 1);
 
     // If rows were deleted and the current page no longer exists, step back to the last page
     useEffect(() => {
@@ -255,163 +271,149 @@ export default function PoManagementPage() {
         reader.readAsArrayBuffer(file);
     };
 
+
     const cancelEdit = () => { setEditPo(null); setForm({}); };
     const displayedPos = pos;
 
     return (
-        <div className="space-y-5">
+        <div className="admin-page">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                    <h1 className="text-lg font-semibold text-gray-900">Purchase Orders</h1>
-                    <p className="text-sm text-gray-500 mt-0.5">Manage PO master data for audit sessions.</p>
+                    <h1 className="admin-page-title">Purchase Orders</h1>
+                    <p className="admin-page-subtitle">Manage PO master data for audit sessions.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <input
-                        type="text"
-                        placeholder="Search PO, article, model, destination..."
-                        className="border border-gray-200 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:border-gray-400 transition-colors"
-                        value={search}
-                        onChange={e => { setSearch(e.target.value); setNotice(''); }}
-                    />
                     <input type="file" accept=".xlsx,.xls,.csv" className="hidden" ref={fileInputRef} onChange={handleImportFile} />
-                    <button onClick={downloadTemplate} className="border border-gray-200 text-gray-600 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition-colors">
+                    <button onClick={downloadTemplate} className="admin-btn admin-btn-secondary">
                         Download template
                     </button>
-                    <button onClick={() => fileInputRef.current?.click()} className="border border-gray-200 text-gray-600 px-3 py-1.5 rounded text-sm hover:bg-gray-50 transition-colors">
+                    <button onClick={() => fileInputRef.current?.click()} className="admin-btn admin-btn-secondary">
                         Import Excel
                     </button>
-                    <button onClick={handleDeleteAll} className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300 px-3 py-1.5 rounded text-sm font-medium transition-colors">
+                    <button onClick={handleDeleteAll} className="admin-btn admin-btn-danger">
                         Clear All POs
                     </button>
-                    <button onClick={cancelEdit} className="bg-gray-900 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-gray-800 transition-colors">
+                    <button onClick={cancelEdit} className="admin-btn admin-btn-primary">
                         + New PO
                     </button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="admin-toolbar">
+                <SearchInput
+                    value={search}
+                    onChange={v => { setSearch(v); setNotice(''); }}
+                    placeholder="Cari PO, article, model, destination..."
+                    className="flex-1 min-w-[220px] sm:max-w-md"
+                />
+                {hasFilters && (
+                    <button onClick={resetFilters} className="inline-flex items-center h-9 text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                        Reset filters
+                    </button>
+                )}
+            </div>
+
+            {/* The form stays beside the table; only the table's rows scroll */}
+            <div className="admin-split grid grid-cols-1 lg:grid-cols-3 gap-4 lg:grid-rows-[minmax(0,1fr)] overflow-y-auto lg:overflow-visible">
                 {/* Form */}
-                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden h-fit">
+                <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden h-fit lg:max-h-full lg:overflow-y-auto">
                     <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                         <h2 className="text-sm font-medium text-gray-800">{editPo ? `Editing: ${editPo}` : 'New Purchase Order'}</h2>
                         {editPo && <button onClick={cancelEdit} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">Cancel</button>}
                     </div>
                     <form onSubmit={handleSave} className="p-4 space-y-3">
                         <div>
-                            <label className="block text-xs text-gray-500 mb-1">PO Number</label>
-                            <input required type="text" disabled={!!editPo} value={form.po || ''} onChange={e => setForm({ ...form, po: e.target.value.toUpperCase() })} className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400 transition-colors" />
+                            <label className="admin-field-label">PO Number</label>
+                            <input required type="text" disabled={!!editPo} value={form.po || ''} onChange={e => setForm({ ...form, po: e.target.value.toUpperCase() })} className="admin-input font-mono" />
                         </div>
                         <div>
-                            <label className="block text-xs text-gray-500 mb-1">Article</label>
-                            <input required type="text" value={form.article || ''} onChange={e => setForm({ ...form, article: e.target.value.toUpperCase() })} className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400 transition-colors" />
+                            <label className="admin-field-label">Article</label>
+                            <input required type="text" value={form.article || ''} onChange={e => setForm({ ...form, article: e.target.value.toUpperCase() })} className="admin-input" />
                         </div>
                         <div>
-                            <label className="block text-xs text-gray-500 mb-1">Model</label>
-                            <input required type="text" value={form.model || ''} onChange={e => setForm({ ...form, model: e.target.value.toUpperCase() })} className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400 transition-colors" />
+                            <label className="admin-field-label">Model</label>
+                            <input required type="text" value={form.model || ''} onChange={e => setForm({ ...form, model: e.target.value.toUpperCase() })} className="admin-input" />
                         </div>
                         <div>
-                            <label className="block text-xs text-gray-500 mb-1">Destination</label>
-                            <input type="text" value={form.destination || ''} onChange={e => setForm({ ...form, destination: e.target.value.toUpperCase() })} className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400 transition-colors" />
+                            <label className="admin-field-label">Destination</label>
+                            <input type="text" value={form.destination || ''} onChange={e => setForm({ ...form, destination: e.target.value.toUpperCase() })} className="admin-input" />
                         </div>
                         <div>
-                            <label className="block text-xs text-gray-500 mb-1">Order Qty</label>
-                            <input required type="number" min="1" value={form.qtyOrder || ''} onChange={e => setForm({ ...form, qtyOrder: parseInt(e.target.value) })} className="w-full border border-gray-200 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-gray-400 transition-colors" />
+                            <label className="admin-field-label">Order Qty</label>
+                            <input required type="number" min="1" value={form.qtyOrder || ''} onChange={e => setForm({ ...form, qtyOrder: parseInt(e.target.value) })} className="admin-input font-mono" />
                         </div>
-                        <button type="submit" className="w-full bg-gray-900 text-white py-1.5 rounded text-sm font-medium hover:bg-gray-800 transition-colors">
+                        <button type="submit" className="admin-btn admin-btn-primary w-full">
                             {editPo ? 'Save changes' : 'Create PO'}
                         </button>
                     </form>
                 </div>
 
                 {/* Table */}
-                <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg overflow-hidden flex flex-col" style={{ maxHeight: '80vh' }}>
+                <div className="lg:col-span-2 admin-table-card">
                     <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                         <h2 className="text-sm font-medium text-gray-800">
                             Purchase Orders
                             <span className="ml-1.5 text-xs text-gray-400 font-normal">{total.toLocaleString()} records</span>
                         </h2>
-                        {hasFilters && (
-                            <button
-                                onClick={resetFilters}
-                                className="text-xs text-gray-500 hover:text-gray-800 underline"
-                            >
-                                Reset filters
-                            </button>
-                        )}
                     </div>
                     {notice && (
                         <div className="px-4 py-2 text-xs text-green-800 bg-green-50 border-b border-green-100">{notice}</div>
                     )}
                     {/* Table stays mounted while loading so the filter inputs keep focus */}
-                    <div className="overflow-auto flex-1">
-                            <table className="w-full text-sm">
-                                <thead className="sticky top-0 bg-white border-b border-gray-100 z-10">
+                    <div className="admin-table-scroll">
+                        <table className="w-full text-sm">
+                            <thead className="border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                <tr>
+                                    <th className="text-left px-4 py-2.5 w-32">{F('po', 'PO')}</th>
+                                    <th className="text-left px-4 py-2.5">{F('article', 'Article')}</th>
+                                    <th className="text-left px-4 py-2.5">{F('model', 'Model')}</th>
+                                    <th className="text-left px-4 py-2.5">{F('destination', 'Destination')}</th>
+                                    <th className="text-right px-4 py-2.5 w-24">{F('qtyOrder', 'Qty', 'number')}</th>
+                                    <th className="text-right px-4 py-2.5 w-24"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {loading && (
                                     <tr>
-                                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 w-32">{F('po', 'PO')}</th>
-                                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400">{F('article', 'Article')}</th>
-                                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400">{F('model', 'Model')}</th>
-                                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400">{F('destination', 'Destination')}</th>
-                                        <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 w-20">{F('qtyOrder', 'Qty')}</th>
-                                        <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 w-24"></th>
+                                        <td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-sm">Loading...</td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {loading && (
-                                        <tr>
-                                            <td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-sm">Loading...</td>
-                                        </tr>
-                                    )}
-                                    {!loading && displayedPos.map(p => (
-                                        <tr key={p.po} className={`border-b border-gray-50 transition-colors ${editPo === p.po ? 'bg-blue-50/40' : 'hover:bg-gray-50'}`}>
-                                            <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{p.po}</td>
-                                            <td className="px-4 py-2.5 text-gray-700">{p.article}</td>
-                                            <td className="px-4 py-2.5 text-gray-800 font-medium">{p.model}</td>
-                                            <td className="px-4 py-2.5 text-gray-500 max-w-[180px] truncate" title={p.destination || '-'}>{p.destination || '-'}</td>
-                                            <td className="px-4 py-2.5 text-right font-mono text-gray-700">{p.qtyOrder.toLocaleString()}</td>
-                                            <td className="px-4 py-2.5 text-right">
-                                                <div className="inline-flex gap-1">
-                                                    <button onClick={() => { setEditPo(p.po); setForm(p); }} className="px-2 py-1 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">Edit</button>
-                                                    <button onClick={() => handleDelete(p.po)} className="px-2 py-1 text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">Delete</button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {!loading && displayedPos.length === 0 && (
-                                        <tr>
-                                            <td colSpan={6} className="px-4 py-12 text-center text-gray-400 text-sm">
-                                                {hasFilters
-                                                    ? 'No purchase orders match the search / filters.'
-                                                    : <>No purchase orders found. Use &quot;Import Excel&quot; to upload from your datasheet.</>}
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                        <span>
-                            {total === 0
-                                ? 'Showing 0 results'
-                                : <>Showing <span className="font-medium text-gray-700">{((page - 1) * PAGE_SIZE + 1).toLocaleString()}</span> to <span className="font-medium text-gray-700">{Math.min(page * PAGE_SIZE, total).toLocaleString()}</span> of <span className="font-medium text-gray-700">{total.toLocaleString()}</span> results</>}
-                        </span>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setPage(p => Math.max(p - 1, 1))}
-                                disabled={loading || page <= 1}
-                                className="border border-gray-200 px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Previous
-                            </button>
-                            <span>Page {page} of {totalPages}</span>
-                            <button
-                                onClick={() => setPage(p => Math.min(p + 1, totalPages))}
-                                disabled={loading || page >= totalPages}
-                                className="border border-gray-200 px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            >
-                                Next
-                            </button>
-                        </div>
+                                )}
+                                {!loading && displayedPos.map(p => (
+                                    <tr key={p.po} className={`border-b border-gray-50 transition-colors ${editPo === p.po ? 'bg-blue-50/40' : 'hover:bg-gray-50'}`}>
+                                        <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{p.po}</td>
+                                        <td className="px-4 py-2.5 text-gray-700">{p.article}</td>
+                                        <td className="px-4 py-2.5 text-gray-800 font-medium">{p.model}</td>
+                                        <td className="px-4 py-2.5 text-gray-500 max-w-[180px] truncate" title={p.destination || '-'}>{p.destination || '-'}</td>
+                                        <td className="px-4 py-2.5 text-right font-mono text-gray-700">{p.qtyOrder.toLocaleString()}</td>
+                                        <td className="px-4 py-2.5 text-right">
+                                            <div className="inline-flex gap-1">
+                                                <button onClick={() => { setEditPo(p.po); setForm(p); }} className="px-2 py-1 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">Edit</button>
+                                                <button onClick={() => handleDelete(p.po)} className="px-2 py-1 text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">Delete</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {!loading && displayedPos.length === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="px-4 py-12 text-center text-gray-400 text-sm">
+                                            {hasFilters
+                                                ? 'No purchase orders match the search / filters.'
+                                                : <>No purchase orders found. Use &quot;Import Excel&quot; to upload from your datasheet.</>}
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
+                    <TablePager
+                        page={page}
+                        pageSize={pageSize}
+                        total={total}
+                        onPage={setPage}
+                        onPageSize={changePageSize}
+                        disabled={loading}
+                        noun="PO"
+                    />
                 </div>
             </div>
         </div>

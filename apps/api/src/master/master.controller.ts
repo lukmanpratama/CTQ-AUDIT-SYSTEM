@@ -78,9 +78,11 @@ export class MasterController {
         @Query('article') article?: string,
         @Query('model') model?: string,
         @Query('destination') destination?: string,
-        @Query('cols') cols?: string
+        @Query('cols') cols?: string,
+        /** "column:asc" / "column:desc", from a column header */
+        @Query('sort') sort?: string
     ) {
-        return this.masterService.findPosPaged(parseInt(page || '1', 10), parseInt(limit || '100', 10), { q, po, article, model, destination, cols });
+        return this.masterService.findPosPaged(parseInt(page || '1', 10), parseInt(limit || '100', 10), { q, po, article, model, destination, cols }, sort);
     }
 
     @Post('pos')

@@ -3,6 +3,7 @@ import { missingFollowUp } from '../../../lib/followup';
 
 import { processImageUrl } from '../../../lib/image-url';
 import ColumnFilter, { ClearColumnFilters } from '../../../components/admin/ColumnFilter';
+import TablePager, { usePagination } from '../../../components/admin/TablePager';
 import { useColumnFilters } from '../../../lib/column-filters';
 
 const NO_ROWS: any[] = [];
@@ -22,29 +23,31 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
 
     // Header filters on the rows the dashboard loaded
     const cf = useColumnFilters(data || NO_ROWS, {
-        date: { get: r => (r.date ? String(r.date).slice(0, 10) : ''), format: formatDate },
+        date: { get: r => (r.date ? String(r.date).slice(0, 10) : ''), format: formatDate, kind: 'date' },
         namaRqc: { get: r => r.namaRqc },
         factoryCell: { get: r => r.factoryCell },
         model: { get: r => r.model },
         area: { get: r => r.area },
         process: { get: r => r.process },
         defectName: { get: r => r.defectName },
-        qtyChecking: { get: r => r.qtyChecking },
-        qtyDefect: { get: r => r.qtyDefect },
+        qtyChecking: { get: r => r.qtyChecking, kind: 'number' },
+        qtyDefect: { get: r => r.qtyDefect, kind: 'number' },
         status: { get: r => r.status },
         submitted: { get: r => r.submitted },
         defectRate: { get: r => (r.defectRate !== null && r.defectRate !== undefined ? `${r.defectRate}%` : '') },
     });
     const displayData = cf.filtered;
+    const pager = usePagination(displayData, { initialSize: 10, resetKey: [cf.filters, cf.sort] });
     const F = (key: string, title: string) => <ColumnFilter {...cf.bind(key, title)} />;
 
     return (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex-1">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex-1 flex flex-col">
             <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-3">
                 <h2 className="text-sm font-bold text-gray-900 tracking-wide uppercase">Recent Inspection / Findings</h2>
                 <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
             </div>
-            <div className="overflow-x-auto">
+            {/* The rows scroll inside the card; the column headers stay */}
+            <div className="admin-table-scroll admin-table-scroll-cap">
                 <table className="w-full text-left border-collapse">
                     <thead>
                         <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase">
@@ -70,7 +73,7 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                                 </td>
                             </tr>
                         ) : (
-                            displayData.map((row: any) => (
+                            pager.pageRows.map((row: any) => (
                                 <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                                     <td className="p-4 text-gray-900 font-bold whitespace-nowrap">{formatDate(row.date)}</td>
                                     <td className="p-4">{row.namaRqc}</td>
@@ -108,6 +111,14 @@ export function RecentInspectionsTable({ data }: { data?: any[] }) {
                     </tbody>
                 </table>
             </div>
+            <TablePager
+                page={pager.page}
+                pageSize={pager.pageSize}
+                total={pager.total}
+                onPage={pager.setPage}
+                onPageSize={pager.setPageSize}
+                noun="temuan"
+            />
 
             {/* Detail Modal */}
             {selectedRow && (

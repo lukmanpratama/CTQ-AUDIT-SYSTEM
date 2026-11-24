@@ -8,7 +8,7 @@ import { MODEL_MATCH_SELECT } from '../common/model-match';
 import { CreateHeaderDto, CreateInspectionDto, UpdateHeaderDto } from './rqc.dto';
 import { modelLabel, tqcWhereForModel } from '../common/model-match';
 import { TQC_CHECK_PER_DAY, TQC_CHECK_PER_HOUR, isCtqTqcDefect, tqcDayCellChecking, tqcSlotChecking } from '../common/tqc-checking';
-import { columnFilterWhere, parseColumnFilters, searchWords, type ColumnFilterSel } from '../common/column-filters';
+import { columnFilterWhere, parseColumnFilters, parseSort, searchWords, type ColumnFilterSel } from '../common/column-filters';
 
 // TQC defects count on the CTQ dashboards only when the row has a USP Classification
 const hasUspClassification = (tqc: { uspClassification?: string | null }) => !!tqc.uspClassification?.trim();
@@ -23,6 +23,17 @@ const parseDay = (v: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException(`Date filter values are YYYY-MM-DD, got "${v}".`);
     return new Date(`${v}T00:00:00.000Z`);
 };
+
+/** Row order for a header sort of the Inspection Report; the newest report breaks ties */
+function headerOrderBy(field: HeaderFilterColumn, dir: 'asc' | 'desc'): Prisma.RqcHeaderOrderByWithRelationInput[] {
+    const tie: Prisma.RqcHeaderOrderByWithRelationInput[] = [{ date: 'desc' }, { createdAt: 'desc' }];
+    switch (field) {
+        case 'date': return [{ date: dir }, { createdAt: dir }];
+        case 'factory': return [{ factory: { factory: dir } }, ...tie];
+        case 'inspector': return [{ inspector: { namaUser: dir } }, ...tie];
+        default: return [{ [field]: dir }, ...tie];
+    }
+}
 
 /** Prisma condition for one Inspection Report header filter */
 function headerColumnWhere(field: HeaderFilterColumn, sel: ColumnFilterSel) {
@@ -444,9 +455,12 @@ export class RqcService {
      * area → process → inspection tree. Without `groupModelId` every model comes back with
      * its first page; with it, only that model at `page`.
      */
-    async getHeadersByModel(filters: HeaderListFilters & { groupModelId?: string; page?: string; pageSize?: string; cols?: string }) {
+    async getHeadersByModel(filters: HeaderListFilters & { groupModelId?: string; page?: string; pageSize?: string; cols?: string; sort?: string }) {
         const where = this.headerListWhere(filters);
         const pageSize = Math.min(Math.max(Number(filters.pageSize) || 10, 1), 100);
+        // Rows sort by the clicked column header (newest first without one)
+        const by = parseSort(filters.sort, HEADER_FILTER_COLUMNS);
+        const orderBy = by ? headerOrderBy(by.field, by.dir) : [{ date: 'desc' as const }, { createdAt: 'desc' as const }];
         const onlyModelId = filters.groupModelId ? BigInt(filters.groupModelId) : undefined;
 
         const counts = await this.prisma.rqcHeader.groupBy({
@@ -466,7 +480,7 @@ export class RqcService {
             const page = onlyModelId !== undefined ? Math.min(Math.max(Number(filters.page) || 1, 1), totalPages) : 1;
             const rows = await this.prisma.rqcHeader.findMany({
                 where: { AND: [where, { setupModelId: c.setupModelId }] },
-                orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+                orderBy,
                 skip: (page - 1) * pageSize,
                 take: pageSize,
                 select: {

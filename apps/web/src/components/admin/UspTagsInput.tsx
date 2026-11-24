@@ -20,7 +20,8 @@ export default function UspTagsInput({ names, onNamesChange, draft, onDraftChang
     return (
         <div
             onClick={() => inputRef.current?.focus()}
-            className={`flex flex-wrap items-center gap-1 border border-gray-200 rounded px-1.5 py-1 bg-white cursor-text focus-within:border-blue-500 transition-colors ${className}`}
+            // Same look as the other form fields (.admin-input), growing taller as chips are added
+            className={`flex flex-wrap items-center gap-1 min-h-[2.25rem] border border-gray-300 rounded-md px-2 py-[3px] bg-white cursor-text focus-within:border-gray-900 focus-within:ring-1 focus-within:ring-gray-900 transition-colors ${className}`}
         >
             {names.map(name => (
                 <span key={name.toUpperCase()} className="inline-flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded border border-blue-100 bg-blue-50 text-blue-800 text-[11px] font-medium">

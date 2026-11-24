@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { useDataRefresh } from '../../../../lib/use-data-refresh';
 import ColumnFilter, { ClearColumnFilters } from '../../../../components/admin/ColumnFilter';
+import TablePager, { usePagination } from '../../../../components/admin/TablePager';
 import { useColumnFilters } from '../../../../lib/column-filters';
 
 const parseCustomDateString = (dateStr: any): string | null => {
@@ -116,13 +117,9 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
 
-    // For simple pagination in frontend
-    const [page, setPage] = useState(1);
-    const rowsPerPage = 10;
-
-    // Header filters, one per column, on the values as the table shows them
+    // Header filters and sort, one per column, on the values as the table shows them
     const cf = useColumnFilters(data, {
-        date: { get: r => (r.date ? String(r.date).slice(0, 10) : ''), format: formatDateForDisplay },
+        date: { get: r => (r.date ? String(r.date).slice(0, 10) : ''), format: formatDateForDisplay, kind: 'date' },
         time: { get: r => r.time },
         building: { get: r => r.building },
         cell: { get: r => r.cell },
@@ -130,17 +127,20 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
         article: { get: r => r.article },
         orderNo: { get: r => r.orderNo },
         pwiNo: { get: r => r.pwiNo },
-        seq: { get: r => r.seq },
-        qtyProduction: { get: r => (isSewingFormat ? (typeof r.qtyProduction === 'number' ? r.qtyProduction : '') : (r.qtyProduction || r.qty)) },
-        qtyChecking: { get: r => (isSewingFormat ? r.qty : (r.qtyChecking ?? DEFAULT_QTY_CHECKING)) },
-        qtyDefect: { get: r => r.qtyDefect },
+        seq: { get: r => r.seq, kind: 'number' },
+        qtyProduction: { get: r => (isSewingFormat ? (typeof r.qtyProduction === 'number' ? r.qtyProduction : '') : (r.qtyProduction || r.qty)), kind: 'number' },
+        qtyChecking: { get: r => (isSewingFormat ? r.qty : (r.qtyChecking ?? DEFAULT_QTY_CHECKING)), kind: 'number' },
+        qtyDefect: { get: r => r.qtyDefect, kind: 'number' },
         destination: { get: r => r.destination },
         category: { get: r => r.category },
         type: { get: r => r.type },
         ctqType: { get: r => r.ctqType },
         defectName: { get: r => r.defectName },
         uspClassification: { get: r => r.uspClassification },
-    }, () => setPage(1));
+    });
+    const filteredData = cf.filtered;
+    const pager = usePagination(filteredData, { initialSize: 10, resetKey: [moduleType, cf.filters, cf.sort] });
+    const paginatedData = pager.pageRows;
     const F = (key: string, title: string) => <ColumnFilter {...cf.bind(key, title)} />;
 
     // Another module starts without filters
@@ -432,7 +432,6 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
             if (response.ok) {
                 fetchData();
                 cf.clearAll();
-                setPage(1);
                 alert(`All ${moduleType} data has been cleared.`);
             } else {
                 alert('Failed to clear data.');
@@ -442,11 +441,6 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
             alert('Error clearing data.');
         }
     };
-
-    const filteredData = cf.filtered;
-
-    const paginatedData = filteredData.slice((page - 1) * rowsPerPage, page * rowsPerPage);
-    const totalPages = Math.ceil(filteredData.length / rowsPerPage) || 1;
 
     const handleDownloadFormat = () => {
         let headers = [];
@@ -471,36 +465,30 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
     };
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="admin-page">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="flex items-center gap-3">
-                    <button onClick={() => router.push('/admin/tqc')} className="p-2 border border-gray-200 rounded-md bg-white hover:bg-gray-50 text-gray-600 transition-colors">
+                    <button onClick={() => router.push('/admin/tqc')} className="admin-btn admin-btn-secondary !px-0 w-9" aria-label="Kembali ke TQC Report">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     </button>
                     <div>
-                        <h1 className="text-xl font-bold text-gray-900">{moduleType} TQC Records</h1>
-                        <p className="text-sm text-gray-500 mt-0.5">Manage and view imported TQC logs.</p>
+                        <h1 className="admin-page-title">{moduleType} TQC Records</h1>
+                        <p className="admin-page-subtitle">Manage and view imported TQC logs.</p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    {/* Models (and every other column) are filtered from the table headers */}
-                    <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
-
-                    <button
-                        onClick={handleDownloadFormat}
-                        className="flex items-center px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm"
-                    >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={handleDownloadFormat} className="admin-btn admin-btn-secondary">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                         Download Format
                     </button>
 
                     <button
                         onClick={handleClearAll}
                         disabled={uploading || data.length === 0}
-                        className="flex items-center px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-md text-sm font-semibold hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                        className="admin-btn admin-btn-danger"
                     >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         Clear All
                     </button>
 
@@ -514,22 +502,22 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploading}
-                        className="flex items-center px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-semibold hover:bg-gray-800 transition-colors disabled:bg-gray-400"
+                        className="admin-btn admin-btn-primary"
                     >
                         {uploading ? (
-                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                         ) : (
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                         )}
                         {uploading ? 'Importing...' : 'Import Excel'}
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
+            <div className="admin-table-card">
+                <div className="admin-table-scroll">
                     <table className="w-full text-sm text-left whitespace-nowrap">
-                        <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
+                        <thead className="text-xs text-gray-500 uppercase border-b">
                             {isSewingFormat ? (
                                 <tr>
                                     <th className="px-5 py-3 font-semibold">{F('date', 'Date')}</th>
@@ -779,31 +767,23 @@ export default function TqcModulePage({ params }: { params: Promise<{ module: st
                 </div>
 
                 {/* Pagination Controls */}
-                {!loading && filteredData.length > 0 && (
-                    <div className="bg-gray-50 border-t border-gray-200 px-5 py-3 flex items-center justify-between">
-                        <div className="text-sm text-gray-500">
-                            Showing <span className="font-medium text-gray-900">{(page - 1) * rowsPerPage + 1}</span> to <span className="font-medium text-gray-900">{Math.min(page * rowsPerPage, filteredData.length)}</span> of <span className="font-medium text-gray-900">{filteredData.length}</span> results
-                            {filteredData.length !== data.length && ` (filtered from ${data.length})`}
-                        </div>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => setPage(p => Math.max(1, p - 1))}
-                                disabled={page === 1}
-                                className="px-3 py-1.5 border border-gray-200 text-sm font-medium rounded-md bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                            >
-                                Previous
-                            </button>
-                            <button
-                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                disabled={page === totalPages}
-                                className="px-3 py-1.5 border border-gray-200 text-sm font-medium rounded-md bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                            >
-                                Next
-                            </button>
-                        </div>
-                    </div>
+                {!loading && (
+                    <TablePager
+                        page={pager.page}
+                        pageSize={pager.pageSize}
+                        total={pager.total}
+                        onPage={pager.setPage}
+                        onPageSize={pager.setPageSize}
+                        noun="baris"
+                        extra={cf.activeCount > 0 ? (
+                            <>
+                                <span className="text-gray-400">(difilter dari {data.length})</span>
+                                <ClearColumnFilters count={cf.activeCount} onClear={cf.clearAll} />
+                            </>
+                        ) : undefined}
+                    />
                 )}
             </div>
-        </div >
+        </div>
     );
 }

@@ -53,5 +53,17 @@ export function columnFilterWhere(sel: ColumnFilterSel, match: (values: string[]
     return { AND: and };
 }
 
+/**
+ * Parses the `sort` query param ("column:asc" / "column:desc") of a table that sorts from its
+ * column headers. Returns null when there is none; an unknown column or direction is a 400.
+ */
+export function parseSort<F extends string>(raw: string | undefined, allowed: readonly F[]): { field: F; dir: 'asc' | 'desc' } | null {
+    if (!raw) return null;
+    const [field, dir] = raw.split(':');
+    if (!allowed.includes(field as F)) throw new BadRequestException(`Unknown sort column "${field}".`);
+    if (dir !== 'asc' && dir !== 'desc') throw new BadRequestException('sort direction must be asc or desc.');
+    return { field: field as F, dir };
+}
+
 /** Words of a search box, for "contains every word" filters */
 export const searchWords = (search?: string) => (search ?? '').trim().split(/\s+/).filter(Boolean);

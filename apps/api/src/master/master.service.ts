@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, ConflictException, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
 import { modelNameContainsWhere, poWhereForModel } from '../common/model-match';
-import { columnFilterWhere, parseColumnFilters } from '../common/column-filters';
+import { columnFilterWhere, parseColumnFilters, parseSort } from '../common/column-filters';
 
 type PoFilters = { q?: string; po?: string; article?: string; model?: string; destination?: string; cols?: string };
 
@@ -163,14 +163,18 @@ export class MasterService {
         };
     }
 
-    async findPosPaged(page = 1, limit = 100, filters: PoFilters = {}) {
+    /** sort: "column:asc" / "column:desc" from a column header; without it, newest PO number first. */
+    async findPosPaged(page = 1, limit = 100, filters: PoFilters = {}, sort?: string) {
         const take = Math.min(Math.max(limit || 100, 1), 500);
         const currentPage = Math.max(page || 1, 1);
         const where = this.buildPoWhere(filters);
+        const by = parseSort(sort, PO_FILTER_COLUMNS);
+        // The PO number breaks ties, so a page never repeats or skips a row between requests
+        const orderBy = by ? (by.field === 'po' ? [{ po: by.dir }] : [{ [by.field]: by.dir }, { po: 'desc' as const }]) : [{ po: 'desc' as const }];
         const [data, total] = await this.prisma.$transaction([
             this.prisma.masterPo.findMany({
                 where,
-                orderBy: { po: 'desc' },
+                orderBy,
                 skip: (currentPage - 1) * take,
                 take
             }),
