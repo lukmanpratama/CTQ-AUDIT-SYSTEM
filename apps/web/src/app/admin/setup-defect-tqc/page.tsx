@@ -271,7 +271,7 @@ export default function SetupDefectTqcPage() {
             </div>
 
             <div className="admin-toolbar">
-                <SearchInput value={search} onChange={setSearch} placeholder="Cari defect name..." className="flex-1 min-w-[220px] sm:max-w-md" />
+                <SearchInput value={search} onChange={setSearch} placeholder="Cari defect name..." className="admin-toolbar-half md:max-w-[calc(50%-0.375rem)]" />
             </div>
 
             <div className="admin-table-card">

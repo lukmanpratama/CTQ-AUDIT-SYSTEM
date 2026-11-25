@@ -304,7 +304,7 @@ export default function PoManagementPage() {
                     value={search}
                     onChange={v => { setSearch(v); setNotice(''); }}
                     placeholder="Cari PO, article, model, destination..."
-                    className="flex-1 min-w-[220px] sm:max-w-md"
+                    className="admin-toolbar-half md:max-w-[calc(50%-0.375rem)]"
                 />
                 {hasFilters && (
                     <button onClick={resetFilters} className="inline-flex items-center h-9 text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium">

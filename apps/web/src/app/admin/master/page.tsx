@@ -277,10 +277,11 @@ export default function MasterDataPage() {
                         value={searchQuery}
                         onChange={setSearchQuery}
                         placeholder={`Cari ${tabLabel.toLowerCase()} (nama / ID)...`}
-                        className="flex-1 min-w-[220px]"
+                        className="admin-toolbar-half"
                     />
 
-                    <form onSubmit={handleCreate} className="flex gap-2 items-center flex-shrink-0">
+                    {/* Same width as the search box on its left */}
+                    <form onSubmit={handleCreate} className="admin-toolbar-half flex gap-2 items-center">
                         <input
                             value={newItem}
                             onChange={e => setNewItem(e.target.value)}
@@ -288,9 +289,9 @@ export default function MasterDataPage() {
                             type="text"
                             placeholder={`Nama ${tabLabel.toLowerCase()} baru...`}
                             aria-label={`Nama ${tabLabel.toLowerCase()} baru`}
-                            className="admin-input w-48 sm:w-60"
+                            className="admin-input flex-1 min-w-0"
                         />
-                        <button type="submit" disabled={isSubmitting || !newItem.trim()} className="admin-btn admin-btn-primary">
+                        <button type="submit" disabled={isSubmitting || !newItem.trim()} className="admin-btn admin-btn-primary flex-shrink-0">
                             <Plus className="w-4 h-4" />
                             <span>Tambah</span>
                         </button>
