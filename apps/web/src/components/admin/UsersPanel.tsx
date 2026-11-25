@@ -92,70 +92,63 @@ export default function UsersPanel({ users, onChanged }: { users: any[]; onChang
 
     return (
         <div className="admin-fill">
-            {/* Add / edit form */}
-            <div ref={formRef} className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
-                    <h2 className="text-xs font-semibold text-gray-800">
-                        {editingNik ? `Edit user: ${editingNik}` : 'Tambah user baru'}
-                    </h2>
-                    {editingNik && (
-                        <button onClick={cancelEdit} className="text-xs text-gray-400 hover:text-gray-700 transition-colors">Batal</button>
-                    )}
-                </div>
-                <div className="p-4">
-                    {error && (
-                        <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded text-xs flex items-center justify-between">
-                            <span>{error}</span>
-                            <button onClick={() => setError('')} className="text-red-400 hover:text-red-700 p-0.5"><X className="w-3.5 h-3.5" /></button>
-                        </div>
-                    )}
-                    <form onSubmit={handleSubmit} className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${editingNik ? 'lg:grid-cols-6' : 'lg:grid-cols-5'}`}>
-                        <div>
-                            <label className="admin-field-label">NIK</label>
-                            <input value={nik} onChange={e => setNik(e.target.value)} disabled={!!editingNik} required type="text" placeholder="Employee ID" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className="admin-field-label">Nama Lengkap</label>
-                            <input value={namaUser} onChange={e => setNamaUser(e.target.value)} required type="text" className={inputCls} />
-                        </div>
-                        <div>
-                            <label className="admin-field-label">Role</label>
-                            <select value={role} onChange={e => setRole(e.target.value)} className={inputCls}>
-                                <option value="RQC">RQC (Inspector)</option>
-                                <option value="ADMIN">Administrator</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="admin-field-label">{editingNik ? 'Password Baru' : 'Password'}</label>
-                            <input value={password} onChange={e => setPassword(e.target.value)} required={!editingNik} type="password" autoComplete="new-password" placeholder={editingNik ? 'Kosongkan jika tetap' : 'Wajib'} className={inputCls} />
-                        </div>
-                        {editingNik && (
-                            <div>
-                                <label className="admin-field-label">Status</label>
-                                <select value={isActive ? 'true' : 'false'} onChange={e => setIsActive(e.target.value === 'true')} className={inputCls}>
-                                    <option value="true">Active</option>
-                                    <option value="false">Inactive</option>
-                                </select>
-                            </div>
-                        )}
-                        <div className="flex items-end">
-                            <button type="submit" disabled={loading} className="admin-btn admin-btn-primary w-full">
-                                {loading ? 'Menyimpan...' : (editingNik ? 'Update' : 'Tambah User')}
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-            {/* Search */}
-            <div className="admin-toolbar">
-                <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Cari user (NIK / nama)..." className="flex-1 min-w-[220px] sm:max-w-md" />
-                {isFiltered && (
-                    <button onClick={() => { setSearchQuery(''); cf.clearAll(); }} className="inline-flex items-center gap-1 h-9 text-[11px] text-blue-600 hover:text-blue-800 hover:underline font-medium">
-                        <RotateCcw className="w-3 h-3" />
-                        Reset
-                    </button>
+            {/* Add / edit form and search in one toolbar: same controls and height as the Areas /
+                Processes / Defects toolbar, and the form and the search box span the same width */}
+            <div ref={formRef} className="admin-toolbar">
+                {editingNik && (
+                    <div className="basis-full flex items-center justify-between text-xs">
+                        <span className="font-semibold text-gray-800">Edit user: {editingNik}</span>
+                        <button type="button" onClick={cancelEdit} className="text-gray-500 hover:text-gray-800 transition-colors">Batal</button>
+                    </div>
                 )}
+                {error && (
+                    <div className="basis-full px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded text-xs flex items-center justify-between">
+                        <span>{error}</span>
+                        <button onClick={() => setError('')} className="text-red-400 hover:text-red-700 p-0.5"><X className="w-3.5 h-3.5" /></button>
+                    </div>
+                )}
+                <form
+                    onSubmit={handleSubmit}
+                    className={`basis-full grid grid-cols-1 sm:grid-cols-2 gap-2 items-center ${editingNik
+                        ? 'lg:grid-cols-[1fr_1.6fr_1fr_1fr_1fr_auto]'
+                        : 'lg:grid-cols-[1fr_1.6fr_1fr_1fr_auto]'}`}
+                >
+                    <input value={nik} onChange={e => setNik(e.target.value)} disabled={!!editingNik} required type="text" placeholder="NIK (Employee ID)" aria-label="NIK" className={inputCls} />
+                    <input value={namaUser} onChange={e => setNamaUser(e.target.value)} required type="text" placeholder="Nama lengkap" aria-label="Nama Lengkap" className={inputCls} />
+                    <select value={role} onChange={e => setRole(e.target.value)} aria-label="Role" className={inputCls}>
+                        <option value="RQC">RQC (Inspector)</option>
+                        <option value="ADMIN">Administrator</option>
+                    </select>
+                    <input
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        required={!editingNik}
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={editingNik ? 'Password baru (kosongkan jika tetap)' : 'Password (wajib)'}
+                        aria-label={editingNik ? 'Password Baru' : 'Password'}
+                        className={inputCls}
+                    />
+                    {editingNik && (
+                        <select value={isActive ? 'true' : 'false'} onChange={e => setIsActive(e.target.value === 'true')} aria-label="Status" className={inputCls}>
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    )}
+                    <button type="submit" disabled={loading} className="admin-btn admin-btn-primary">
+                        {loading ? 'Menyimpan...' : (editingNik ? 'Update' : 'Tambah User')}
+                    </button>
+                </form>
+
+                <div className="basis-full flex items-center gap-3">
+                    <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Cari user (NIK / nama)..." className="flex-1 min-w-0" />
+                    {isFiltered && (
+                        <button onClick={() => { setSearchQuery(''); cf.clearAll(); }} className="inline-flex items-center gap-1 h-9 flex-shrink-0 text-[11px] text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                            <RotateCcw className="w-3 h-3" />
+                            Reset
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* User table: the rows scroll, the column headers stay */}
