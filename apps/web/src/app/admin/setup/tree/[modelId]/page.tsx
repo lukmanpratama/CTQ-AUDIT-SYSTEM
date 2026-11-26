@@ -1,9 +1,10 @@
 'use client';
 
 import { useRouter, useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { modelLabel } from '../../../../../lib/model-label';
 import { CTQ_CATEGORIES, RISK_LEVELS, riskTone } from '../../../../../lib/ctq-options';
+import SearchableSelect from '../../../../../components/admin/SearchableSelect';
 
 export default function SetupTreePage() {
     const router = useRouter();
@@ -18,6 +19,10 @@ export default function SetupTreePage() {
     const [masterProcesses, setMasterProcesses] = useState<any[]>([]);
     const [masterDefects, setMasterDefects] = useState<any[]>([]);
     const [modelUsps, setModelUsps] = useState<any[]>([]);
+
+    // The master lists as options of the searchable pickers
+    const processOptions = useMemo(() => masterProcesses.map(p => ({ value: p.processId, label: p.process })), [masterProcesses]);
+    const defectOptions = useMemo(() => masterDefects.map(d => ({ value: d.defectId, label: d.defect })), [masterDefects]);
 
     useEffect(() => {
         if (!modelId) return;
@@ -311,34 +316,26 @@ export default function SetupTreePage() {
                                                     </div>
                                                 ))}
 
-                                                <select
-                                                    className="px-3 py-1 border border-dashed border-gray-400 bg-gray-50 text-gray-600 rounded-lg text-xs font-bold outline-none cursor-pointer max-w-[200px]"
-                                                    onChange={e => {
-                                                        linkDefect(proc.setupProcessId, e.target.value);
-                                                        e.target.value = "";
-                                                    }}
-                                                    defaultValue=""
-                                                >
-                                                    <option value="" disabled>+ Add Process Defect</option>
-                                                    {masterDefects.map(d => <option key={d.defectId} value={d.defectId}>{d.defect}</option>)}
-                                                </select>
+                                                <SearchableSelect
+                                                    placeholder="+ Add Process Defect"
+                                                    searchPlaceholder="Search defect..."
+                                                    options={defectOptions}
+                                                    onSelect={defectId => linkDefect(proc.setupProcessId, defectId)}
+                                                    className="px-3 py-1 border border-dashed border-gray-400 bg-gray-50 text-gray-600 rounded-lg text-xs font-bold focus-visible:ring-2 focus-visible:ring-blue-500"
+                                                />
                                             </div>
                                         </div>
                                     )
                                 })}
 
                                 <div className="border-2 border-dashed border-gray-300 bg-transparent hover:bg-gray-100 transition-colors p-4 rounded-xl flex justify-center">
-                                    <select
-                                        className="px-4 py-2 w-full max-w-sm border border-gray-300 rounded-lg text-sm font-bold bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-                                        onChange={e => {
-                                            linkProcess(area.setupAreaId, e.target.value);
-                                            e.target.value = "";
-                                        }}
-                                        defaultValue=""
-                                    >
-                                        <option value="" disabled>+ Pick Master Process to assign into {area.masterArea.area}</option>
-                                        {masterProcesses.map(p => <option key={p.processId} value={p.processId}>{p.process}</option>)}
-                                    </select>
+                                    <SearchableSelect
+                                        placeholder={`+ Pick Master Process to assign into ${area.masterArea.area}`}
+                                        searchPlaceholder="Search process..."
+                                        options={processOptions}
+                                        onSelect={processId => linkProcess(area.setupAreaId, processId)}
+                                        className="px-4 py-2 w-full max-w-sm border border-gray-300 rounded-lg text-sm font-bold bg-white text-gray-700 focus-visible:ring-2 focus-visible:ring-blue-500 shadow-sm"
+                                    />
                                 </div>
                             </div>
                         </div>
