@@ -215,7 +215,7 @@ export function DefectCtqClient({ searchParams }: { searchParams: any }) {
 
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+        <div className="min-h-[calc(100vh-2rem)] bg-gray-50 flex flex-col font-sans">
             {/* Header */}
             <div className="bg-[#2482E4] text-white text-center py-4 relative shadow-md">
                 <h1 className="text-2xl font-bold uppercase tracking-wider">SUMMARY USP CTQ DEFECT</h1>

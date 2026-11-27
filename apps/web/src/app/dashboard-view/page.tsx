@@ -60,7 +60,7 @@ export default function DashboardViewPage() {
     const selectedModelName = modelLabel(models.find(m => m.setupModelId === selectedModel)) || 'Select a Model';
 
     return (
-        <main className="min-h-screen flex items-center justify-center bg-[#F9FAFB] relative">
+        <main className="min-h-[calc(100vh-2rem)] flex items-center justify-center bg-[#F9FAFB] relative">
             {/* Background Decorations: clipped in their own layer, so the model dropdown is never cut off */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-100 rounded-full blur-3xl opacity-50"></div>

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { clearSession } from '../../lib/session';
+import { AppFooter } from '../../components/AppFooter';
 
 type NavItem = { name: string; path: string; icon: string; /** other path prefixes that belong to this item */ also?: string[] };
 
@@ -208,6 +209,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 <div className="flex-1 min-h-0 overflow-y-auto p-6 w-full">
                     {children}
                 </div>
+                <AppFooter className="border-t border-gray-200 bg-white" />
             </main>
         </div>
     );

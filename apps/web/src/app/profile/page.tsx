@@ -7,7 +7,7 @@ export default function ProfilePage() {
     const { nik, namaUser, unsentCount, refresh, logout } = useShell();
 
     return (
-        <main className="py-6 px-4 sm:px-6 max-w-md mx-auto w-full min-h-[calc(100vh-7.5rem)] bg-gray-50">
+        <main className="py-6 px-4 sm:px-6 max-w-md mx-auto w-full min-h-[calc(100vh-9.5rem)] bg-gray-50">
             <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm space-y-6">
                 <div className="flex flex-col items-center text-center">
                     <div className="w-20 h-20 rounded-full bg-[#0E2947] text-[#F5A623] font-black text-3xl flex items-center justify-center shadow-lg mb-3 ring-4 ring-[#0E2947]/10">

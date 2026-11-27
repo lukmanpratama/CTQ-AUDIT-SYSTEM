@@ -1,6 +1,7 @@
 // apps/web/src/app/layout.tsx
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { RootFooter } from '../components/AppFooter';
 import { CapAlertCenter } from '../components/CapAlertCenter';
 import { OfflineSyncStatus } from '../components/OfflineSyncStatus';
 import { DatePickerOnClick } from '../components/DatePickerOnClick';
@@ -35,6 +36,8 @@ export default function RootLayout({
           <main className="flex-1 w-full relative">
             {children}
           </main>
+          {/* Credit line; the admin and inspector shells render their own */}
+          <RootFooter />
           {/* CAP alert popups for everyone with the app open */}
           <CapAlertCenter />
           {/* Offline / not-yet-sent status of the audit data */}
