@@ -161,9 +161,10 @@ export class RqcController {
         @Query('checkingTime') checkingTime?: string,
         @Query('inspector') inspector?: string,
         @Query('factoryId') factoryId?: string,
-        @Query('cell') cell?: string
+        @Query('cell') cell?: string,
+        @Query('nik') nik?: string,
     ) {
-        return this.rqcService.getAllHeaders({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell });
+        return this.rqcService.getAllHeaders({ model, modelId, startDate, endDate, checkingTime, inspector, factoryId, cell, nik });
     }
 
     /** Inspection Report page: headers grouped per model, paginated per model, with checks/defects totals. */

@@ -7,6 +7,7 @@ import { getJson } from '../../lib/offline/inspection-repository';
 import { useDataRefresh } from '../../lib/use-data-refresh';
 import { inspectorSummaryUrl } from '../../features/rqc/audit-nav';
 import { setListOrigin } from '../../lib/nav-origin';
+import { getSession } from '../../lib/session';
 
 export default function HistoryPage() {
     const router = useRouter();
@@ -15,7 +16,10 @@ export default function HistoryPage() {
     const { refreshKey } = useDataRefresh();
 
     useEffect(() => {
-        getJson<any[]>('/api/rqc/headers')
+        // Inspectors only see the audits they made themselves
+        const nik = getSession()?.nik;
+        if (!nik) { setHistoryList([]); setLoading(false); return; }
+        getJson<any[]>(`/api/rqc/headers?nik=${encodeURIComponent(nik)}`)
             .then(headers => setHistoryList(headers || []))
             .catch(err => console.error('Error fetching history', err))
             .finally(() => setLoading(false));

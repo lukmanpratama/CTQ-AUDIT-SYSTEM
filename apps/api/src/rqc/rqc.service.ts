@@ -13,7 +13,7 @@ import { columnFilterWhere, parseColumnFilters, parseSort, searchWords, type Col
 // TQC defects count on the CTQ dashboards only when the row has a USP Classification
 const hasUspClassification = (tqc: { uspClassification?: string | null }) => !!tqc.uspClassification?.trim();
 
-type HeaderListFilters = { model?: string; modelId?: string; startDate?: string; endDate?: string; checkingTime?: string; inspector?: string; factoryId?: string; cell?: string };
+type HeaderListFilters = { model?: string; modelId?: string; startDate?: string; endDate?: string; checkingTime?: string; inspector?: string; factoryId?: string; cell?: string; nik?: string };
 
 // Inspection Report columns with a header filter (the `cols` param). Inspector filters by NIK.
 const HEADER_FILTER_COLUMNS = ['date', 'checkingTime', 'factory', 'cell', 'po', 'inspector'] as const;
@@ -620,6 +620,10 @@ export class RqcService {
 
         if (filters.cell) {
             whereClause.cell = filters.cell;
+        }
+
+        if (filters.nik) {
+            whereClause.nik = filters.nik;
         }
 
         if (filters.inspector) {
