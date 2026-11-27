@@ -6,7 +6,7 @@ import { use } from 'react';
 import { isAreaAllowedForFactory } from '../../../../lib/factory-area-mapping';
 import { useAuditNav } from '../../../../features/rqc/audit-nav';
 import { ShellBack } from '../../../../components/shell/InspectorShell';
-import { OfflineUnavailableError, createHeader, getHeader, getJson, updateHeader } from '../../../../lib/offline/inspection-repository';
+import { OfflineUnavailableError, createHeader, deleteHeader, getHeader, getJson, updateHeader } from '../../../../lib/offline/inspection-repository';
 
 // BOTTOM "INCOMING MIDSOLE" has one fixed cell, named after its Setup CTQ area
 const INCOMING_CELL = 'INCOMING BOTTOM';
@@ -113,6 +113,8 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     // Edit mode: original factory and the areas that already have inspections, to warn on a mismatching factory change
     const [originalFactoryId, setOriginalFactoryId] = useState('');
     const [recordedAreas, setRecordedAreas] = useState<string[]>([]);
+    // Edit mode: the audit was just started and has no inspection yet, so Cancel throws it away
+    const [isEmptyAudit, setIsEmptyAudit] = useState(false);
     const [isPoDropdownOpen, setIsPoDropdownOpen] = useState(false);
     const [date, setDate] = useState(() => {
         const today = new Date();
@@ -160,6 +162,7 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
                     applyExistingHeader(h);
                     // Names of the areas that already have inspections in this audit
                     const usedAreaIds = new Set((h.rqcAreas || []).filter((a: any) => a.rqcProcesses?.length).map((a: any) => String(a.setupAreaId)));
+                    setIsEmptyAudit(usedAreaIds.size === 0);
                     if (usedAreaIds.size > 0) {
                         const tree = await getJson(`/api/ctq-setup/models/${modelId}/tree`).catch(() => null);
                         setRecordedAreas((tree?.areas || [])
@@ -202,7 +205,18 @@ function HeaderAuditInner({ params }: { params: Promise<{ modelId: string }> }) 
     }, [editHeaderId]);
 
     // Editing returns to the Inspection step; a new report goes back to this model's Inspection History
-    const handleCancel = () => {
+    const handleCancel = async () => {
+        if (editHeaderId && isEmptyAudit && !isAdmin) {
+            // "Save & Continue" already created the audit; cancelling before any inspection must not leave it behind
+            try {
+                await deleteHeader(editHeaderId);
+            } catch (error) {
+                alert('Gagal membatalkan audit: ' + (error instanceof Error ? error.message : 'Unknown error'));
+                return;
+            }
+            router.replace(`/audit/${modelId}/history`);
+            return;
+        }
         if (editHeaderId) router.push(sessionUrl(editHeaderId));
         else if (isAdmin) router.push('/dashboard');
         else router.push(`/audit/${modelId}/history`);
