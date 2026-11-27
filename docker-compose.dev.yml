@@ -85,6 +85,10 @@ services:
   # NestJS API
   # ─────────────────────────────────────────────
   api:
+    # Profile "app": a plain `up -d` starts only Postgres / MinIO / Redis, with the API and web
+    # running on Windows (npm start / next start). Add `--profile app` to run them in Docker too:
+    #   docker compose -f docker-compose.dev.yml --profile app up -d   (docker-dev --profile app up -d)
+    profiles: ['app']
     build:
       context: .
       dockerfile: docker/api.Dockerfile
@@ -108,11 +112,19 @@ services:
       REDIS_URL: redis://redis:6379
       DEFECT_RATE_THRESHOLD: '0.20'
       CORS_ORIGIN: http://localhost:3000
+      # Source is bind-mounted from a Windows drive (WSL2 /mnt/<drive>, Docker Desktop),
+      # which sends no file-change events into the container: `nest start --watch`
+      # (TypeScript watch) has to poll to see edits
+      TSC_WATCHFILE: DynamicPriorityPolling
+      TSC_WATCHDIRECTORY: RecursiveDirectoryUsingDynamicPriorityPolling
     ports:
       - '3001:3001'
     volumes:
       - ./apps/api:/app/apps/api
       - ./packages:/app/packages
+      # Anonymous volumes keep the image's Linux node_modules. Compose reuses them when the
+      # container is recreated, so after changing dependencies or the Node version run
+      # `docker compose -f docker-compose.dev.yml up -d --build -V` to refresh them
       - /app/node_modules
       - /app/apps/api/node_modules
     healthcheck:
@@ -134,6 +146,8 @@ services:
   # Next.js Web
   # ─────────────────────────────────────────────
   web:
+    # Same "app" profile as the API (see there)
+    profiles: ['app']
     build:
       context: .
       dockerfile: docker/web.Dockerfile
@@ -145,6 +159,9 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:3001
       # The /api proxy runs inside this container, where localhost is not the API
       API_INTERNAL_URL: http://api:3001
+      # Same as the API: `next dev` (webpack/watchpack) polls for edits on the bind mount (ms)
+      WATCHPACK_POLLING: '1000'
+      NEXT_TELEMETRY_DISABLED: '1'
     ports:
       - '3000:3000'
     volumes:

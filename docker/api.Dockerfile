@@ -1,5 +1,6 @@
 # API Dockerfile — NestJS
-FROM node:20-alpine AS base
+# Same Node major as local development (Node 20 is end-of-life)
+FROM node:26-alpine AS base
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
 
