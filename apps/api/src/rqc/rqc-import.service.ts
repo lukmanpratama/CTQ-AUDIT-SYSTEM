@@ -68,7 +68,12 @@ export class RqcImportService {
             const key = looseKey(input);
             const byNo = modelByNo.get(key);
             if (byNo) return { model: byNo };
-            const candidates = modelsByName.get(key) || [];
+            let candidates = modelsByName.get(key) || [];
+            if (candidates.length === 0) {
+                // One setup model can cover both genders ("DURAMO SL2" for "DURAMO SL2 W" and "DURAMO SL2 M")
+                const base = String(input ?? '').trim().replace(/\s+(M|W|J|K|U)$/i, '');
+                candidates = base && looseKey(base) !== key ? modelsByName.get(looseKey(base)) || [] : [];
+            }
             if (candidates.length === 0) return { error: `Model "${input}" is not in Setup CTQ.` };
             const byArticle = poArticle ? modelByArticle.get(normalizeArticle(poArticle)) : undefined;
             if (byArticle && candidates.includes(byArticle)) return { model: byArticle };
