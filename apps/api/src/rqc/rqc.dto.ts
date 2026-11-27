@@ -63,6 +63,7 @@ export interface RqcImportRow {
     rowNo: number;          // Excel row number, used in error messages
     date: string;           // yyyy-mm-dd
     checkingTime: string;   // Morning | Afternoon
+    checkingTimeId?: string; // optional: tells two checks of the same time on one day apart
     nik: string;
     model: string;          // CTQ setup model name
     po: string;
