@@ -15,15 +15,18 @@ const clean = (s: unknown) => {
     return v ? v : null;
 };
 
-interface PlannedDefect { rowNo: number; defectId: bigint; defectName: string; qtyDefect: number; actionPlan: string | null; rootCause: string | null; corrective: string | null; durasiStopline: number | null; photoDefect: string | null; photoAfterActionPlan: string | null; }
-interface PlannedProcess { setupAreaId: bigint; setupProcessId: bigint; processName: string; qtyChecking: number; defects: Map<string, PlannedDefect>; }
-interface PlannedAudit { key: string; rowNos: number[]; date: string; checkingTime: string; nik: string; setupModelId: bigint; modelName: string; po: string; factoryName: string; cell: string; processes: Map<string, PlannedProcess>; }
+interface PlannedDefect { rowNo: number; pos: Set<string>; defectId: bigint; defectName: string; qtyDefect: number; actionPlan: string | null; rootCause: string | null; corrective: string | null; durasiStopline: number | null; photoDefect: string | null; photoAfterActionPlan: string | null; }
+interface PlannedProcess { setupAreaId: bigint; setupProcessId: bigint; processName: string; qtyChecking: number; poQty: Map<string, number>; defects: Map<string, PlannedDefect>; }
+interface PlannedAudit { key: string; baseKey: string; checkingTimeId: string; rowNos: number[]; date: string; checkingTime: string; nik: string; setupModelId: bigint; modelName: string; po: string; pos: Set<string>; factoryName: string; cell: string; processes: Map<string, PlannedProcess>; }
 
 /**
  * Bulk import of RQC audits from the Excel template on the admin Inspection Report page.
  * Always validates everything first; writes only when `apply` is true and there are no errors,
- * in a single transaction. Audits that already exist (same model, date, checking time,
- * factory, cell and PO) are skipped, so the same file can be imported twice safely.
+ * in a single transaction. One audit = one checking time: rows with the same model, date,
+ * checking time, CHECKING TIME ID (optional, tells two Morning checks of a day apart), factory
+ * and cell are merged whatever their PO, so the defect rate is per checking time. The header
+ * keeps the first PO of the group. Audits that already exist (same model, date, checking time,
+ * factory and cell) are skipped, so the same file can be imported twice safely.
  */
 @Injectable()
 export class RqcImportService {
@@ -96,6 +99,7 @@ export class RqcImportService {
             const date = clean(r.date);
             const checkingTime = this.normalizeCheckingTime(r.checkingTime);
             const nik = clean(r.nik);
+            const checkingTimeId = clean(r.checkingTimeId) ?? '';
             const po = this.normalizePo(r.po);
             const factoryInput = clean(r.factory);
             const processInput = clean(r.process);
@@ -153,31 +157,39 @@ export class RqcImportService {
 
             if (errorCount > before) continue;
 
-            const key = [model!.setupModelId, date, checkingTime, looseKey(factory!.name), looseKey(cell), po].join('|');
+            const baseKey = [model!.setupModelId, date, checkingTime, looseKey(factory!.name), looseKey(cell)].join('|');
+            const key = `${baseKey}|${looseKey(checkingTimeId)}`;
             let audit = audits.get(key);
             if (!audit) {
-                audit = { key, rowNos: [], date: date!, checkingTime: checkingTime!, nik: nik!, setupModelId: model!.setupModelId, modelName: modelLabel(model!), po: po!, factoryName: factory!.name, cell, processes: new Map() };
+                audit = { key, baseKey, checkingTimeId, pos: new Set(), rowNos: [], date: date!, checkingTime: checkingTime!, nik: nik!, setupModelId: model!.setupModelId, modelName: modelLabel(model!), po: po!, factoryName: factory!.name, cell, processes: new Map() };
                 audits.set(key, audit);
             } else if (audit.nik !== nik) {
-                addError(rowNo, `Same audit (date/time/factory/cell/PO) has a different NIK (${audit.nik} vs ${nik}).`);
+                addError(rowNo, `Same checking time (date/time/ID/factory/cell) has a different NIK (${audit.nik} vs ${nik}).`);
                 continue;
             }
             audit.rowNos.push(rowNo);
+            audit.pos.add(po!);
 
             const procKey = String(setupProcess.setupProcessId);
             let proc = audit.processes.get(procKey);
             if (!proc) {
-                proc = { setupAreaId: setupArea.setupAreaId, setupProcessId: setupProcess.setupProcessId, processName: setupProcess.masterProcess.process, qtyChecking: qtyCheck, defects: new Map() };
+                proc = { setupAreaId: setupArea.setupAreaId, setupProcessId: setupProcess.setupProcessId, processName: setupProcess.masterProcess.process, qtyChecking: qtyCheck, poQty: new Map([[po!, qtyCheck]]), defects: new Map() };
                 audit.processes.set(procKey, proc);
-            } else if (proc.qtyChecking !== qtyCheck) {
-                addError(rowNo, `Process "${proc.processName}" has different QTY CHECK values in the same audit (${proc.qtyChecking} vs ${qtyCheck}).`);
+            } else if (!proc.poQty.has(po!)) {
+                // Same process checked for another PO in this checking time: the checks add up
+                proc.poQty.set(po!, qtyCheck);
+                proc.qtyChecking += qtyCheck;
+            } else if (proc.poQty.get(po!) !== qtyCheck) {
+                addError(rowNo, `Process "${proc.processName}" has different QTY CHECK values for PO ${po} in the same checking time (${proc.poQty.get(po!)} vs ${qtyCheck}).`);
                 continue;
             }
             if (masterDefect) {
                 const dKey = String(masterDefect.defectId);
-                if (proc.defects.has(dKey)) { addError(rowNo, `Defect "${masterDefect.defect}" is listed twice for process "${proc.processName}" in the same audit.`); continue; }
+                const prev = proc.defects.get(dKey);
+                if (prev?.pos.has(po!)) { addError(rowNo, `Defect "${masterDefect.defect}" is listed twice for process "${proc.processName}" and PO ${po} in the same checking time.`); continue; }
+                if (prev) { prev.qtyDefect += qtyDefect; prev.pos.add(po!); continue; } // same defect from another PO
                 proc.defects.set(dKey, {
-                    rowNo, defectId: masterDefect.defectId, defectName: masterDefect.defect, qtyDefect,
+                    rowNo, pos: new Set([po!]), defectId: masterDefect.defectId, defectName: masterDefect.defect, qtyDefect,
                     actionPlan: clean(r.actionPlan), rootCause: clean(r.rootCause), corrective: clean(r.corrective),
                     durasiStopline: Number(r.durasiStopline) > 0 ? Math.round(Number(r.durasiStopline)) : null,
                     photoDefect: clean(r.photoDefect), photoAfterActionPlan: clean(r.photoImprovement),
@@ -195,7 +207,8 @@ export class RqcImportService {
 
         // ---- Skip audits that already exist ----------------------------------------
         const allAudits = [...audits.values()];
-        const existingKeys = new Set<string>();
+        // Existing headers per (model, date, time, factory, cell); one existing header covers one planned audit
+        const existingCount = new Map<string, number>();
         if (allAudits.length) {
             const dates = allAudits.map(a => a.date).sort();
             const existing = await this.prisma.rqcHeader.findMany({
@@ -203,11 +216,18 @@ export class RqcImportService {
                     setupModelId: { in: [...new Set(allAudits.map(a => a.setupModelId))] },
                     date: { gte: new Date(`${dates[0]}T00:00:00.000Z`), lte: new Date(`${dates[dates.length - 1]}T00:00:00.000Z`) },
                 },
-                select: { setupModelId: true, date: true, checkingTime: true, cell: true, po: true, factory: { select: { factory: true } } },
+                select: { setupModelId: true, date: true, checkingTime: true, cell: true, factory: { select: { factory: true } } },
             });
-            existing.forEach(h => existingKeys.add([h.setupModelId, h.date.toISOString().slice(0, 10), h.checkingTime, looseKey(h.factory.factory), looseKey(h.cell), h.po].join('|')));
+            existing.forEach(h => {
+                const k = [h.setupModelId, h.date.toISOString().slice(0, 10), h.checkingTime, looseKey(h.factory.factory), looseKey(h.cell)].join('|');
+                existingCount.set(k, (existingCount.get(k) ?? 0) + 1);
+            });
         }
-        const toCreate = allAudits.filter(a => !existingKeys.has(a.key));
+        const toCreate = allAudits.filter(a => {
+            const left = existingCount.get(a.baseKey) ?? 0;
+            if (left > 0) { existingCount.set(a.baseKey, left - 1); return false; }
+            return true;
+        });
 
         // ---- Summary -----------------------------------------------------------------
         const created = toCreate.flatMap(a => [...a.processes.values()]);
@@ -245,7 +265,7 @@ export class RqcImportService {
                 await tx.setupDefect.create({ data: { setupProcessId: sd.setupProcessId, defectId: sd.defectId } });
             }
             for (const a of toCreate) {
-                const po = poByNo.get(a.po)!;
+                const po = poByNo.get([...a.pos][0])!;
                 const date = new Date(`${a.date}T00:00:00.000Z`);
                 // createdAt follows the audit date/time (08:00 / 13:00 WIB) so history lists imported audits in order
                 const createdAt = new Date(`${a.date}T${a.checkingTime === 'Morning' ? '01' : '06'}:00:00.000Z`);
