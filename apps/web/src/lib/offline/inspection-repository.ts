@@ -14,6 +14,7 @@ import { LOCAL_PHOTO, applyMutation } from './apply-mutations';
 import { isUnreachableResponse, reportApiReachable } from './connectivity';
 import { offlineDb, type InspectionDraft, type ProcessPayload, type QueueItem, type SyncMutation } from './db';
 import { requestSync } from './sync-engine';
+import { getSession } from '../session';
 
 export class ApiError extends Error {
     constructor(message: string, public status: number) {
@@ -128,7 +129,9 @@ export async function listHeaders(setupModelId: string) {
     const db = offlineDb();
     let server: any[] = [];
     try {
-        server = await getJson<any[]>(`/api/rqc/headers?modelId=${encodeURIComponent(setupModelId)}`);
+        // Inspectors only see the audits they made themselves
+        const nik = getSession()?.nik;
+        server = nik ? await getJson<any[]>(`/api/rqc/headers?modelId=${encodeURIComponent(setupModelId)}&nik=${encodeURIComponent(nik)}`) : [];
     } catch (e) {
         if (!(e instanceof OfflineUnavailableError)) throw e;
     }
