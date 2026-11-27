@@ -98,6 +98,17 @@ export default function AdminInspectionsPage() {
         />
     );
 
+    // Filter-only header (the totals are computed, so these columns cannot be sorted)
+    const FD = (key: string, title: string) => (
+        <ColumnFilter
+            title={title}
+            sel={cols[key]}
+            serverSearch
+            loadOptions={loadOptions(key)}
+            onApply={sel => setColumnFilter(key, sel)}
+        />
+    );
+
     const fetchGroups = async (params: URLSearchParams): Promise<ModelGroup[]> => {
         const res = await fetch(`/api/rqc/headers/by-model?${params.toString()}`);
         const data = await res.json().catch(() => null);
@@ -343,10 +354,11 @@ export default function AdminInspectionsPage() {
                                             <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('cell', 'Cell')}</th>
                                             <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('po', 'PO Number')}</th>
                                             <th className="px-5 py-3 font-semibold whitespace-nowrap">{F('inspector', 'Inspector')}</th>
-                                            <th className="px-5 py-3 font-semibold">Checks</th>
-                                            <th className="px-5 py-3 font-semibold">Defects</th>
-                                            <th className="px-5 py-3 font-semibold">Pass Rate</th>
-                                            <th className="px-5 py-3 font-semibold">Defect Rate</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{FD('checks', 'Checks')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{FD('defects', 'Defects')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{FD('passRate', 'Pass Rate')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{FD('defectRate', 'Defect Rate')}</th>
+                                            <th className="px-5 py-3 font-semibold whitespace-nowrap">{FD('status', 'Status')}</th>
                                             <th className="px-5 py-3 font-semibold text-right">Action</th>
                                         </tr>
                                     </thead>
@@ -387,6 +399,15 @@ export default function AdminInspectionsPage() {
                                                             <span className="ml-2 inline-block rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white align-middle" title={`${h.capCount} defect di atas 20%`}>
                                                                 CAP
                                                             </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-5 py-3 whitespace-nowrap">
+                                                        {h.capCount > 0 ? (
+                                                            <span className="rounded bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">CAP</span>
+                                                        ) : defects > 0 ? (
+                                                            <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Immediate Action</span>
+                                                        ) : (
+                                                            <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600">No Defect</span>
                                                         )}
                                                     </td>
                                                     <td className="px-5 py-3 text-right">

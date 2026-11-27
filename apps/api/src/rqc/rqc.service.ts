@@ -16,8 +16,27 @@ const hasUspClassification = (tqc: { uspClassification?: string | null }) => !!t
 type HeaderListFilters = { model?: string; modelId?: string; startDate?: string; endDate?: string; checkingTime?: string; inspector?: string; factoryId?: string; cell?: string; nik?: string };
 
 // Inspection Report columns with a header filter (the `cols` param). Inspector filters by NIK.
-const HEADER_FILTER_COLUMNS = ['date', 'checkingTime', 'factory', 'cell', 'po', 'inspector'] as const;
+const HEADER_BASE_COLUMNS = ['date', 'checkingTime', 'factory', 'cell', 'po', 'inspector'] as const;
+// Columns computed from the header's inspections (checks, defects, rates, status): filtered after totalling them, not sortable
+const HEADER_DERIVED_COLUMNS = ['checks', 'defects', 'passRate', 'defectRate', 'status'] as const;
+const HEADER_FILTER_COLUMNS = [...HEADER_BASE_COLUMNS, ...HEADER_DERIVED_COLUMNS] as const;
+type HeaderBaseColumn = typeof HEADER_BASE_COLUMNS[number];
+type HeaderDerivedColumn = typeof HEADER_DERIVED_COLUMNS[number];
 type HeaderFilterColumn = typeof HEADER_FILTER_COLUMNS[number];
+type HeaderTotals = { checks: number; defects: number; caps: number };
+const STATUS_ORDER = ['Immediate Action', 'CAP', 'No Defect'];
+
+/** The value a derived column shows for a header (the text its filter lists), as in the Inspection Report table */
+function derivedValue(field: HeaderDerivedColumn, t: HeaderTotals): string {
+    const defectRate = t.checks > 0 ? (t.defects / t.checks) * 100 : 0;
+    switch (field) {
+        case 'checks': return String(t.checks);
+        case 'defects': return String(t.defects);
+        case 'defectRate': return `${defectRate.toFixed(2)}%`;
+        case 'passRate': return `${(t.checks > 0 ? 100 - defectRate : 0).toFixed(2)}%`;
+        case 'status': return t.caps > 0 ? 'CAP' : t.defects > 0 ? 'Immediate Action' : 'No Defect';
+    }
+}
 
 const parseDay = (v: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException(`Date filter values are YYYY-MM-DD, got "${v}".`);
@@ -25,7 +44,7 @@ const parseDay = (v: string) => {
 };
 
 /** Row order for a header sort of the Inspection Report; the newest report breaks ties */
-function headerOrderBy(field: HeaderFilterColumn, dir: 'asc' | 'desc'): Prisma.RqcHeaderOrderByWithRelationInput[] {
+function headerOrderBy(field: HeaderBaseColumn, dir: 'asc' | 'desc'): Prisma.RqcHeaderOrderByWithRelationInput[] {
     const tie: Prisma.RqcHeaderOrderByWithRelationInput[] = [{ date: 'desc' }, { createdAt: 'desc' }];
     switch (field) {
         case 'date': return [{ date: dir }, { createdAt: dir }];
@@ -36,7 +55,7 @@ function headerOrderBy(field: HeaderFilterColumn, dir: 'asc' | 'desc'): Prisma.R
 }
 
 /** Prisma condition for one Inspection Report header filter */
-function headerColumnWhere(field: HeaderFilterColumn, sel: ColumnFilterSel) {
+function headerColumnWhere(field: HeaderBaseColumn, sel: ColumnFilterSel) {
     switch (field) {
         case 'date': return columnFilterWhere(sel, values => ({ date: { in: values.map(parseDay) } }));
         case 'factory': return columnFilterWhere(sel, values => ({ factory: { factory: { in: values } } }));
@@ -456,10 +475,10 @@ export class RqcService {
      * its first page; with it, only that model at `page`.
      */
     async getHeadersByModel(filters: HeaderListFilters & { groupModelId?: string; page?: string; pageSize?: string; cols?: string; sort?: string }) {
-        const where = this.headerListWhere(filters);
+        const where = await this.headerListWhere(filters);
         const pageSize = Math.min(Math.max(Number(filters.pageSize) || 10, 1), 100);
         // Rows sort by the clicked column header (newest first without one)
-        const by = parseSort(filters.sort, HEADER_FILTER_COLUMNS);
+        const by = parseSort(filters.sort, HEADER_BASE_COLUMNS);
         const orderBy = by ? headerOrderBy(by.field, by.dir) : [{ date: 'desc' as const }, { createdAt: 'desc' as const }];
         const onlyModelId = filters.groupModelId ? BigInt(filters.groupModelId) : undefined;
 
@@ -499,16 +518,7 @@ export class RqcService {
 
         // Checks / defects / CAP rows (defect rate above the daily CAP threshold) per header, for these pages only
         const ids = groups.flatMap(g => g.rows.map(r => r.rqcHeaderId));
-        const totals = ids.length === 0 ? [] : await this.prisma.$queryRaw<{ id: string; checks: number; defects: number; caps: number }[]>`
-            SELECT a.rqc_header_id::text AS id,
-                   COALESCE(SUM(p.qty_checking), 0)::int AS checks,
-                   COALESCE(SUM((SELECT SUM(i.qty_defect) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id)), 0)::int AS defects,
-                   COALESCE(SUM((SELECT COUNT(*) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id AND i.status = 'CAP')), 0)::int AS caps
-            FROM rqc_area a
-            JOIN rqc_process p ON p.rqc_area_id = a.rqc_area_id
-            WHERE a.rqc_header_id = ANY(${ids}::uuid[])
-            GROUP BY a.rqc_header_id`;
-        const totalsById = new Map(totals.map(t => [t.id, t]));
+        const totalsById = await this.headerTotals(ids);
 
         groups.sort((a, b) => a.label.localeCompare(b.label));
         return this.serializeBigInt({
@@ -523,13 +533,43 @@ export class RqcService {
         });
     }
 
-    /** The list filters plus the Inspection Report's header filters; `except` leaves one column's filter out. */
-    private headerListWhere(filters: HeaderListFilters & { cols?: string }, except?: HeaderFilterColumn) {
+    /** Checks / defects / CAP rows (defect rate above the daily CAP threshold) per header */
+    private async headerTotals(ids: string[]): Promise<Map<string, HeaderTotals>> {
+        if (ids.length === 0) return new Map();
+        const totals = await this.prisma.$queryRaw<{ id: string; checks: number; defects: number; caps: number }[]>`
+            SELECT a.rqc_header_id::text AS id,
+                   COALESCE(SUM(p.qty_checking), 0)::int AS checks,
+                   COALESCE(SUM((SELECT SUM(i.qty_defect) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id)), 0)::int AS defects,
+                   COALESCE(SUM((SELECT COUNT(*) FROM rqc_inspection i WHERE i.rqc_process_id = p.rqc_process_id AND i.status = 'CAP')), 0)::int AS caps
+            FROM rqc_area a
+            JOIN rqc_process p ON p.rqc_area_id = a.rqc_area_id
+            WHERE a.rqc_header_id = ANY(${ids}::uuid[])
+            GROUP BY a.rqc_header_id`;
+        return new Map(totals.map(t => [t.id, t]));
+    }
+
+    /**
+     * The list filters plus the Inspection Report's header filters; `except` leaves one column's filter out.
+     * Filters on computed columns (checks, rates, status) pick the matching headers by their totals first.
+     */
+    private async headerListWhere(filters: HeaderListFilters & { cols?: string }, except?: HeaderFilterColumn) {
         const cols = parseColumnFilters(filters.cols, HEADER_FILTER_COLUMNS);
         const and: any[] = [this.buildHeaderWhere(filters)];
-        for (const field of HEADER_FILTER_COLUMNS) {
+        for (const field of HEADER_BASE_COLUMNS) {
             const sel = cols[field];
             if (sel && field !== except) and.push(headerColumnWhere(field, sel));
+        }
+        const derived = HEADER_DERIVED_COLUMNS.filter(f => cols[f] && f !== except);
+        if (derived.length) {
+            const ids = (await this.prisma.rqcHeader.findMany({ where: { AND: and }, select: { rqcHeaderId: true } })).map(h => h.rqcHeaderId);
+            const totals = await this.headerTotals(ids);
+            const none: HeaderTotals = { checks: 0, defects: 0, caps: 0 };
+            const keep = ids.filter(id => derived.every(f => {
+                const sel = cols[f]!;
+                const listed = sel.values.includes(derivedValue(f, totals.get(id) ?? none));
+                return sel.exclude ? !listed : listed;
+            }));
+            and.push({ rqcHeaderId: { in: keep } });
         }
         return { AND: and };
     }
@@ -541,7 +581,7 @@ export class RqcService {
     async getHeaderFilterOptions(field: string, search: string | undefined, filters: HeaderListFilters & { cols?: string }) {
         if (!HEADER_FILTER_COLUMNS.includes(field as HeaderFilterColumn)) throw new BadRequestException(`Unknown filter field "${field}".`);
         const col = field as HeaderFilterColumn;
-        const and: any[] = [this.headerListWhere(filters, col)];
+        const and: any[] = [await this.headerListWhere(filters, col)];
         const words = searchWords(search);
         const contains = (w: string) => ({ contains: w, mode: 'insensitive' as const });
         const LIMIT = 200;
@@ -553,6 +593,21 @@ export class RqcService {
             truncated: groups.length > LIMIT,
         });
 
+        if (col === 'checks' || col === 'defects' || col === 'passRate' || col === 'defectRate' || col === 'status') {
+            const ids = (await this.prisma.rqcHeader.findMany({ where: { AND: and }, select: { rqcHeaderId: true } })).map(h => h.rqcHeaderId);
+            const totals = await this.headerTotals(ids);
+            const none: HeaderTotals = { checks: 0, defects: 0, caps: 0 };
+            const counts = new Map<string, number>();
+            for (const id of ids) {
+                const v = derivedValue(col, totals.get(id) ?? none);
+                counts.set(v, (counts.get(v) ?? 0) + 1);
+            }
+            const needle = words.map(w => w.toLowerCase());
+            const entries = [...counts.entries()].filter(([v]) => needle.every(w => v.toLowerCase().includes(w)));
+            if (col === 'status') entries.sort(([a], [b]) => STATUS_ORDER.indexOf(a) - STATUS_ORDER.indexOf(b));
+            else entries.sort(([a], [b]) => parseFloat(a) - parseFloat(b));
+            return { options: entries.slice(0, LIMIT).map(([value, count]) => ({ value, count })), truncated: entries.length > LIMIT };
+        }
         if (col === 'date') {
             // Newest first; the panel searches the dates as it shows them
             const groups = await groupBy('date', 'desc');
