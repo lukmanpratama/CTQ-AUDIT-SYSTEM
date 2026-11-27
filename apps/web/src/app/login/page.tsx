@@ -52,14 +52,14 @@ export default function LoginPage() {
 
     if (checkingSession) {
         return (
-            <main className="min-h-screen flex items-center justify-center bg-gray-50">
+            <main className="min-h-[calc(100vh-2rem)] flex items-center justify-center bg-gray-50">
                 <p className="text-sm text-gray-400 animate-pulse">Loading...</p>
             </main>
         );
     }
 
     return (
-        <main className="min-h-screen flex items-center justify-center bg-gray-50">
+        <main className="min-h-[calc(100vh-2rem)] flex items-center justify-center bg-gray-50">
             <div className="max-w-md w-full p-8 bg-white rounded-2xl shadow-lg border border-gray-100">
                 <h1 className="text-2xl font-bold text-center text-gray-900 mb-2">CTQ Audit System</h1>
                 <p className="text-sm text-center text-gray-500 mb-8">Sign in to start</p>

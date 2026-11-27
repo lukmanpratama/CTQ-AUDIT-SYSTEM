@@ -17,6 +17,7 @@ import { clearSession, getSession } from '../../lib/session';
 import { pendingCount } from '../../lib/offline/inspection-repository';
 import { triggerRefresh } from '../../lib/use-data-refresh';
 import { getListOrigin, setListOrigin } from '../../lib/nav-origin';
+import { AppFooter } from '../AppFooter';
 
 type SlotName = 'search' | 'filter' | 'fab';
 
@@ -180,7 +181,7 @@ export function InspectorShell({ children }: { children: ReactNode }) {
 
     const ctx: ShellContextValue = { els, used, setUsed, nik, namaUser, unsentCount, isRefreshing, refresh, logout };
 
-    if (adminView) return <>{children}</>;
+    if (adminView) return <>{children}<AppFooter /></>;
 
     const activeHref = pathname.startsWith('/history') || (pathname.startsWith('/audit') && fromHistory) ? '/history' : pathname.startsWith('/profile') ? '/profile' : '/dashboard';
 
@@ -221,7 +222,10 @@ export function InspectorShell({ children }: { children: ReactNode }) {
             </header>
 
             {/* Pages sit between the header (3.5rem) and the nav (4rem) */}
-            <div className="pt-14 pb-16">{children}</div>
+            <div className="pt-14 pb-16">
+                {children}
+                <AppFooter />
+            </div>
 
             {/* Floating action button of the page, above the nav */}
             <div

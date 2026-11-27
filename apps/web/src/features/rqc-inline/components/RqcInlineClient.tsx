@@ -420,7 +420,7 @@ export function RqcInlineClient({ searchParams }: { searchParams: any }) {
 
 
     return (
-        <div className="w-full bg-white text-gray-900 font-sans min-h-screen flex flex-col p-4 gap-4" style={{ minWidth: '1200px' }}>
+        <div className="w-full bg-white text-gray-900 font-sans min-h-[calc(100vh-2rem)] flex flex-col p-4 gap-4" style={{ minWidth: '1200px' }}>
             {/* Top Navigation Bar */}
             <div className="flex items-center justify-between">
                 <div className="flex gap-2">

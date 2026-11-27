@@ -20,7 +20,7 @@ export default function OfflinePage() {
     }, []);
 
     return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-5">
+        <div className="min-h-[calc(100vh-2rem)] bg-gray-50 flex items-center justify-center px-5">
             <div className="w-full max-w-sm bg-white border border-gray-200 rounded-2xl shadow-sm p-6 text-center">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-gray-500">
                     <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>

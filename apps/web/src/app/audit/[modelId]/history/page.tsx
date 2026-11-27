@@ -125,7 +125,7 @@ export default function RqcModelHistoryPage({ params }: { params: Promise<{ mode
     };
 
     return (
-        <div className="min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-24 relative">
+        <div className="min-h-[calc(100vh-9.5rem)] bg-gray-50 flex flex-col pb-24 relative">
             {/* Header filter: date range, with a badge for the active filters */}
             {tab === 'INSPECTION' && (
                 <ShellSlot name="filter">

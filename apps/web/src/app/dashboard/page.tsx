@@ -79,7 +79,7 @@ export default function DashboardPage() {
         });
     }, [models, searchQuery, filterActiveOnly, filterWithFollowUps, followUpPending]);
     return (
-        <div className="min-h-[calc(100vh-7.5rem)] bg-gray-50">
+        <div className="min-h-[calc(100vh-9.5rem)] bg-gray-50">
             {/* Header: search + filter */}
             <ShellSlot name="search">
                 <div className="flex items-center bg-[#091E35] border border-[#1A3A60] rounded-xl px-3 py-1.5 focus-within:border-[#F5A623] transition-colors">

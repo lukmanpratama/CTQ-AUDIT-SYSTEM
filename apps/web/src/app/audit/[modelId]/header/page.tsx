@@ -16,7 +16,7 @@ function HeaderPageChrome({ onBack, backLabel, children }: { onBack: () => void;
     // Inside the admin layout the page fills the content area (cancelling its p-6) so the sidebar stays visible
     const { isAdmin } = useAuditNav();
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col pb-10' : 'min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-20'}>
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col pb-10' : 'min-h-[calc(100vh-9.5rem)] bg-gray-50 flex flex-col pb-20'}>
             {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
             <div className={`sticky ${isAdmin ? 'top-0' : 'top-14'} z-20 shadow-sm mb-6`}>
                 {/* Inspectors get the back button in the app header; the bar stays for admins */}

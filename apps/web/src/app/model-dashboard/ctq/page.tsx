@@ -264,7 +264,7 @@ function CtqDashboardInner() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+        <div className="min-h-[calc(100vh-2rem)] bg-gray-50 flex flex-col font-sans">
             {/* Top Red Header */}
             <header className="bg-[#ef3b3a] py-3 shadow-md w-full shrink-0 flex items-center justify-center">
                 <h1 className="text-white text-3xl font-black tracking-widest uppercase text-center m-0 w-full" style={{ WebkitTextStroke: '0.5px white' }}>

@@ -348,7 +348,7 @@ export default function AuditSessionPage(props: { params: Promise<{ headerId: st
 
     // In the admin layout the page fills the content area (cancelling its p-6) and the bottom bar is sticky, not fixed, so the sidebar stays visible
     return (
-        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-[calc(100vh-7.5rem)] bg-gray-50 flex flex-col pb-44 relative'}>
+        <div className={isAdmin ? '-m-6 min-h-full bg-gray-50 flex flex-col relative' : 'min-h-[calc(100vh-9.5rem)] bg-gray-50 flex flex-col pb-44 relative'}>
 
             {/* Top bar + Header / Inspection / Summary stepper stay pinned together while the form scrolls */}
             <div className={`sticky ${isAdmin ? 'top-0' : 'top-14'} z-20 shadow-sm mb-6`}>

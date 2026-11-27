@@ -22,7 +22,7 @@ export default function HistoryPage() {
     }, [refreshKey]);
 
     return (
-        <main className="py-6 px-4 sm:px-6 max-w-2xl mx-auto w-full min-h-[calc(100vh-7.5rem)] bg-gray-50">
+        <main className="py-6 px-4 sm:px-6 max-w-2xl mx-auto w-full min-h-[calc(100vh-9.5rem)] bg-gray-50">
             <div className="mb-6">
                 <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#0E2947] to-[#1A3A60]">
                     Inspection History

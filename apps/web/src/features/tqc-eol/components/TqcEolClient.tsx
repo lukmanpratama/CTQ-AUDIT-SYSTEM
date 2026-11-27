@@ -135,7 +135,7 @@ export function TqcEolClient({ searchParams }: { searchParams: any }) {
     };
 
     return (
-        <div className="min-h-screen bg-[#F0F2F5] p-2 flex flex-col gap-2 relative">
+        <div className="min-h-[calc(100vh-2rem)] bg-[#F0F2F5] p-2 flex flex-col gap-2 relative">
 
             {/* Overlay Loading Status */}
             {(loadingTabs || loadingData) && (
