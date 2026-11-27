@@ -650,9 +650,10 @@ export class RqcService {
      * Per model: findings (inspection rows with a defect) whose Immediate Action / CAP follow-up is
      * not complete yet, for the red badge on the inspectors' model cards. Models with none are left out.
      */
-    async getFollowUpPending() {
+    async getFollowUpPending(nik?: string) {
         const findings = await this.prisma.rqcInspection.findMany({
-            where: { qtyDefect: { gt: 0 } },
+            // `nik`: only the audits of that inspector
+            where: { qtyDefect: { gt: 0 }, ...(nik ? { rqcProcess: { rqcArea: { rqcHeader: { nik } } } } : {}) },
             select: {
                 status: true, photoDefect: true, actionPlan: true, rootCause: true, corrective: true, photoAfterActionPlan: true,
                 rqcProcess: { select: { rqcArea: { select: { rqcHeader: { select: { setupModelId: true } } } } } },

@@ -34,7 +34,7 @@ export default function DashboardPage() {
                 // Offline: the lists kept on this device
                 const [modelsData, followUpData] = await Promise.all([
                     getJson<any[]>('/api/ctq-setup/models'),
-                    getJson<{ setupModelId: string; count: number }[]>('/api/rqc/followup-pending').catch(() => []),
+                    getJson<{ setupModelId: string; count: number }[]>(`/api/rqc/followup-pending?nik=${encodeURIComponent(getSession()?.nik ?? '')}`).catch(() => []),
                 ]);
                 setModels(modelsData || []);
                 setFollowUpPending(Object.fromEntries((followUpData || []).map(r => [String(r.setupModelId), r.count])));
