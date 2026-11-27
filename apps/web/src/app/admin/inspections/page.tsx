@@ -170,6 +170,9 @@ export default function AdminInspectionsPage() {
                 if (requestId === latestRequest.current) setGroups(merged);
             } catch (err) {
                 console.error('Background refresh failed', err);
+            } finally {
+                // This request may have replaced a foreground load (e.g. right after an import), which then never clears the loading screen
+                if (requestId === latestRequest.current) setLoading(false);
             }
         })();
     }, [refreshKey]);
