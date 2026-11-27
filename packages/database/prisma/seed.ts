@@ -113,11 +113,10 @@ async function main() {
   // ─────────────────────────────────────────────
   // Setup Model
   // ─────────────────────────────────────────────
-  const setupModel = await prisma.setupModel.upsert({
-    where: { modelName: 'HYPERPATH' },
-    update: {},
-    create: { modelName: 'HYPERPATH', isActive: true },
-  });
+  // modelName is not unique (several Model Nos can share a name), so upsert cannot key on it
+  const setupModel =
+    (await prisma.setupModel.findFirst({ where: { modelName: 'HYPERPATH' } })) ??
+    (await prisma.setupModel.create({ data: { modelName: 'HYPERPATH', isActive: true } }));
   console.log(`✅ Setup Model: ${setupModel.modelName}`);
 
   // ─────────────────────────────────────────────
