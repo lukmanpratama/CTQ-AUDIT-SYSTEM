@@ -10,9 +10,9 @@ import * as XLSX from 'xlsx';
 
 // Template columns, in order. Keys map Excel headers to the API row fields.
 const COLUMNS: { header: string; key: string; width: number }[] = [
+    { header: 'ID', key: 'checkingTimeId', width: 8 },
     { header: 'DATE', key: 'date', width: 12 },
     { header: 'CHECKING TIME', key: 'checkingTime', width: 14 },
-    { header: 'CHECKING TIME ID', key: 'checkingTimeId', width: 17 },
     { header: 'NIK', key: 'nik', width: 10 },
     { header: 'MODEL', key: 'model', width: 24 },
     { header: 'PO', key: 'po', width: 13 },
@@ -32,6 +32,7 @@ const COLUMNS: { header: string; key: string; width: number }[] = [
 
 const headerKey = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 const COLUMN_BY_HEADER = new Map(COLUMNS.map(c => [headerKey(c.header), c.key]));
+COLUMN_BY_HEADER.set('CHECKINGTIMEID', 'checkingTimeId'); // older templates
 
 type Preview = {
     applied: boolean;
@@ -73,32 +74,32 @@ export function RqcImportButton({ onImported }: { onImported?: () => void }) {
         setBusy('template');
         try {
             const sample = [
-                ['13/10/2026', 'Morning', '1', '154246', 'ADIZERO PACER EXO', '0903479305', 'Factory 2', 'F2-17', 'INSERT LASTE', 20, 'LINE UP 3 STRIPES DAN 3D JIG', 1, 'Dikembalikan ke proses sebelumnya untuk diperbaiki', '', '', '', '', ''],
-                ['13/10/2026', 'Morning', '1', '154246', 'ADIZERO PACER EXO', '0903479305', 'Factory 2', 'F2-17', 'INSERT LASTE', 20, 'WRINKLE', 1, 'Dikembalikan ke proses stroble', '', '', '', '', ''],
-                ['13/10/2026', 'Afternoon', '1', '157310', 'ADIZERO PACER EXO', '0903501863', 'INHOUSE', 'NOSEW 9', 'NOSEW VAMP QUARTER WITH VAMP OVERLAY', 20, 'NO DEFECT', 0, '', '', '', '', '', ''],
-                ['13/10/2026', 'Afternoon', '1', '153720', 'ADIZERO PACER EXO', '0903501863', 'BOTTOM 1', '', 'INCOMING MIDSOLE', 20, 'OVER JIG', 5, '', 'Tekanan pola kurang', 'Setting ulang waktu tekan sesuai SOP', 15, '', ''],
+                ['1', '13/10/2026', 'Morning', '154246', 'ADIZERO PACER EXO', '0903479305', 'Factory 2', 'F2-17', 'INSERT LASTE', 20, 'LINE UP 3 STRIPES DAN 3D JIG', 1, 'Dikembalikan ke proses sebelumnya untuk diperbaiki', '', '', '', '', ''],
+                ['1', '13/10/2026', 'Morning', '154246', 'ADIZERO PACER EXO', '0903479305', 'Factory 2', 'F2-17', 'INSERT LASTE', 20, 'WRINKLE', 1, 'Dikembalikan ke proses stroble', '', '', '', '', ''],
+                ['1', '13/10/2026', 'Afternoon', '157310', 'ADIZERO PACER EXO', '0903501863', 'INHOUSE', 'NOSEW 9', 'NOSEW VAMP QUARTER WITH VAMP OVERLAY', 20, 'NO DEFECT', 0, '', '', '', '', '', ''],
+                ['1', '13/10/2026', 'Afternoon', '153720', 'ADIZERO PACER EXO', '0903501863', 'BOTTOM 1', '', 'INCOMING MIDSOLE', 20, 'OVER JIG', 5, '', 'Tekanan pola kurang', 'Setting ulang waktu tekan sesuai SOP', 15, '', ''],
             ];
             const data = XLSX.utils.aoa_to_sheet([COLUMNS.map(c => c.header), ...sample]);
             data['!cols'] = COLUMNS.map(c => ({ wch: c.width }));
             // DATE and PO as text so Excel keeps dd/mm/yyyy and leading zeros
             for (let r = 1; r <= sample.length; r++) {
-                ['A', 'F', 'D'].forEach(col => { const cell = data[`${col}${r + 1}`]; if (cell) { cell.t = 's'; cell.z = '@'; } });
+                ['B', 'F', 'D'].forEach(col => { const cell = data[`${col}${r + 1}`]; if (cell) { cell.t = 's'; cell.z = '@'; } });
             }
 
             const guide = XLSX.utils.aoa_to_sheet([
                 ['PETUNJUK IMPORT DATA RQC'],
                 [],
                 ['1 baris = 1 defect dari 1 proses dalam 1 audit (1 checking time).'],
-                ['Baris dengan DATE + CHECKING TIME + CHECKING TIME ID + MODEL + FACTORY + CELL yang sama digabung menjadi 1 audit, berapa pun jumlah PO-nya. Defect rate dihitung per checking time (total defect / total QTY CHECK).'],
-                ['Jika dalam 1 hari ada 2 kali Morning (atau Afternoon) untuk model/cell yang sama, isi CHECKING TIME ID berbeda (misal 1 dan 2) agar dihitung sebagai 2 audit. Kosongkan jika hanya 1 kali.'],
+                ['Baris dengan DATE + CHECKING TIME + ID + MODEL + FACTORY + CELL yang sama digabung menjadi 1 audit, berapa pun jumlah PO-nya. Defect rate dihitung per checking time (total defect / total QTY CHECK).'],
+                ['Jika dalam 1 hari ada 2 kali Morning (atau Afternoon) untuk model/cell yang sama, isi kolom ID berbeda (misal 1 dan 2) agar dihitung sebagai 2 audit. Kosongkan jika hanya 1 kali.'],
                 ['Proses tanpa defect: isi DEFECT NAME = NO DEFECT dan QTY DEFECT = 0.'],
                 ['Satu proses dengan beberapa defect: buat beberapa baris dengan QTY CHECK yang sama.'],
                 [],
                 ['Kolom', 'Wajib', 'Keterangan'],
+                ['ID', '-', 'Pembeda checking time yang sama di hari yang sama (1, 2, ...). Opsional; kosong = 1 checking time'],
                 ['DATE', 'Ya', 'dd/mm/yyyy, contoh 13/10/2026'],
                 ['CHECKING TIME', 'Ya', 'Morning atau Afternoon'],
-                ['CHECKING TIME ID', '-', 'Pembeda checking time yang sama di hari yang sama (1, 2, ...). Opsional; kosong = 1 checking time'],
-                ['NIK', 'Ya', 'NIK inspector yang terdaftar di menu Users'],
+                                ['NIK', 'Ya', 'NIK inspector yang terdaftar di menu Users'],
                 ['MODEL', 'Ya', 'Nama model atau Model No seperti di Setup CTQ (lihat sheet SETUP CTQ). Jika nama dipakai beberapa Model No, Model No ditentukan dari article PO; isi Model No jika article PO belum terdaftar'],
                 ['PO', 'Ya', 'Nomor PO yang ada di menu Purchase Orders. Satu checking time boleh berisi beberapa PO; audit memakai PO pada baris pertama'],
                 ['FACTORY', 'Ya', 'Factory 1, Factory 2, Factory 3, Factory 4, INHOUSE, BOTTOM 1 atau BOTTOM 2'],
